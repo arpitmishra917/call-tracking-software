@@ -1,0 +1,29 @@
+{
+  "name": "call-tracking-software",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arpitmishra917/call-tracking-software.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/arpitmishra917/call-tracking-software/issues"
+  },
+  "homepage": "https://github.com/arpitmishra917/call-tracking-software#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jest": "^30.5.1",
+    "supertest": "^7.2.2",
+    "telnyx": "^7.21.0",
+    "twilio": "^6.1.1"
+  }
+}
