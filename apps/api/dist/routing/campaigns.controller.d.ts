@@ -1,0 +1,125 @@
+import { CampaignsService } from './campaigns.service.js';
+export declare class CampaignsController {
+    private readonly campaignsService;
+    constructor(campaignsService: CampaignsService);
+    list(workspaceId: string): Promise<({
+        phone_numbers: {
+            id: string;
+            workspace_id: string;
+            created_at: Date;
+            updated_at: Date;
+            name: string | null;
+            status: import("@prisma/client").$Enums.PhoneNumberStatus;
+            campaign_id: string | null;
+            provider: string;
+            phone_number: string;
+            provider_number_id: string | null;
+            connection_id: string | null;
+        }[];
+        buyers: ({
+            buyer: {
+                id: string;
+                workspace_id: string;
+                created_at: Date;
+                updated_at: Date;
+                name: string;
+                status: string;
+                destination_number: string;
+                timeout: number;
+            };
+        } & {
+            id: string;
+            workspace_id: string;
+            created_at: Date;
+            updated_at: Date;
+            status: string;
+            campaign_id: string;
+            buyer_id: string;
+            priority: number;
+        })[];
+    } & {
+        id: string;
+        workspace_id: string;
+        created_at: Date;
+        updated_at: Date;
+        name: string;
+        status: string;
+    })[]>;
+    get(workspaceId: string, id: string): Promise<{
+        phone_numbers: {
+            id: string;
+            workspace_id: string;
+            created_at: Date;
+            updated_at: Date;
+            name: string | null;
+            status: import("@prisma/client").$Enums.PhoneNumberStatus;
+            campaign_id: string | null;
+            provider: string;
+            phone_number: string;
+            provider_number_id: string | null;
+            connection_id: string | null;
+        }[];
+        buyers: ({
+            buyer: {
+                id: string;
+                workspace_id: string;
+                created_at: Date;
+                updated_at: Date;
+                name: string;
+                status: string;
+                destination_number: string;
+                timeout: number;
+            };
+        } & {
+            id: string;
+            workspace_id: string;
+            created_at: Date;
+            updated_at: Date;
+            status: string;
+            campaign_id: string;
+            buyer_id: string;
+            priority: number;
+        })[];
+    } & {
+        id: string;
+        workspace_id: string;
+        created_at: Date;
+        updated_at: Date;
+        name: string;
+        status: string;
+    }>;
+    create(workspaceId: string, name: string): Promise<{
+        id: string;
+        workspace_id: string;
+        created_at: Date;
+        updated_at: Date;
+        name: string;
+        status: string;
+    }>;
+    assignPhoneNumber(workspaceId: string, id: string, phoneNumberId: string): Promise<{
+        id: string;
+        workspace_id: string;
+        created_at: Date;
+        updated_at: Date;
+        name: string | null;
+        status: import("@prisma/client").$Enums.PhoneNumberStatus;
+        campaign_id: string | null;
+        provider: string;
+        phone_number: string;
+        provider_number_id: string | null;
+        connection_id: string | null;
+    }>;
+    addBuyer(workspaceId: string, id: string, body: {
+        buyerId: string;
+        priority: number;
+    }): Promise<{
+        id: string;
+        workspace_id: string;
+        created_at: Date;
+        updated_at: Date;
+        status: string;
+        campaign_id: string;
+        buyer_id: string;
+        priority: number;
+    }>;
+}

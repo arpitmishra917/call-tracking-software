@@ -1,0 +1,434 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Profile {
+  id           String            @id @default(uuid())
+  display_name String?
+  created_at   DateTime          @default(now())
+  updated_at   DateTime          @updatedAt
+  memberships  WorkspaceMember[]
+  api_keys     ApiKey[]
+
+  @@map("profiles")
+}
+
+model Workspace {
+  id                String            @id @default(uuid())
+  name              String
+  slug              String            @unique
+  status            String            @default("ACTIVE")
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+  members           WorkspaceMember[]
+  phone_numbers     PhoneNumber[]
+  campaigns         Campaign[]
+  buyers            Buyer[]
+  campaign_buyers   CampaignBuyer[]
+  blocked_callers   BlockedCaller[]
+  calls             Call[]
+  recordings        Recording[]
+  usage_records     UsageRecord[]
+  billing_customer  BillingCustomer?
+  subscription      Subscription?
+  invoices          Invoice[]
+  api_keys          ApiKey[]
+  outbound_webhooks OutboundWebhook[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id           String        @id @default(uuid())
+  workspace_id String
+  user_id      String
+  role         WorkspaceRole @default(MEMBER)
+  created_at   DateTime      @default(now())
+  updated_at   DateTime      @updatedAt
+  profile      Profile       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  workspace    Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@unique([workspace_id, user_id])
+  @@map("workspace_members")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum WebhookStatus {
+  PENDING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+model WebhookEvent {
+  id              String        @id @default(uuid())
+  provider        String // 'telnyx', 'twilio', etc.
+  providerEventId String // The ID given by the provider
+  status          WebhookStatus @default(PENDING)
+  payload         Json
+  error           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([provider, providerEventId])
+  @@index([status])
+  @@map("webhook_events")
+}
+
+enum PhoneNumberStatus {
+  ACTIVE
+  RELEASED
+  PROVISIONING
+}
+
+model PhoneNumber {
+  id                 String            @id @default(uuid())
+  workspace_id       String
+  phone_number       String            @unique
+  name               String?
+  provider           String
+  provider_number_id String?
+  connection_id      String?
+  status             PhoneNumberStatus @default(ACTIVE)
+  campaign_id        String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  campaign  Campaign? @relation(fields: [campaign_id], references: [id], onDelete: SetNull)
+
+  @@index([workspace_id])
+  @@index([campaign_id])
+  @@map("phone_numbers")
+}
+
+model Campaign {
+  id           String   @id @default(uuid())
+  workspace_id String
+  name         String
+  status       String   @default("ACTIVE") // ACTIVE, INACTIVE
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace     Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  phone_numbers PhoneNumber[]
+  buyers        CampaignBuyer[]
+  calls         Call[]
+
+  @@index([workspace_id])
+  @@map("campaigns")
+}
+
+model Buyer {
+  id                 String   @id @default(uuid())
+  workspace_id       String
+  name               String
+  destination_number String // E.164
+  status             String   @default("ACTIVE") // ACTIVE, INACTIVE
+  timeout            Int      @default(30)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  workspace     Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  campaigns     CampaignBuyer[]
+  call_attempts CallAttempt[]
+
+  @@index([workspace_id])
+  @@map("buyers")
+}
+
+model CampaignBuyer {
+  id           String   @id @default(uuid())
+  workspace_id String
+  campaign_id  String
+  buyer_id     String
+  priority     Int
+  status       String   @default("ACTIVE") // ACTIVE, INACTIVE
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  campaign  Campaign  @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+  buyer     Buyer     @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
+
+  @@unique([campaign_id, priority])
+  @@index([workspace_id])
+  @@map("campaign_buyers")
+}
+
+model BlockedCaller {
+  id           String   @id @default(uuid())
+  workspace_id String
+  phone_number String // E.164 normalized
+  reason       String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@unique([workspace_id, phone_number])
+  @@map("blocked_callers")
+}
+
+enum CallState {
+  INITIATED
+  ROUTING
+  COMPLETED
+  NO_ANSWER
+  FAILED
+  CANCELED
+}
+
+enum CallAttemptState {
+  INITIATED
+  RINGING
+  ANSWERED
+  COMPLETED
+  NO_ANSWER
+  FAILED
+  CANCELED
+}
+
+model Call {
+  id               String    @id @default(uuid())
+  workspace_id     String
+  campaign_id      String?
+  provider         String
+  provider_call_id String    @unique
+  from_number      String
+  to_number        String
+  state            CallState @default(INITIATED)
+  duration_secs    Int?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  workspace  Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  campaign   Campaign?     @relation(fields: [campaign_id], references: [id], onDelete: SetNull)
+  attempts   CallAttempt[]
+  recordings Recording[]
+
+  @@index([workspace_id])
+  @@index([campaign_id])
+  @@index([provider_call_id])
+  @@map("calls")
+}
+
+model CallAttempt {
+  id               String           @id @default(uuid())
+  call_id          String
+  buyer_id         String
+  provider_call_id String?          @unique
+  state            CallAttemptState @default(INITIATED)
+  duration_secs    Int?
+  created_at       DateTime         @default(now())
+  updated_at       DateTime         @updatedAt
+
+  call  Call  @relation(fields: [call_id], references: [id], onDelete: Cascade)
+  buyer Buyer @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
+
+  @@index([call_id])
+  @@index([buyer_id])
+  @@map("call_attempts")
+}
+
+enum RecordingStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+model Recording {
+  id            String          @id @default(uuid())
+  workspace_id  String
+  call_id       String
+  provider_id   String          @unique
+  recording_url String?
+  duration_secs Int?
+  status        RecordingStatus @default(PENDING)
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+
+  call      Call      @relation(fields: [call_id], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id])
+  @@index([call_id])
+  @@map("recordings")
+}
+
+enum UsageType {
+  CALL_MINUTE
+  PHONE_NUMBER
+  RECORDING_STORAGE
+}
+
+model UsageRecord {
+  id              String    @id @default(uuid())
+  workspace_id    String
+  type            UsageType
+  quantity        Int // E.g. minutes, quantity of numbers, etc
+  source_id       String? // The ID of the call, phone number, or recording
+  idempotency_key String    @unique
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id])
+  @@index([type])
+  @@map("usage_records")
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  UNPAID
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  UNCOLLECTIBLE
+  VOID
+}
+
+model Plan {
+  id                  String         @id @default(uuid())
+  name                String
+  description         String?
+  provider_product_id String?        @unique
+  provider_price_id   String?
+  amount              Int? // stored in cents
+  currency            String         @default("usd")
+  interval            String         @default("month") // month, year
+  active              Boolean        @default(true)
+  subscriptions       Subscription[]
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @updatedAt
+
+  @@map("plans")
+}
+
+model BillingCustomer {
+  id                   String   @id @default(uuid())
+  workspace_id         String   @unique
+  provider_customer_id String   @unique
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@map("billing_customers")
+}
+
+model Subscription {
+  id                       String             @id @default(uuid())
+  workspace_id             String             @unique
+  plan_id                  String?
+  provider_subscription_id String             @unique
+  status                   SubscriptionStatus @default(INCOMPLETE)
+  current_period_start     DateTime
+  current_period_end       DateTime
+  cancel_at_period_end     Boolean            @default(false)
+  created_at               DateTime           @default(now())
+  updated_at               DateTime           @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  plan      Plan?     @relation(fields: [plan_id], references: [id], onDelete: SetNull)
+  invoices  Invoice[]
+
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id                  String        @id @default(uuid())
+  workspace_id        String
+  subscription_id     String?
+  provider_invoice_id String        @unique
+  amount_due          Int
+  amount_paid         Int
+  status              InvoiceStatus
+  currency            String        @default("usd")
+  hosted_invoice_url  String?
+  invoice_date        DateTime
+  created_at          DateTime      @default(now())
+  updated_at          DateTime      @updatedAt
+
+  workspace    Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscription_id], references: [id], onDelete: SetNull)
+
+  @@index([workspace_id])
+  @@map("invoices")
+}
+
+model ApiKey {
+  id            String    @id @default(uuid())
+  workspace_id  String
+  user_id       String
+  name          String
+  key_prefix    String
+  hashed_secret String
+  last_used_at  DateTime?
+  revoked_at    DateTime?
+  created_at    DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  profile   Profile   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id])
+  @@index([key_prefix])
+  @@map("api_keys")
+}
+
+model OutboundWebhook {
+  id               String            @id @default(uuid())
+  workspace_id     String
+  url              String
+  secret_encrypted String
+  status           String            @default("ACTIVE") // ACTIVE, INACTIVE
+  created_at       DateTime          @default(now())
+  updated_at       DateTime          @updatedAt
+  workspace        Workspace         @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  deliveries       WebhookDelivery[]
+
+  @@index([workspace_id])
+  @@map("outbound_webhooks")
+}
+
+model WebhookDelivery {
+  id                  String          @id @default(uuid())
+  outbound_webhook_id String
+  event_id            String          @default(uuid())
+  event_type          String
+  payload_json        String
+  status              String          @default("PENDING") // PENDING, SUCCESS, FAILED
+  attempt_count       Int             @default(0)
+  next_attempt_at     DateTime?
+  last_error          String?
+  delivered_at        DateTime?
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  outbound_webhook    OutboundWebhook @relation(fields: [outbound_webhook_id], references: [id], onDelete: Cascade)
+
+  @@index([outbound_webhook_id])
+  @@index([status, next_attempt_at])
+  @@unique([outbound_webhook_id, event_id])
+  @@map("webhook_deliveries")
+}

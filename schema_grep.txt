@@ -1,0 +1,7 @@
+  recordings      Recording[]
+  recordings Recording[]
+enum RecordingStatus {
+model Recording {
+  recording_url String?
+  status        RecordingStatus @default(PENDING)
+  @@map("recordings")

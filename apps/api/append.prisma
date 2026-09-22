@@ -1,0 +1,87 @@
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  UNPAID
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  UNCOLLECTIBLE
+  VOID
+}
+
+model Plan {
+  id                  String         @id @default(uuid())
+  name                String
+  description         String?
+  provider_product_id String?        @unique
+  provider_price_id   String?
+  amount              Int?           // stored in cents
+  currency            String         @default("usd")
+  interval            String         @default("month") // month, year
+  active              Boolean        @default(true)
+  subscriptions       Subscription[]
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @updatedAt
+
+  @@map("plans")
+}
+
+model BillingCustomer {
+  id                   String    @id @default(uuid())
+  workspace_id         String    @unique
+  provider_customer_id String    @unique
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+
+  workspace            Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@map("billing_customers")
+}
+
+model Subscription {
+  id                       String             @id @default(uuid())
+  workspace_id             String             @unique
+  plan_id                  String?
+  provider_subscription_id String             @unique
+  status                   SubscriptionStatus @default(INCOMPLETE)
+  current_period_start     DateTime
+  current_period_end       DateTime
+  cancel_at_period_end     Boolean            @default(false)
+  created_at               DateTime           @default(now())
+  updated_at               DateTime           @updatedAt
+
+  workspace                Workspace          @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  plan                     Plan?              @relation(fields: [plan_id], references: [id], onDelete: SetNull)
+  invoices                 Invoice[]
+
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id                  String        @id @default(uuid())
+  workspace_id        String
+  subscription_id     String?
+  provider_invoice_id String        @unique
+  amount_due          Int           
+  amount_paid         Int
+  status              InvoiceStatus
+  currency            String        @default("usd")
+  hosted_invoice_url  String?
+  invoice_date        DateTime
+  created_at          DateTime      @default(now())
+  updated_at          DateTime      @updatedAt
+
+  workspace           Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  subscription        Subscription? @relation(fields: [subscription_id], references: [id], onDelete: SetNull)
+
+  @@index([workspace_id])
+  @@map("invoices")
+}
