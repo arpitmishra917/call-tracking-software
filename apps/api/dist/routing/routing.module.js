@@ -12,11 +12,12 @@ import { BuyersController } from './buyers.controller.js';
 import { BlockedCallersService } from './blocked-callers.service.js';
 import { BlockedCallersController } from './blocked-callers.controller.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
+import { AuthModule } from '../auth/auth.module.js';
 let RoutingModule = class RoutingModule {
 };
 RoutingModule = __decorate([
     Module({
-        imports: [PrismaModule],
+        imports: [PrismaModule, AuthModule],
         controllers: [
             CampaignsController,
             BuyersController,

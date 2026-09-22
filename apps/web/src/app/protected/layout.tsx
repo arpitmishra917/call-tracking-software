@@ -25,7 +25,8 @@ export default async function ProtectedLayout({
   // Fetch workspaces for this user from the API
   let workspaces: { id: string; name: string; role: string }[] = [];
   try {
-    const res = await fetch('http://localhost:3001/workspaces', {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+    const res = await fetch(`${apiUrl}/workspaces`, {
       headers: {
         Authorization: `Bearer ${session.access_token}`,
       },
@@ -40,7 +41,9 @@ export default async function ProtectedLayout({
     console.error('Error fetching workspaces:', error);
   }
 
-  
+  if (workspaces.length === 0) {
+    return redirect('/onboarding');
+  }
   return (
     <div className="flex h-screen bg-gray-50">
       <React.Suspense fallback={<div className="w-64 bg-white border-r border-gray-200" />}>

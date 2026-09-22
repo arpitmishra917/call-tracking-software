@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Param,
   UseGuards,
   Put,
@@ -18,6 +19,11 @@ import { WorkspacesService } from './workspaces.service.js';
 @UseGuards(JwtAuthGuard)
 export class WorkspacesController {
   constructor(private readonly workspacesService: WorkspacesService) {}
+
+  @Post()
+  async createWorkspace(@Request() req: any, @Body() body: { name: string }) {
+    return this.workspacesService.createWorkspace(req.user.userId, body.name);
+  }
 
   @Get()
   async getUserWorkspaces(@Request() req: any) {

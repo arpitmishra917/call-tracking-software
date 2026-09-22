@@ -1,11 +1,12 @@
 import { Controller, Get, Post, Param, Body, UseGuards } from '@nestjs/common';
 import { BuyersService } from './buyers.service.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/buyers')
-@UseGuards(WorkspaceRolesGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
 @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
 export class BuyersController {
   constructor(private readonly buyersService: BuyersService) {}

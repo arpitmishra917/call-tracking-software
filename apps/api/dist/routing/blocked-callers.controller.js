@@ -12,6 +12,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 };
 import { Controller, Get, Post, Delete, Param, Body, UseGuards, } from '@nestjs/common';
 import { BlockedCallersService } from './blocked-callers.service.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
@@ -55,7 +56,7 @@ __decorate([
 ], BlockedCallersController.prototype, "unblock", null);
 BlockedCallersController = __decorate([
     Controller('workspaces/:workspaceId/blocked-callers'),
-    UseGuards(WorkspaceRolesGuard),
+    UseGuards(JwtAuthGuard, WorkspaceRolesGuard),
     RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN),
     __metadata("design:paramtypes", [BlockedCallersService])
 ], BlockedCallersController);

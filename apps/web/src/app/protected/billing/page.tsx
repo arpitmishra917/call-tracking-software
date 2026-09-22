@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 
 export default function BillingPage() {
@@ -8,8 +9,8 @@ export default function BillingPage() {
   const [error, setError] = useState<string | null>(null);
   const [billingState, setBillingState] = useState<any>(null);
 
-  // We assume workspaceId is stored in localStorage or passed down. For MVP, we'll fetch from local storage or grab the first one.
-  const workspaceId = typeof window !== 'undefined' ? localStorage.getItem('currentWorkspaceId') : null;
+  const searchParams = useSearchParams();
+  const workspaceId = searchParams.get('workspace');
 
   useEffect(() => {
     if (!workspaceId) {

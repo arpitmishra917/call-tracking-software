@@ -2,6 +2,14 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export declare class WorkspacesService {
     private prisma;
     constructor(prisma: PrismaService);
+    createWorkspace(userId: string, name: string): Promise<{
+        id: string;
+        created_at: Date;
+        updated_at: Date;
+        name: string;
+        status: string;
+        slug: string;
+    }>;
     getUserWorkspaces(userId: string): Promise<{
         role: import("@prisma/client").$Enums.WorkspaceRole;
         id: string;

@@ -12,6 +12,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 };
 import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, } from '@nestjs/common';
 import { PhoneNumbersService } from './phone-numbers.service.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
@@ -86,7 +87,7 @@ __decorate([
 ], PhoneNumbersController.prototype, "releaseNumber", null);
 PhoneNumbersController = __decorate([
     Controller('workspaces/:workspaceId/phone-numbers'),
-    UseGuards(WorkspaceRolesGuard),
+    UseGuards(JwtAuthGuard, WorkspaceRolesGuard),
     __metadata("design:paramtypes", [PhoneNumbersService])
 ], PhoneNumbersController);
 export { PhoneNumbersController };

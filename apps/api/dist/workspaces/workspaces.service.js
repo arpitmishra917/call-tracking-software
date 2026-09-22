@@ -7,12 +7,41 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 let WorkspacesService = class WorkspacesService {
     prisma;
     constructor(prisma) {
         this.prisma = prisma;
+    }
+    async createWorkspace(userId, name) {
+        if (!name || name.trim().length === 0) {
+            throw new BadRequestException('Workspace name is required');
+        }
+        const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'workspace';
+        const slug = `${baseSlug}-${Math.floor(Math.random() * 10000)}`;
+        return this.prisma.$transaction(async (tx) => {
+            await tx.profile.upsert({
+                where: { id: userId },
+                update: {},
+                create: { id: userId },
+            });
+            const workspace = await tx.workspace.create({
+                data: {
+                    name: name.trim(),
+                    slug,
+                    status: 'ACTIVE',
+                },
+            });
+            await tx.workspaceMember.create({
+                data: {
+                    workspace_id: workspace.id,
+                    user_id: userId,
+                    role: 'OWNER',
+                },
+            });
+            return workspace;
+        });
     }
     async getUserWorkspaces(userId) {
         const memberships = await this.prisma.workspaceMember.findMany({

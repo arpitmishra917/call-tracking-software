@@ -48,44 +48,52 @@ let TelnyxProvisioningService = TelnyxProvisioningService_1 = class TelnyxProvis
         }
     }
     async provisionNumber(phoneNumber, connectionId) {
+        const targetConnection = connectionId || process.env.TELNYX_CALL_CONTROL_APP_ID;
+        if (!targetConnection) {
+            throw new InternalServerErrorException('Telnyx Call Control Application ID is not configured.');
+        }
         if (!this.telnyxClient) {
-            this.logger.debug(`[MOCK] Provisioning number ${phoneNumber} on connection ${connectionId}`);
+            this.logger.debug(`[MOCK] Provisioning number ${phoneNumber} on connection ${targetConnection}`);
             return {
                 id: `mock_telnyx_id_${Date.now()}`,
                 phone_number: phoneNumber,
-                connection_id: connectionId || null,
+                connection_id: targetConnection,
             };
         }
         try {
             const order = await this.telnyxClient.numberOrders.create({
                 phone_numbers: [{ phone_number: phoneNumber }],
-                connection_id: connectionId || process.env.TELNYX_SIP_CONNECTION_ID,
+                connection_id: targetConnection,
             });
-            const numbersRes = await this.telnyxClient.phoneNumbers.list({
-                filter: { phone_number: phoneNumber },
-            });
-            if (numbersRes && numbersRes.data && numbersRes.data.length > 0) {
-                const numberData = numbersRes.data[0];
-                const targetConnection = connectionId || process.env.TELNYX_SIP_CONNECTION_ID;
-                if (targetConnection && numberData.connection_id !== targetConnection) {
-                    await this.telnyxClient.phoneNumbers.update(numberData.id, {
-                        connection_id: targetConnection,
-                    });
+            this.logger.log(`Number order created: ${order.data?.id || 'unknown'} for ${phoneNumber}`);
+            let attempts = 0;
+            const maxAttempts = 10;
+            const delayMs = 3000;
+            while (attempts < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, delayMs));
+                attempts++;
+                const numbersRes = await this.telnyxClient.phoneNumbers.list({
+                    filter: { phone_number: phoneNumber },
+                });
+                if (numbersRes && numbersRes.data && numbersRes.data.length > 0) {
+                    const numberData = numbersRes.data[0];
+                    if (numberData.connection_id !== targetConnection) {
+                        throw new InternalServerErrorException(`Number provisioned but has incorrect or missing connection_id. Expected ${targetConnection}, got ${numberData.connection_id}`);
+                    }
+                    return {
+                        id: numberData.id,
+                        phone_number: numberData.phone_number,
+                        connection_id: numberData.connection_id,
+                    };
                 }
-                return {
-                    id: numberData.id,
-                    phone_number: numberData.phone_number,
-                    connection_id: targetConnection || numberData.connection_id,
-                };
             }
-            return {
-                id: `pending_${order.data.id}`,
-                phone_number: phoneNumber,
-                connection_id: connectionId || process.env.TELNYX_SIP_CONNECTION_ID || null,
-            };
+            throw new InternalServerErrorException(`Number order was placed, but the phone number resource did not become available after ${maxAttempts} attempts.`);
         }
         catch (error) {
             this.logger.error(`Error provisioning number ${phoneNumber}`, error);
+            if (error instanceof InternalServerErrorException) {
+                throw error;
+            }
             throw new BadRequestException('Failed to provision phone number');
         }
     }

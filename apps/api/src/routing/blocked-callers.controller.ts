@@ -8,12 +8,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { BlockedCallersService } from './blocked-callers.service.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/blocked-callers')
-@UseGuards(WorkspaceRolesGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
 @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
 export class BlockedCallersController {
   constructor(private readonly blockedCallersService: BlockedCallersService) {}

@@ -10,7 +10,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-import { Controller, Get, Param, UseGuards, Put, Body, Delete, Request, } from '@nestjs/common';
+import { Controller, Get, Post, Param, UseGuards, Put, Body, Delete, Request, } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
@@ -20,6 +20,9 @@ let WorkspacesController = class WorkspacesController {
     workspacesService;
     constructor(workspacesService) {
         this.workspacesService = workspacesService;
+    }
+    async createWorkspace(req, body) {
+        return this.workspacesService.createWorkspace(req.user.userId, body.name);
     }
     async getUserWorkspaces(req) {
         return this.workspacesService.getUserWorkspaces(req.user.userId);
@@ -37,6 +40,14 @@ let WorkspacesController = class WorkspacesController {
         return this.workspacesService.removeMember(workspaceId, userId);
     }
 };
+__decorate([
+    Post(),
+    __param(0, Request()),
+    __param(1, Body()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], WorkspacesController.prototype, "createWorkspace", null);
 __decorate([
     Get(),
     __param(0, Request()),

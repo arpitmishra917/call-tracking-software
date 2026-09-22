@@ -20,10 +20,11 @@ let JwtStrategy = class JwtStrategy extends PassportStrategy(Strategy) {
                 cache: true,
                 rateLimit: true,
                 jwksRequestsPerMinute: 5,
-                jwksUri: `${process.env.SUPABASE_URL || 'https://mock.supabase.co'}/auth/v1/.well-known/jwks.json`,
+                jwksUri: `${process.env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`,
             }),
-            issuer: `${process.env.SUPABASE_URL || 'https://mock.supabase.co'}/auth/v1`,
-            algorithms: ['RS256'],
+            issuer: `${process.env.SUPABASE_URL}/auth/v1`,
+            audience: 'authenticated',
+            algorithms: ['ES256', 'RS256'],
         });
     }
     async validate(payload) {

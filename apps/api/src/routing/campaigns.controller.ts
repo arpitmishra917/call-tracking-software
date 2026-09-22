@@ -9,12 +9,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/campaigns')
-@UseGuards(WorkspaceRolesGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
 @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
 export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}

@@ -10,11 +10,12 @@ import { PhoneNumbersService } from './phone-numbers.service.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { TelnyxProvisioningService } from './telnyx-provisioning.service.js';
 import { UsageModule } from '../usage/usage.module.js';
+import { AuthModule } from '../auth/auth.module.js';
 let PhoneNumbersModule = class PhoneNumbersModule {
 };
 PhoneNumbersModule = __decorate([
     Module({
-        imports: [PrismaModule, UsageModule],
+        imports: [PrismaModule, UsageModule, AuthModule],
         controllers: [PhoneNumbersController],
         providers: [PhoneNumbersService, TelnyxProvisioningService],
         exports: [PhoneNumbersService],

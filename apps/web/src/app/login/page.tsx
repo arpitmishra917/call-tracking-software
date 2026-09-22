@@ -9,12 +9,19 @@ export default function LoginPage() {
     const password = formData.get('password') as string
     const supabase = await createClient()
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
 
     if (error) {
+      console.log('--- DIAGNOSTIC LOGIN ERROR ---');
+      console.log('error.message:', error.message);
+      console.log('error.status:', error.status);
+      console.log('error.code:', error.code);
+      console.log('data.session exists:', !!data?.session);
+      console.log('data.user exists:', !!data?.user);
+      console.log('------------------------------');
       return redirect('/login?message=Could not authenticate user')
     }
 

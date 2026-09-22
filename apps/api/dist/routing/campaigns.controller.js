@@ -12,6 +12,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 };
 import { Controller, Get, Post, Param, Body, UseGuards, } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
@@ -79,7 +80,7 @@ __decorate([
 ], CampaignsController.prototype, "addBuyer", null);
 CampaignsController = __decorate([
     Controller('workspaces/:workspaceId/campaigns'),
-    UseGuards(WorkspaceRolesGuard),
+    UseGuards(JwtAuthGuard, WorkspaceRolesGuard),
     RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN),
     __metadata("design:paramtypes", [CampaignsService])
 ], CampaignsController);

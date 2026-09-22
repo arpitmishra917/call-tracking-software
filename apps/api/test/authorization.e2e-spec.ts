@@ -199,4 +199,92 @@ describe('Authorization & Tenant Isolation (e2e)', () => {
       .send({ workspaceId: workspaceBId, name: 'Hack settings' })
       .expect(403);
   });
+
+  // --- CAMPAIGNS AUTHENTICATION / AUTHORIZATION ---
+
+  it('Campaign endpoint without JWT -> 401', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceAId}/campaigns`)
+      .expect(401);
+  });
+
+  it('Campaign endpoint with valid JWT + valid workspace -> succeeds', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceAId}/campaigns`)
+      .set('Authorization', user1Token)
+      .expect(200);
+  });
+
+  it('Campaign endpoint with valid JWT + unauthorized workspace -> 403', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceBId}/campaigns`)
+      .set('Authorization', user1Token)
+      .expect(403);
+  });
+
+  // --- BUYERS AUTHENTICATION / AUTHORIZATION ---
+
+  it('Buyer endpoint without JWT -> 401', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceAId}/buyers`)
+      .expect(401);
+  });
+
+  it('Buyer endpoint with valid JWT + valid workspace -> succeeds', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceAId}/buyers`)
+      .set('Authorization', user1Token)
+      .expect(200);
+  });
+
+  it('Buyer endpoint with unauthorized workspace -> 403', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceBId}/buyers`)
+      .set('Authorization', user1Token)
+      .expect(403);
+  });
+
+  // --- BLOCKED CALLERS ---
+
+  it('Blocked callers endpoint without JWT -> 401', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceAId}/blocked-callers`)
+      .expect(401);
+  });
+
+  it('Blocked callers endpoint with valid JWT + valid workspace -> succeeds', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceAId}/blocked-callers`)
+      .set('Authorization', user1Token)
+      .expect(200);
+  });
+
+  it('Blocked callers endpoint with unauthorized workspace -> 403', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceBId}/blocked-callers`)
+      .set('Authorization', user1Token)
+      .expect(403);
+  });
+
+  // --- PHONE NUMBERS ---
+
+  it('Phone numbers endpoint without JWT -> 401', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceAId}/phone-numbers`)
+      .expect(401);
+  });
+
+  it('Phone numbers endpoint with valid JWT + valid workspace -> succeeds', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceAId}/phone-numbers`)
+      .set('Authorization', user1Token)
+      .expect(200);
+  });
+
+  it('Phone numbers endpoint with unauthorized workspace -> 403', async () => {
+    return request(app.getHttpServer())
+      .get(`/workspaces/${workspaceBId}/phone-numbers`)
+      .set('Authorization', user1Token)
+      .expect(403);
+  });
 });

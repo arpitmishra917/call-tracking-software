@@ -10,12 +10,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PhoneNumbersService } from './phone-numbers.service.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/phone-numbers')
-@UseGuards(WorkspaceRolesGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
 export class PhoneNumbersController {
   constructor(private readonly phoneNumbersService: PhoneNumbersService) {}
 

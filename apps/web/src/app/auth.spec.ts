@@ -46,12 +46,18 @@ describe('Frontend Login/Logout Flow (MOCK)', () => {
     
     const result = await supabase.auth.signUp({
       email: 'test@example.com',
-      password: 'password123'
+      password: 'password123',
+      options: {
+        emailRedirectTo: 'http://localhost:3001/auth/callback',
+      }
     });
 
     expect(mockSignUp).toHaveBeenCalledWith({
       email: 'test@example.com',
-      password: 'password123'
+      password: 'password123',
+      options: {
+        emailRedirectTo: 'http://localhost:3001/auth/callback',
+      }
     });
     expect(result.error).toBeNull();
   });

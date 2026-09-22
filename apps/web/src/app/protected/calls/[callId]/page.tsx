@@ -23,6 +23,7 @@ interface CallDetail {
   duration_secs?: number | null;
   created_at: string;
   campaign?: { name: string } | null;
+  buyer?: { name: string } | null;
   recordings?: { id: string; status: string }[];
   attempts: Attempt[];
 }
@@ -30,17 +31,24 @@ interface CallDetail {
 export default function CallDetailPage({ params }: { params: { callId: string } }) {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  
   const [call, setCall] = useState<CallDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [loadingRecording, setLoadingRecording] = useState(false);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [showPlayer, setShowPlayer] = useState(false);
 
   useEffect(() => {
     async function loadCall() {
       setLoading(true);
+      setError(null);
       try {
         const data = await apiFetch(`/workspaces/${workspaceId}/calls/${params.callId}`);
         setCall(data);
-      } catch (e) {
-        console.error(e);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Call not found or access denied.');
       } finally {
         setLoading(false);
       }
@@ -51,81 +59,168 @@ export default function CallDetailPage({ params }: { params: { callId: string } 
     }
   }, [workspaceId, params.callId]);
 
-  if (!workspaceId) return <div className="p-6">Select a workspace first.</div>;
+  async function handleFetchRecordingUrl(action: 'play' | 'download') {
+    if (!workspaceId || !call?.recordings?.[0]?.id) return;
+    
+    setLoadingRecording(true);
+    setRecordingError(null);
+    try {
+      // Use existing secure endpoint which enforces authorization
+      const res = await apiFetch(`/workspaces/${workspaceId}/recordings/${call.recordings[0].id}/download`);
+      
+      if (res.url) {
+        if (action === 'download') {
+          window.open(res.url, '_blank');
+        } else {
+          setRecordingUrl(res.url);
+          setShowPlayer(true);
+        }
+      } else {
+        throw new Error('Recording URL not returned');
+      }
+    } catch (e: unknown) {
+      setRecordingError('Failed to access recording safely.');
+    } finally {
+      setLoadingRecording(false);
+    }
+  }
 
-  if (loading) return <div className="p-6">Loading call details...</div>;
-  if (!call) return <div className="p-6">Call not found.</div>;
+  if (!workspaceId) {
+    return <div className="p-8 text-gray-500">Please select a workspace first.</div>;
+  }
+
+  if (loading) {
+    return <div className="p-8 text-gray-500">Loading call details...</div>;
+  }
+
+  if (error || !call) {
+    return (
+      <div className="p-8 max-w-4xl mx-auto">
+        <div className="bg-red-50 text-red-600 p-4 rounded shadow-sm">
+          {error || 'Call not found.'}
+        </div>
+        <Link href={`/protected/calls?workspace=${workspaceId}`} className="mt-4 inline-block text-blue-600 hover:underline">
+          &larr; Back to Call Logs
+        </Link>
+      </div>
+    );
+  }
+
+  // Identify successful buyer based on attempts (if not returned at top level)
+  const answeredAttempt = call.attempts.find(a => a.state === 'COMPLETED' || a.state === 'ANSWERED' || a.state === 'connected');
+  const finalBuyer = call.buyer?.name || answeredAttempt?.buyer?.name || '-';
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="p-8 space-y-8 max-w-4xl mx-auto">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Call Details</h1>
+        <div>
+          <h1 className="text-2xl font-bold">Call Details</h1>
+          <p className="text-gray-600 mt-1">Status: <span className="font-semibold text-gray-900">{call.state}</span></p>
+        </div>
         <Link href={`/protected/calls?workspace=${workspaceId}`} className="text-blue-600 hover:underline">
           &larr; Back to Call Logs
         </Link>
       </div>
 
-      <div className="bg-white p-6 rounded shadow-sm border border-gray-100 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div><span className="text-gray-500 block text-sm">Call ID</span><span className="font-medium">{call.id}</span></div>
-          <div><span className="text-gray-500 block text-sm">Provider ID</span><span className="font-medium">{call.provider_call_id}</span></div>
-          <div><span className="text-gray-500 block text-sm">Caller Number</span><span className="font-medium">{call.from_number}</span></div>
-          <div><span className="text-gray-500 block text-sm">Tracking Number</span><span className="font-medium">{call.to_number}</span></div>
-          <div><span className="text-gray-500 block text-sm">Campaign</span><span className="font-medium">{call.campaign?.name || '-'}</span></div>
-          <div><span className="text-gray-500 block text-sm">Status</span><span className="font-medium">{call.state}</span></div>
-          <div><span className="text-gray-500 block text-sm">Duration</span><span className="font-medium">{call.duration_secs ? `${call.duration_secs}s` : '-'}</span></div>
-          <div><span className="text-gray-500 block text-sm">Started At</span><span className="font-medium">{new Date(call.created_at).toLocaleString()}</span></div>
+      <div className="bg-white rounded shadow p-6 border border-gray-100">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <span className="text-sm text-gray-500 block mb-1">Caller</span>
+            <span className="font-mono text-lg">{call.from_number}</span>
+          </div>
+          <div>
+            <span className="text-sm text-gray-500 block mb-1">Tracking Number</span>
+            <span className="font-mono text-lg">{call.to_number}</span>
+          </div>
+          <div>
+            <span className="text-sm text-gray-500 block mb-1">Campaign</span>
+            <span className="font-medium">{call.campaign?.name || '-'}</span>
+          </div>
+          <div>
+            <span className="text-sm text-gray-500 block mb-1">Buyer</span>
+            <span className="font-medium">{finalBuyer}</span>
+          </div>
+          <div>
+            <span className="text-sm text-gray-500 block mb-1">Duration</span>
+            <span className="font-medium">{call.duration_secs != null ? `${call.duration_secs} seconds` : '-'}</span>
+          </div>
+          <div>
+            <span className="text-sm text-gray-500 block mb-1">Date & Time</span>
+            <span className="font-medium">{new Date(call.created_at).toLocaleString()}</span>
+          </div>
         </div>
+      </div>
 
-        {call.recordings && call.recordings.length > 0 && (
-          <div className="mt-6 border-t pt-4">
-            <h3 className="font-bold text-lg mb-2">Recording</h3>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm">Status: {call.recordings[0].status}</span>
-              {call.recordings[0].status === 'COMPLETED' && (
-                <button 
-                  onClick={async () => {
-                    const res = await apiFetch(`/workspaces/${workspaceId}/recordings/${call.recordings?.[0]?.id}/download`);
-                    if (res.url) window.open(res.url, '_blank');
-                  }}
-                  className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200"
-                >
-                  Listen / Download
-                </button>
-              )}
-            </div>
+      <div className="bg-white rounded shadow p-6 border border-gray-100">
+        <h2 className="text-xl font-bold mb-4">Buyer Attempts</h2>
+        {call.attempts.length === 0 ? (
+          <p className="text-gray-500">No routing attempts recorded.</p>
+        ) : (
+          <div className="space-y-4">
+            {call.attempts.map((attempt, index) => (
+              <div key={attempt.id} className="flex flex-col p-4 bg-gray-50 rounded border border-gray-100">
+                <div className="font-medium mb-1">
+                  {index + 1}. {attempt.buyer?.name || 'Unknown Buyer'}
+                </div>
+                <div className="text-sm text-gray-600 flex gap-4">
+                  <span>Status: <span className="font-semibold text-gray-900">{attempt.state}</span></span>
+                  {attempt.duration_secs != null && (
+                    <span>Duration: <span className="font-semibold text-gray-900">{attempt.duration_secs}s</span></span>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      <div>
-        <h2 className="text-xl font-bold mb-4">Attempt History</h2>
-        <div className="bg-white rounded shadow-sm border overflow-hidden">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="p-3">Time</th>
-                <th className="p-3">Buyer</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Duration</th>
-              </tr>
-            </thead>
-            <tbody>
-              {call.attempts.length === 0 ? (
-                <tr><td colSpan={4} className="p-4 text-center">No routing attempts recorded.</td></tr>
-              ) : (
-                call.attempts.map((attempt: Attempt) => (
-                  <tr key={attempt.id} className="border-b">
-                    <td className="p-3">{new Date(attempt.created_at).toLocaleString()}</td>
-                    <td className="p-3">{attempt.buyer?.name || attempt.buyer_id}</td>
-                    <td className="p-3">{attempt.state}</td>
-                    <td className="p-3">{attempt.duration_secs ? `${attempt.duration_secs}s` : '-'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      <div className="bg-white rounded shadow p-6 border border-gray-100">
+        <h2 className="text-xl font-bold mb-4">Recording</h2>
+        
+        {(!call.recordings || call.recordings.length === 0) ? (
+          <p className="text-gray-500">Recording not available.</p>
+        ) : (
+          <div className="space-y-4">
+            {call.recordings[0].status !== 'COMPLETED' ? (
+              <p className="text-gray-500">Recording status: {call.recordings[0].status}</p>
+            ) : (
+              <div className="space-y-4">
+                {recordingError && (
+                  <div className="bg-red-50 text-red-600 p-3 rounded text-sm">
+                    {recordingError}
+                  </div>
+                )}
+                
+                {showPlayer && recordingUrl ? (
+                  <div className="w-full">
+                    <audio controls autoPlay src={recordingUrl} className="w-full mb-4">
+                      Your browser does not support the audio element.
+                    </audio>
+                  </div>
+                ) : null}
+
+                <div className="flex gap-3">
+                  {!showPlayer && (
+                    <button
+                      onClick={() => handleFetchRecordingUrl('play')}
+                      disabled={loadingRecording}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center"
+                    >
+                      {loadingRecording ? 'Loading...' : '▶ Play Recording'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleFetchRecordingUrl('download')}
+                    disabled={loadingRecording}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                  >
+                    Download
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
