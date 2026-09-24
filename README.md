@@ -8,7 +8,7 @@ This repository is structured as a standard `npm` workspace monorepo.
 
 * `apps/web`: The Next.js + React + TypeScript frontend application.
 * `apps/api`: The NestJS + TypeScript backend application.
-* `docs/architecture`: Architectural Decision Records (ADRs).
+* `docs/01-architecture/`: Architectural Decision Records (ADRs).
 * `src/` & `tests/`: Protected Legacy Telephony Proof of Concept (POC) reference code.
 
 ### Prerequisites
