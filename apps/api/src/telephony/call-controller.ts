@@ -205,13 +205,14 @@ export class CallController {
 
     if (type === CallEventType.CALL_HANGUP) {
       if (call.provider_call_id === callId) {
-        await this.callsService.handleCallerHangup(callId);
+        const updatedCall = await this.callsService.handleCallerHangup(callId);
         const activeAttempts =
-          call.attempts?.filter(
+          updatedCall.attempts?.filter(
             (a: any) =>
               a.state === CallAttemptState.INITIATED ||
               a.state === CallAttemptState.RINGING ||
-              a.state === CallAttemptState.ANSWERED,
+              a.state === CallAttemptState.ANSWERED ||
+              a.state === CallAttemptState.CANCELED, // because handleCallerHangup just set them to CANCELED!
           ) || [];
         for (const act of activeAttempts) {
           if (act.provider_call_id) {
@@ -328,10 +329,29 @@ export class CallController {
         nextCampaignBuyer.buyer.timeout,
       );
 
-      await this.prisma.callAttempt.update({
-        where: { id: attempt.id },
-        data: { provider_call_id: buyerCallId },
+      const shouldHangup = await this.prisma.$transaction(async (tx) => {
+        const lockedCall: any[] = await tx.$queryRaw`SELECT state FROM "Call" WHERE id = ${call.id}::uuid FOR UPDATE`;
+        
+        if (lockedCall[0].state !== CallState.ROUTING) {
+          // Caller hung up while we were dialing
+          await tx.callAttempt.update({
+            where: { id: attempt.id },
+            data: { provider_call_id: buyerCallId, state: CallAttemptState.CANCELED },
+          });
+          return true; // We need to hangup the buyer leg
+        }
+
+        await tx.callAttempt.update({
+          where: { id: attempt.id },
+          data: { provider_call_id: buyerCallId },
+        });
+        return false;
       });
+
+      if (shouldHangup && buyerCallId) {
+        await this.provider.hangupCall(buyerCallId);
+        return;
+      }
 
       await this.callsService.transitionAttempt(
         attempt.id,

@@ -95,6 +95,7 @@ export class CallsService {
     durationSecs?: number,
   ): Promise<Call> {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${callId}::uuid FOR UPDATE`;
       const call = await tx.call.findUnique({ where: { id: callId } });
       if (!call) throw new NotFoundException(`Call ${callId} not found`);
 
@@ -137,6 +138,7 @@ export class CallsService {
 
   async handleCallerHangup(providerCallId: string, durationSecs?: number) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Call" WHERE provider_call_id = ${providerCallId} FOR UPDATE`;
       const call = await tx.call.findUnique({
         where: { provider_call_id: providerCallId },
         include: { attempts: true },
@@ -229,6 +231,7 @@ export class CallsService {
     provider_call_id?: string;
   }): Promise<CallAttempt> {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${data.call_id}::uuid FOR UPDATE`;
       const call = await tx.call.findUnique({ where: { id: data.call_id } });
       if (!call) throw new NotFoundException(`Call ${data.call_id} not found`);
 
@@ -258,7 +261,11 @@ export class CallsService {
     newState: CallAttemptState,
     durationSecs?: number,
   ): Promise<CallAttempt> {
+    const initialAttempt = await this.prisma.callAttempt.findUnique({ where: { id: attemptId } });
+    if (!initialAttempt) throw new NotFoundException(`CallAttempt ${attemptId} not found`);
+
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${initialAttempt.call_id}::uuid FOR UPDATE`;
       const attempt = await tx.callAttempt.findUnique({
         where: { id: attemptId },
       });

@@ -15,6 +15,7 @@ describe('CallsService (Stage 13)', () => {
   beforeEach(async () => {
     prisma = {
       $transaction: vi.fn((cb) => cb(prisma)),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'call_1', state: CallState.ROUTING }]),
       call: {
         create: vi.fn(),
         update: vi.fn(),
