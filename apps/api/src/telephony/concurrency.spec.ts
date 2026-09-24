@@ -92,9 +92,14 @@ describe('Routing Concurrency Tests', () => {
         }
       ]
     };
-    const mockAttempt = mockCall.attempts[0];
+    const mockAttempt = { ...mockCall.attempts[0], call: mockCall };
 
-    prisma.call.findUnique.mockResolvedValue(mockCall);
+    prisma.call.findUnique.mockImplementation(({ where }: any) => {
+      if (where.provider_call_id === mockCall.provider_call_id || where.id === mockCall.id) {
+        return Promise.resolve(mockCall);
+      }
+      return Promise.resolve(null);
+    });
     prisma.callAttempt.findUnique.mockResolvedValue(mockAttempt);
 
     callsService.handleCallerHangup.mockResolvedValue({
@@ -173,7 +178,12 @@ describe('Routing Concurrency Tests', () => {
       to_number: '+15550001111',
       attempts: [{ id: 'att_1', buyer_id: 'b1', state: CallAttemptState.FAILED }]
     };
-    prisma.call.findUnique.mockResolvedValue(mockCall);
+    prisma.call.findUnique.mockImplementation(({ where }: any) => {
+      if (where.provider_call_id === mockCall.provider_call_id || where.id === mockCall.id) {
+        return Promise.resolve(mockCall);
+      }
+      return Promise.resolve(null);
+    });
     prisma.campaign.findUnique.mockResolvedValue({
       id: 'camp_1',
       status: 'ACTIVE',
@@ -204,7 +214,12 @@ describe('Routing Concurrency Tests', () => {
     const mockCall = { id: 'call_1', provider_call_id: 'caller_123', state: CallState.ROUTING };
     const mockAttempt = { id: 'att_1', call_id: 'call_1', provider_call_id: 'buyer_123', state: CallAttemptState.RINGING, call: mockCall };
     
-    prisma.call.findUnique.mockResolvedValue(mockCall);
+    prisma.call.findUnique.mockImplementation(({ where }: any) => {
+      if (where.provider_call_id === mockCall.provider_call_id || where.id === mockCall.id) {
+        return Promise.resolve(mockCall);
+      }
+      return Promise.resolve(null);
+    });
     prisma.callAttempt.findUnique.mockResolvedValue(mockAttempt);
 
     const event = { type: CallEventType.CALL_ANSWERED, callId: 'buyer_123' };
