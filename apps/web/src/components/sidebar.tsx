@@ -54,12 +54,15 @@ export default function Sidebar({
             <h4 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
               Administration
             </h4>
-            <div className="block px-3 py-2 rounded-md text-gray-400 font-medium cursor-not-allowed" title="Coming soon">
-              Members (Soon)
-            </div>
-            <div className="block px-3 py-2 rounded-md text-gray-400 font-medium cursor-not-allowed" title="Coming soon">
-              Settings (Soon)
-            </div>
+            <Link href={`/protected/members${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/members')}>
+              Members
+            </Link>
+            <Link href={`/protected/settings${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/settings')}>
+              Settings
+            </Link>
+            <Link href={`/protected/usage${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/usage')}>
+              Usage
+            </Link>
             <Link href={`/protected/api-keys${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/api-keys')}>
               API Keys
             </Link>
