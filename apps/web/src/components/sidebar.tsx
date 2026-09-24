@@ -44,6 +44,9 @@ export default function Sidebar({
         <Link href={`/protected/calls${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/calls')}>
           Calls
         </Link>
+        <Link href={`/protected/reporting${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/reporting')}>
+          Reporting
+        </Link>
 
         {/* Role-aware navigation */}
         {isOwnerOrAdmin && (
@@ -59,6 +62,9 @@ export default function Sidebar({
             </div>
             <Link href={`/protected/api-keys${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/api-keys')}>
               API Keys
+            </Link>
+            <Link href={`/protected/webhooks${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/webhooks')}>
+              Webhooks
             </Link>
             <Link href={`/protected/billing${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/billing')}>
               Billing
