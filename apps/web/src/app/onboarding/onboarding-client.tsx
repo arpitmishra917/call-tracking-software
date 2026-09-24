@@ -43,8 +43,8 @@ export default function OnboardingClient({ token, apiUrl }: { token: string; api
       // Success
       router.push('/protected');
       router.refresh();
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
     } finally {
       setLoading(false);
     }

@@ -28,7 +28,11 @@ interface CallDetail {
   attempts: Attempt[];
 }
 
-export default function CallDetailPage({ params }: { params: { callId: string } }) {
+import { use } from 'react';
+
+export default function CallDetailPage({ params }: { params: Promise<{ callId: string }> | { callId: string } }) {
+  const unwrappedParams = params instanceof Promise ? use(params) : params as { callId: string };
+  const callId = unwrappedParams.callId;
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
   
@@ -45,7 +49,7 @@ export default function CallDetailPage({ params }: { params: { callId: string } 
       setLoading(true);
       setError(null);
       try {
-        const data = await apiFetch(`/workspaces/${workspaceId}/calls/${params.callId}`);
+        const data = await apiFetch(`/workspaces/${workspaceId}/calls/${callId}`);
         setCall(data);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Call not found or access denied.');
@@ -54,10 +58,10 @@ export default function CallDetailPage({ params }: { params: { callId: string } 
       }
     }
 
-    if (workspaceId && params.callId) {
+    if (workspaceId && callId) {
       loadCall();
     }
-  }, [workspaceId, params.callId]);
+  }, [workspaceId, callId]);
 
   async function handleFetchRecordingUrl(action: 'play' | 'download') {
     if (!workspaceId || !call?.recordings?.[0]?.id) return;
@@ -78,7 +82,7 @@ export default function CallDetailPage({ params }: { params: { callId: string } 
       } else {
         throw new Error('Recording URL not returned');
       }
-    } catch (e: unknown) {
+    } catch {
       setRecordingError('Failed to access recording safely.');
     } finally {
       setLoadingRecording(false);

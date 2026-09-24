@@ -7,14 +7,43 @@ import { apiFetch } from '@/lib/api';
 export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [billingState, setBillingState] = useState<any>(null);
+  interface BillingState {
+    subscription?: {
+      status: string;
+      plan?: { name: string };
+      current_period_end: string | number | Date;
+    };
+    invoices?: Array<{
+      id: string;
+      invoice_date: string | number | Date;
+      amount_paid: number;
+      status: string;
+      hosted_invoice_url?: string;
+    }>;
+    plans?: Array<{
+      id: string;
+      name: string;
+      description: string;
+      amount: number;
+      interval: string;
+    }>;
+    usage?: {
+      summary?: {
+        CALL_MINUTE?: number;
+        PHONE_NUMBER?: number;
+        RECORDING_STORAGE?: number;
+      };
+      period_start?: string | number | Date;
+      period_end?: string | number | Date;
+    };
+  }
+  const [billingState, setBillingState] = useState<BillingState | null>(null);
 
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
 
   useEffect(() => {
     if (!workspaceId) {
-      setLoading(false);
       return;
     }
 
@@ -22,8 +51,8 @@ export default function BillingPage() {
       try {
         const data = await apiFetch(`/workspaces/${workspaceId}/billing`);
         setBillingState(data);
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setLoading(false);
       }
@@ -37,9 +66,9 @@ export default function BillingPage() {
         method: 'POST',
         body: JSON.stringify({ planId, returnUrl: window.location.href }),
       });
-      window.location.href = data.url;
-    } catch (err: any) {
-      alert(err.message);
+      window.location.assign(data.url);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -49,9 +78,9 @@ export default function BillingPage() {
         method: 'POST',
         body: JSON.stringify({ returnUrl: window.location.href }),
       });
-      window.location.href = data.url;
-    } catch (err: any) {
-      alert(err.message);
+      window.location.assign(data.url);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -59,7 +88,7 @@ export default function BillingPage() {
   if (loading) return <div className="p-8">Loading billing data...</div>;
   if (error) return <div className="p-8 text-red-500">Error: {error}</div>;
 
-  const { subscription, customer, invoices, plans, usage } = billingState;
+  const { subscription, invoices, plans, usage } = billingState || {};
 
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-8">
@@ -86,7 +115,7 @@ export default function BillingPage() {
             <div>
               <p className="text-gray-500 mb-4">No active subscription found.</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {plans?.map((plan: any) => (
+                {plans?.map((plan) => (
                   <div key={plan.id} className="border p-4 rounded-lg flex flex-col justify-between">
                     <div>
                       <h3 className="font-bold text-lg">{plan.name}</h3>
@@ -134,7 +163,7 @@ export default function BillingPage() {
         </div>
       )}
 
-      {invoices?.length > 0 && (
+      {(invoices?.length ?? 0) > 0 && (
         <div>
           <h2 className="text-2xl font-bold mb-4">Invoice History</h2>
           <div className="bg-white shadow rounded-lg overflow-hidden">
@@ -148,7 +177,7 @@ export default function BillingPage() {
                 </tr>
               </thead>
               <tbody>
-                {invoices.map((inv: any) => (
+                {invoices?.map((inv) => (
                   <tr key={inv.id} className="border-b hover:bg-gray-50">
                     <td className="p-4">{new Date(inv.invoice_date).toLocaleDateString()}</td>
                     <td className="p-4">${(inv.amount_paid / 100).toFixed(2)}</td>
