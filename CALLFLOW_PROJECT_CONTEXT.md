@@ -97,7 +97,7 @@ Strict JWT validation, tenant isolation, hashed API keys, encrypted webhook secr
 Unit and integration testing. Fake providers for routing logic. Known limitations exist in E2E.
 
 ## 20. Important environment variables
-- ACTIVE_TELEPHONY_PROVIDER
+- TELEPHONY_PROVIDER
 - TELNYX_CALL_CONTROL_APP_ID
 - TELNYX_API_KEY
 - TELNYX_PUBLIC_KEY

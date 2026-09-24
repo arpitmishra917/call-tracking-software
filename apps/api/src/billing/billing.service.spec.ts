@@ -4,6 +4,9 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
+process.env.STRIPE_SECRET_KEY = 'sk_test_mock';
+process.env.STRIPE_WEBHOOK_SECRET = 'whsec_mock';
+
 describe('BillingService', () => {
   let service: BillingService;
   let prisma: PrismaService;

@@ -5,6 +5,9 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
+process.env.STRIPE_SECRET_KEY = 'sk_test_mock';
+process.env.STRIPE_WEBHOOK_SECRET = 'whsec_mock';
+
 describe('BillingController', () => {
   let controller: BillingController;
   let service: BillingService;

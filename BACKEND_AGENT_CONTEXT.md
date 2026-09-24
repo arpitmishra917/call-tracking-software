@@ -457,7 +457,7 @@ There are two distinct webhook boundaries:
 Important environment variables (DO NOT hardcode secrets in this codebase):
 - `DATABASE_URL`: PostgreSQL connection string.
 - `SUPABASE_URL`: Identity provider endpoint (used for JWKS).
-- `ACTIVE_TELEPHONY_PROVIDER`: e.g., `telnyx` or `twilio`.
+- `TELEPHONY_PROVIDER`: e.g., `telnyx` or `twilio`.
 - `TELNYX_API_KEY`: Secret API Key.
 - `TELNYX_PUBLIC_KEY`: Used for webhook signature verification.
 - `TELNYX_CALL_CONTROL_APP_ID`: Target application for number provisioning.

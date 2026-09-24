@@ -30,6 +30,9 @@ class MockJwtAuthGuard implements CanActivate {
   }
 }
 
+process.env.STRIPE_SECRET_KEY = 'sk_test_mock';
+process.env.STRIPE_WEBHOOK_SECRET = 'whsec_mock';
+
 describe('Billing E2E', () => {
   let app: INestApplication;
   let prisma: PrismaService;
