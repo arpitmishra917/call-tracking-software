@@ -30,15 +30,23 @@ export default function WebhooksPage() {
       setError(null);
       const data = await apiFetch(`/workspaces/${workspaceId}/webhooks`);
       setWebhooks(data || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load webhooks');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load webhooks');
     } finally {
       setLoading(false);
     }
   }, [workspaceId]);
 
   useEffect(() => {
-    fetchWebhooks();
+    let ignore = false;
+    async function init() {
+      await Promise.resolve();
+      if (!ignore) {
+        fetchWebhooks();
+      }
+    }
+    init();
+    return () => { ignore = true; };
   }, [fetchWebhooks]);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -55,8 +63,8 @@ export default function WebhooksPage() {
       setNewSecret(data.secret);
       setNewUrl('');
       await fetchWebhooks();
-    } catch (err: any) {
-      setError(err.message || 'Failed to create webhook');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create webhook');
     } finally {
       setIsCreating(false);
     }
@@ -73,8 +81,8 @@ export default function WebhooksPage() {
       });
       setNewSecret(null); // Clear secret if they delete
       await fetchWebhooks();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete webhook');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to delete webhook');
     }
   };
 

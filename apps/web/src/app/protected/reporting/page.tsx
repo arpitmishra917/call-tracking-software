@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 
@@ -46,15 +46,23 @@ export default function ReportingPage() {
       
       const data = await apiFetch(url);
       setMetrics(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load metrics');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load metrics');
     } finally {
       setLoading(false);
     }
   }, [workspaceId, startDate, endDate]);
 
   useEffect(() => {
-    fetchMetrics();
+    let ignore = false;
+    async function init() {
+      await Promise.resolve();
+      if (!ignore) {
+        fetchMetrics();
+      }
+    }
+    init();
+    return () => { ignore = true; };
   }, [fetchMetrics]);
 
   // Derived formats for display
