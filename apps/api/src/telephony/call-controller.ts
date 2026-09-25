@@ -115,22 +115,25 @@ export class CallController {
       type === CallEventType.CALL_ANSWERED &&
       call.provider_call_id === callId
     ) {
-      if (call.state === CallState.INITIATED) {
+      try {
         call = await this.callsService.transitionCall(
           call.id,
           CallState.ROUTING,
         );
-        // Start recording the inbound leg
-        try {
-          await this.provider.startRecording(call.provider_call_id);
-        } catch (err) {
-          this.logger.error(
-            `Failed to start recording for call ${callId}`,
-            err,
-          );
-        }
-        await this.dialNextBuyer(call, connectionId);
+      } catch (err) {
+        // If the call was canceled by a concurrent hangup, transition fails
+        return;
       }
+      // Start recording the inbound leg
+      try {
+        await this.provider.startRecording(call.provider_call_id);
+      } catch (err) {
+        this.logger.error(
+          `Failed to start recording for call ${callId}`,
+          err,
+        );
+      }
+      await this.dialNextBuyer(call, connectionId);
       return;
     }
 
@@ -139,24 +142,12 @@ export class CallController {
       attempt &&
       attempt.provider_call_id === callId
     ) {
-      if (
-        attempt.state === CallAttemptState.ANSWERED ||
-        attempt.state === CallAttemptState.COMPLETED
-      ) {
-        return;
-      }
-      if (call.state !== CallState.ROUTING) {
-        await this.provider.hangupCall(callId);
-        return;
-      }
-
-      try {
-        await this.callsService.transitionAttempt(
-          attempt.id,
-          CallAttemptState.ANSWERED,
-        );
-      } catch (err) {
-        this.logger.warn(`Failed to transition attempt. Hanging up. ${err}`);
+      const success = await this.callsService.markCallAnswered(
+        call.id,
+        attempt.id,
+      );
+      if (!success) {
+        // Call is no longer ROUTING, likely canceled by caller hangup
         await this.provider.hangupCall(callId);
         return;
       }
@@ -165,7 +156,6 @@ export class CallController {
         call.provider_call_id,
         attempt.provider_call_id!,
       );
-      await this.callsService.transitionCall(call.id, CallState.COMPLETED);
       return;
     }
 
@@ -205,13 +195,14 @@ export class CallController {
 
     if (type === CallEventType.CALL_HANGUP) {
       if (call.provider_call_id === callId) {
-        await this.callsService.handleCallerHangup(callId);
+        const updatedCall = await this.callsService.handleCallerHangup(callId);
         const activeAttempts =
-          call.attempts?.filter(
+          updatedCall.attempts?.filter(
             (a: any) =>
               a.state === CallAttemptState.INITIATED ||
               a.state === CallAttemptState.RINGING ||
-              a.state === CallAttemptState.ANSWERED,
+              a.state === CallAttemptState.ANSWERED ||
+              a.state === CallAttemptState.CANCELED, // because handleCallerHangup just set them to CANCELED!
           ) || [];
         for (const act of activeAttempts) {
           if (act.provider_call_id) {
@@ -219,145 +210,64 @@ export class CallController {
           }
         }
       } else if (attempt && attempt.provider_call_id === callId) {
-        if (
-          call.state === CallState.COMPLETED &&
-          attempt.state === CallAttemptState.ANSWERED
-        ) {
-          await this.callsService.transitionAttempt(
-            attempt.id,
-            CallAttemptState.COMPLETED,
-          );
+        const result = await this.callsService.handleBuyerHangup(
+          call.id,
+          attempt.id,
+        );
+
+        if (result.action === 'HANGUP_CALLER') {
           await this.provider.hangupCall(call.provider_call_id);
-          return;
-        }
-
-        if (
-          attempt.state === CallAttemptState.COMPLETED ||
-          attempt.state === CallAttemptState.FAILED ||
-          attempt.state === CallAttemptState.CANCELED ||
-          attempt.state === CallAttemptState.NO_ANSWER
-        ) {
-          return;
-        }
-
-        if (call.state === CallState.COMPLETED) {
-          await this.callsService.transitionAttempt(
-            attempt.id,
-            CallAttemptState.COMPLETED,
-          );
-          await this.provider.hangupCall(call.provider_call_id);
-          return;
-        }
-
-        try {
-          await this.callsService.transitionAttempt(
-            attempt.id,
-            CallAttemptState.NO_ANSWER,
-          );
-        } catch (err) {
-          this.logger.warn(`Could not transition attempt to NO_ANSWER. ${err}`);
-          return;
-        }
-
-        const updatedCall = await this.prisma.call.findUnique({
-          where: { id: call.id },
-          include: {
-            attempts: {
-              include: { buyer: true },
-              orderBy: { created_at: 'asc' },
-            },
-          },
-        });
-        if (updatedCall && updatedCall.state === CallState.ROUTING) {
-          await this.dialNextBuyer(updatedCall, connectionId);
+        } else if (result.action === 'DIAL_NEXT' && result.call) {
+          await this.dialNextBuyer(result.call, connectionId);
         }
       }
     }
   }
 
   private async dialNextBuyer(call: any, connectionId?: string) {
-    if (!call.campaign_id) {
-      await this.callsService.transitionCall(call.id, CallState.FAILED);
-      await this.provider.hangupCall(call.provider_call_id);
+    const result = await this.callsService.prepareNextBuyer(call.id);
+
+    if (result.action === 'NONE') return;
+
+    if (result.action === 'HANGUP') {
+      await this.provider.hangupCall(result.call.provider_call_id);
       return;
     }
 
-    const campaign = await this.prisma.campaign.findUnique({
-      where: { id: call.campaign_id },
-      include: {
-        buyers: {
-          where: { status: 'ACTIVE', buyer: { status: 'ACTIVE' } },
-          orderBy: { priority: 'asc' },
-          include: { buyer: true },
-        },
-      },
-    });
+    if (result.action === 'DIAL') {
+      const { attempt, buyer } = result;
+      try {
+        const buyerCallId = await this.provider.dialBuyer(
+          buyer.destination_number,
+          result.call.to_number,
+          connectionId || '',
+          buyer.timeout,
+        );
 
-    if (
-      !campaign ||
-      campaign.status !== 'ACTIVE' ||
-      campaign.buyers.length === 0
-    ) {
-      await this.callsService.transitionCall(call.id, CallState.FAILED);
-      await this.provider.hangupCall(call.provider_call_id);
-      return;
-    }
+        const shouldHangup = await this.callsService.commitBuyerDial(
+          attempt.id,
+          buyerCallId,
+        );
 
-    const attempts = call.attempts || [];
-    const attemptedBuyerIds = new Set(attempts.map((a: any) => a.buyer_id));
-    const nextCampaignBuyer = campaign.buyers.find(
-      (cb) => !attemptedBuyerIds.has(cb.buyer_id),
-    );
+        if (shouldHangup && buyerCallId) {
+          await this.provider.hangupCall(buyerCallId);
+          return;
+        }
 
-    if (!nextCampaignBuyer) {
-      await this.callsService.transitionCall(call.id, CallState.NO_ANSWER);
-      await this.provider.hangupCall(call.provider_call_id);
-      return;
-    }
+        await this.callsService.transitionAttempt(
+          attempt.id,
+          CallAttemptState.RINGING,
+        );
+      } catch (err) {
+        this.logger.error(`Failed to dial buyer ${buyer.id}`, err);
+        await this.callsService.transitionAttempt(
+          attempt.id,
+          CallAttemptState.FAILED,
+        );
 
-    const attempt = await this.callsService.createCallAttempt({
-      call_id: call.id,
-      buyer_id: nextCampaignBuyer.buyer_id,
-    });
-
-    try {
-      const buyerCallId = await this.provider.dialBuyer(
-        nextCampaignBuyer.buyer.destination_number,
-        call.to_number,
-        connectionId || '',
-        nextCampaignBuyer.buyer.timeout,
-      );
-
-      await this.prisma.callAttempt.update({
-        where: { id: attempt.id },
-        data: { provider_call_id: buyerCallId },
-      });
-
-      await this.callsService.transitionAttempt(
-        attempt.id,
-        CallAttemptState.RINGING,
-      );
-    } catch (err) {
-      this.logger.error(
-        `Failed to dial buyer ${nextCampaignBuyer.buyer_id}`,
-        err,
-      );
-      await this.callsService.transitionAttempt(
-        attempt.id,
-        CallAttemptState.FAILED,
-      );
-
-      const updatedCall = await this.prisma.call.findUnique({
-        where: { id: call.id },
-        include: {
-          attempts: {
-            include: { buyer: true },
-            orderBy: { created_at: 'asc' },
-          },
-        },
-      });
-      if (updatedCall && updatedCall.state === CallState.ROUTING) {
-        await this.dialNextBuyer(updatedCall, connectionId);
+        // Attempt next buyer by calling dialNextBuyer again
+        // prepareNextBuyer already checks if still ROUTING
+        await this.dialNextBuyer(result.call, connectionId);
       }
     }
   }

@@ -32,7 +32,8 @@ import { WebhooksModule } from '../webhooks/webhooks.module.js';
     {
       provide: TELEPHONY_PROVIDER,
       useFactory: (telnyx: TelnyxProvider, twilio: TwilioProvider) => {
-        return process.env.ACTIVE_TELEPHONY_PROVIDER === 'twilio'
+        const provider = process.env.TELEPHONY_PROVIDER || process.env.ACTIVE_TELEPHONY_PROVIDER;
+        return provider === 'twilio'
           ? twilio
           : telnyx;
       },

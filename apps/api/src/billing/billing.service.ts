@@ -13,7 +13,11 @@ export class BillingService {
   private readonly logger = new Logger(BillingService.name);
 
   constructor(private prisma: PrismaService) {
-    this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock', {
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey) {
+      this.logger.warn('STRIPE_SECRET_KEY is missing. Billing features will fail.');
+    }
+    this.stripe = new Stripe(stripeKey || 'missing_key', {
       apiVersion: '2023-10-16' as any, // fallback for compat
     });
   }
@@ -148,11 +152,15 @@ export class BillingService {
   async handleWebhook(signature: string, payload: Buffer) {
     let event: Stripe.Event;
     try {
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+      if (!webhookSecret) {
+        throw new Error('STRIPE_WEBHOOK_SECRET is missing');
+      }
       // 2. Verify Stripe signature FIRST.
       event = this.stripe.webhooks.constructEvent(
         payload,
         signature,
-        process.env.STRIPE_WEBHOOK_SECRET || 'whsec_mock',
+        webhookSecret,
       );
     } catch (err: any) {
       this.logger.error(
