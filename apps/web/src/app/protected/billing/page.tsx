@@ -209,10 +209,10 @@ export default function BillingPage() {
                 <Table>
                   <TableHeader className="bg-muted/50">
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Receipt</TableHead>
+                      <TableHead className="min-w-[120px]">Date</TableHead>
+                      <TableHead className="min-w-[100px]">Amount</TableHead>
+                      <TableHead className="min-w-[100px]">Status</TableHead>
+                      <TableHead className="text-right min-w-[100px]">Receipt</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

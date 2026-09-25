@@ -130,7 +130,7 @@ export default function ReportingPage() {
   }
 
   return (
-    <div className="flex flex-col gap-8 pb-8">
+    <div className="flex flex-col gap-6 md:gap-8 pb-8 w-full max-w-6xl mx-auto">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
@@ -262,10 +262,10 @@ export default function ReportingPage() {
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
-                        <TableHead>Campaign</TableHead>
-                        <TableHead className="text-right">Total Calls</TableHead>
-                        <TableHead className="text-right">Answered</TableHead>
-                        <TableHead className="text-right">Answer Rate</TableHead>
+                        <TableHead className="min-w-[150px]">Campaign</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Total Calls</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Answered</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Answer Rate</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -302,10 +302,10 @@ export default function ReportingPage() {
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
-                        <TableHead>Buyer</TableHead>
-                        <TableHead className="text-right">Total Attempts</TableHead>
-                        <TableHead className="text-right">Answered</TableHead>
-                        <TableHead className="text-right">Connect Rate</TableHead>
+                        <TableHead className="min-w-[150px]">Buyer</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Total Attempts</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Answered</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Connect Rate</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

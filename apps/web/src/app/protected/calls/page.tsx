@@ -96,7 +96,7 @@ export default function CallsPage() {
   if (!workspaceId) return <div className="p-6 text-muted-foreground">Select a workspace first.</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 md:gap-8 pb-8 w-full max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Calls</h1>
@@ -170,13 +170,13 @@ export default function CallsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Time</TableHead>
-              <TableHead>Caller</TableHead>
-              <TableHead>Tracking No.</TableHead>
-              <TableHead>Campaign</TableHead>
-              <TableHead>Duration</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="min-w-[120px]">Time</TableHead>
+              <TableHead className="min-w-[150px]">Caller</TableHead>
+              <TableHead className="min-w-[150px]">Tracking No.</TableHead>
+              <TableHead className="min-w-[150px]">Campaign</TableHead>
+              <TableHead className="min-w-[100px]">Duration</TableHead>
+              <TableHead className="min-w-[100px]">Status</TableHead>
+              <TableHead className="text-right min-w-[100px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

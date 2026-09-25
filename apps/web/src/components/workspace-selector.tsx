@@ -33,6 +33,7 @@ export default function WorkspaceSelector({
       </div>
       <select
         id="workspace-select"
+        aria-label="Select workspace"
         value={currentWorkspaceId || ''}
         onChange={handleWorkspaceChange}
         className={cn(

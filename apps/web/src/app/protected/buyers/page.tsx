@@ -89,7 +89,7 @@ export default function BuyersPage() {
   if (!workspaceId) return <div className="p-8 flex items-center justify-center text-muted-foreground">Select a workspace first.</div>;
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto p-4 md:p-8">
+    <div className="flex flex-col gap-6 md:gap-8 pb-8 w-full max-w-6xl mx-auto">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Buyers</h1>
       </div>
@@ -163,10 +163,10 @@ export default function BuyersPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
-                  <TableHead>Buyer</TableHead>
-                  <TableHead>Destination</TableHead>
-                  <TableHead>Timeout</TableHead>
-                  <TableHead className="text-right">Status</TableHead>
+                  <TableHead className="min-w-[150px]">Buyer</TableHead>
+                  <TableHead className="min-w-[150px]">Destination</TableHead>
+                  <TableHead className="min-w-[100px]">Timeout</TableHead>
+                  <TableHead className="text-right min-w-[100px]">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

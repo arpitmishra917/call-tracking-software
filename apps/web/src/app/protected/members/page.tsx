@@ -124,10 +124,10 @@ export default function MembersPage() {
             <Table>
               <TableHeader className="bg-muted/50">
                 <TableRow>
-                  <TableHead>User / Identity</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Joined</TableHead>
-                  {isOwnerOrAdmin && <TableHead className="text-right">Actions</TableHead>}
+                  <TableHead className="min-w-[200px]">User / Identity</TableHead>
+                  <TableHead className="min-w-[100px]">Role</TableHead>
+                  <TableHead className="min-w-[120px]">Joined</TableHead>
+                  {isOwnerOrAdmin && <TableHead className="text-right min-w-[100px]">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>

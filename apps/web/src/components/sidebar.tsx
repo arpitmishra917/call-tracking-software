@@ -87,7 +87,7 @@ export default function Sidebar({
 }
 
 const NavItem = ({ href, icon: Icon, children, pathname, getUrl, onNavClick }: { href: string, icon: React.ElementType, children: React.ReactNode, pathname: string, getUrl: (path: string) => string, onNavClick?: () => void }) => {
-  const isActive = pathname === href;
+  const isActive = pathname === href || (href !== '/protected' && pathname.startsWith(href + '/'));
   return (
     <Link
       href={getUrl(href)}

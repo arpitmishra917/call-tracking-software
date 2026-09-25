@@ -181,10 +181,10 @@ export default function BlockedCallersPage() {
               <Table>
                 <TableHeader className="bg-muted/50">
                   <TableRow>
-                    <TableHead>Phone Number</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Blocked Date</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="min-w-[150px]">Phone Number</TableHead>
+                    <TableHead className="min-w-[150px]">Reason</TableHead>
+                    <TableHead className="min-w-[120px]">Blocked Date</TableHead>
+                    <TableHead className="text-right min-w-[100px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
