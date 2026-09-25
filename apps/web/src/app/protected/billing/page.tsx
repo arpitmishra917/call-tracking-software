@@ -3,10 +3,17 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+import { ExternalLink, CreditCard, Receipt } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
   interface BillingState {
     subscription?: {
       status: string;
@@ -27,15 +34,6 @@ export default function BillingPage() {
       amount: number;
       interval: string;
     }>;
-    usage?: {
-      summary?: {
-        CALL_MINUTE?: number;
-        PHONE_NUMBER?: number;
-        RECORDING_STORAGE?: number;
-      };
-      period_start?: string | number | Date;
-      period_end?: string | number | Date;
-    };
   }
   const [billingState, setBillingState] = useState<BillingState | null>(null);
 
@@ -47,17 +45,26 @@ export default function BillingPage() {
       return;
     }
 
+    let ignore = false;
     const fetchBilling = async () => {
       try {
         const data = await apiFetch(`/workspaces/${workspaceId}/billing`);
-        setBillingState(data);
+        if (!ignore) {
+          setBillingState(data);
+          setError(null);
+        }
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (!ignore) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
       } finally {
-        setLoading(false);
+        if (!ignore) {
+          setLoading(false);
+        }
       }
     };
     fetchBilling();
+    return () => { ignore = true; };
   }, [workspaceId]);
 
   const handleSubscribe = async (planId: string) => {
@@ -84,122 +91,162 @@ export default function BillingPage() {
     }
   };
 
-  if (!workspaceId) return <div className="p-8">Please select a workspace first.</div>;
-  if (loading) return <div className="p-8">Loading billing data...</div>;
-  if (error) return <div className="p-8 text-red-500">Error: {error}</div>;
-
-  const { subscription, invoices, plans, usage } = billingState || {};
+  if (!workspaceId) {
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Select a workspace first.
+      </div>
+    );
+  }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-8">
+    <div className="flex flex-col gap-8 pb-8 max-w-5xl mx-auto w-full">
       <div>
-        <h1 className="text-3xl font-bold mb-4">Billing & Subscription</h1>
-        <div className="bg-white shadow p-6 rounded-lg">
-          <h2 className="text-xl font-semibold mb-2">Current Status</h2>
-          {subscription ? (
-            <div>
-              <p>Status: <span className="font-medium text-blue-600">{subscription.status}</span></p>
-              {subscription.plan && <p>Plan: {subscription.plan.name}</p>}
-              <p>Period End: {new Date(subscription.current_period_end).toLocaleDateString()}</p>
-              
-              <div className="mt-4">
-                <button
-                  onClick={handleManageBilling}
-                  className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
-                >
-                  Manage Billing (Stripe Portal)
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <p className="text-gray-500 mb-4">No active subscription found.</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {plans?.map((plan) => (
-                  <div key={plan.id} className="border p-4 rounded-lg flex flex-col justify-between">
-                    <div>
-                      <h3 className="font-bold text-lg">{plan.name}</h3>
-                      <p className="text-gray-600">{plan.description}</p>
-                      <p className="text-xl font-semibold mt-2">${(plan.amount / 100).toFixed(2)} / {plan.interval}</p>
-                    </div>
-                    <button
-                      onClick={() => handleSubscribe(plan.id)}
-                      className="mt-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 w-full"
-                    >
-                      Subscribe
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Billing & Subscription</h1>
+        <p className="text-muted-foreground mt-2 max-w-3xl">
+          Manage your subscription plan, billing details, and view past invoices.
+        </p>
       </div>
 
-      {usage?.summary && (
-        <div>
-          <h2 className="text-2xl font-bold mb-4">Current Period Usage</h2>
-          <div className="bg-white shadow p-6 rounded-lg">
-            <p className="text-sm text-gray-500 mb-4">
-              Usage tracked during the current billing period 
-              ({usage.period_start ? new Date(usage.period_start).toLocaleDateString() : 'N/A'} - {usage.period_end ? new Date(usage.period_end).toLocaleDateString() : 'N/A'}).
-              This usage does not affect your flat subscription rate.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="border p-4 rounded-lg">
-                <h3 className="font-semibold text-gray-700">Call Minutes</h3>
-                <p className="text-2xl font-bold">{usage.summary.CALL_MINUTE}</p>
-              </div>
-              <div className="border p-4 rounded-lg">
-                <h3 className="font-semibold text-gray-700">Phone Numbers</h3>
-                <p className="text-2xl font-bold">{usage.summary.PHONE_NUMBER}</p>
-              </div>
-              <div className="border p-4 rounded-lg">
-                <h3 className="font-semibold text-gray-700">Recordings (MB)</h3>
-                <p className="text-2xl font-bold">{usage.summary.RECORDING_STORAGE}</p>
-              </div>
-            </div>
-          </div>
+      {error && (
+        <div className="p-4 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm">
+          {error}
         </div>
       )}
 
-      {(invoices?.length ?? 0) > 0 && (
-        <div>
-          <h2 className="text-2xl font-bold mb-4">Invoice History</h2>
-          <div className="bg-white shadow rounded-lg overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-100 border-b">
-                  <th className="p-4">Date</th>
-                  <th className="p-4">Amount</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4">Invoice</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices?.map((inv) => (
-                  <tr key={inv.id} className="border-b hover:bg-gray-50">
-                    <td className="p-4">{new Date(inv.invoice_date).toLocaleDateString()}</td>
-                    <td className="p-4">${(inv.amount_paid / 100).toFixed(2)}</td>
-                    <td className="p-4">
-                      <span className={`px-2 py-1 text-xs rounded-full ${inv.status === 'PAID' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      {inv.hosted_invoice_url ? (
-                        <a href={inv.hosted_invoice_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-                          View
-                        </a>
-                      ) : '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {loading ? (
+        <div className="p-8 text-center text-muted-foreground">Loading billing data...</div>
+      ) : billingState ? (
+        <div className="flex flex-col gap-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Current Status</CardTitle>
+              <CardDescription>Your active subscription details.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {billingState.subscription ? (
+                <div className="flex flex-col gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-muted-foreground">Status</p>
+                      <Badge variant={billingState.subscription.status === 'active' || billingState.subscription.status === 'trialing' ? 'success' : 'warning'} className="uppercase">
+                        {billingState.subscription.status}
+                      </Badge>
+                    </div>
+                    {billingState.subscription.plan && (
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Plan</p>
+                        <p className="font-semibold text-foreground">{billingState.subscription.plan.name}</p>
+                      </div>
+                    )}
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-muted-foreground">Period End</p>
+                      <p className="font-semibold text-foreground">
+                        {new Date(billingState.subscription.current_period_end).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="pt-4 border-t border-border">
+                    <Button onClick={handleManageBilling} className="gap-2">
+                      <CreditCard className="w-4 h-4" />
+                      Manage Billing Portal
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-6">
+                  <div className="p-6 bg-muted/50 rounded-lg border border-dashed text-center">
+                    <p className="text-muted-foreground">No active subscription found.</p>
+                  </div>
+                  
+                  {billingState.plans && billingState.plans.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {billingState.plans.map((plan) => (
+                        <Card key={plan.id} className="flex flex-col shadow-none">
+                          <CardHeader>
+                            <CardTitle>{plan.name}</CardTitle>
+                            <CardDescription>{plan.description}</CardDescription>
+                          </CardHeader>
+                          <CardContent className="flex-grow">
+                            <div className="text-3xl font-bold">
+                              ${(plan.amount / 100).toFixed(2)}
+                              <span className="text-sm font-normal text-muted-foreground"> / {plan.interval}</span>
+                            </div>
+                          </CardContent>
+                          <CardFooter>
+                            <Button 
+                              className="w-full" 
+                              onClick={() => handleSubscribe(plan.id)}
+                            >
+                              Subscribe
+                            </Button>
+                          </CardFooter>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Invoice History</CardTitle>
+              <CardDescription>Past billing statements for this workspace.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {!billingState.invoices || billingState.invoices.length === 0 ? (
+                <div className="p-8">
+                  <EmptyState
+                    icon={<Receipt />}
+                    title="No invoices yet"
+                    description="When you are billed, your invoices will appear here."
+                  />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader className="bg-muted/50">
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Receipt</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {billingState.invoices.map((inv) => (
+                      <TableRow key={inv.id}>
+                        <TableCell className="font-medium">
+                          {new Date(inv.invoice_date).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          ${(inv.amount_paid / 100).toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={inv.status.toUpperCase() === 'PAID' ? 'success' : 'error'} className={inv.status.toUpperCase() === 'PAID' ? 'bg-green-600 hover:bg-green-700' : ''}>
+                            {inv.status.toUpperCase()}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {inv.hosted_invoice_url ? (
+                            <a href={inv.hosted_invoice_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                              View <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
