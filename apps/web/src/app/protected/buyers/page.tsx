@@ -20,6 +20,7 @@ export default function BuyersPage() {
   const [destination, setDestination] = useState('');
   const [timeout, setTimeoutVal] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadBuyers() {
@@ -58,8 +59,9 @@ export default function BuyersPage() {
       setName('');
       setDestination('');
       refreshBuyers();
+      setError(null);
     } catch (err: unknown) {
-      alert(`Failed to create buyer: ${err instanceof Error ? err.message : String(err)}`);
+      setError(`Failed to create buyer: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -70,6 +72,12 @@ export default function BuyersPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Buyers</h1>
       
+      {error && (
+        <div className="bg-red-50 text-red-600 p-4 rounded shadow-sm">
+          {error}
+        </div>
+      )}
+
       <form onSubmit={handleCreate} className="flex gap-2 items-center flex-wrap">
         <input 
           type="text" 
