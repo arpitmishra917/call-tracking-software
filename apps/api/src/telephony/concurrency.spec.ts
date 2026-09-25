@@ -6,7 +6,7 @@ import { UsageService } from '../usage/usage.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 import { CallEventType } from './telephony.events.js';
 import { CallState, CallAttemptState } from '@prisma/client';
-import { vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('Routing Concurrency Tests', () => {
   let controller: CallController;
@@ -55,6 +55,10 @@ describe('Routing Concurrency Tests', () => {
       handleCallerHangup: vi.fn(),
       createCallAttempt: vi.fn(),
       transitionAttempt: vi.fn(),
+      markCallAnswered: vi.fn(),
+      handleBuyerHangup: vi.fn(),
+      prepareNextBuyer: vi.fn(),
+      commitBuyerDial: vi.fn(),
     };
 
     usageService = {
@@ -79,7 +83,7 @@ describe('Routing Concurrency Tests', () => {
     controller = module.get<CallController>(CallController);
   });
 
-  it('TEST 1: CALL_ANSWERED + CALL_HANGUP concurrently', async () => {
+  it('TEST 1: CALL_ANSWERED + CALL_HANGUP concurrently (hangup wins)', async () => {
     const mockCall = {
       id: 'call_1',
       provider_call_id: 'caller_123',
@@ -110,6 +114,9 @@ describe('Routing Concurrency Tests', () => {
        ]
     });
 
+    // Simulate DB lock rejecting the attempt transition because Call is no longer ROUTING
+    callsService.markCallAnswered = vi.fn().mockResolvedValue(false);
+
     const eventAnswer = { type: CallEventType.CALL_ANSWERED, callId: 'buyer_123', direction: 'outgoing' };
     const eventHangup = { type: CallEventType.CALL_HANGUP, callId: 'caller_123', direction: 'incoming' };
 
@@ -119,8 +126,9 @@ describe('Routing Concurrency Tests', () => {
     ]);
 
     expect(callsService.handleCallerHangup).toHaveBeenCalledWith('caller_123');
-    expect(callsService.transitionAttempt).toHaveBeenCalledWith('attempt_1', CallAttemptState.ANSWERED);
+    expect(callsService.markCallAnswered).toHaveBeenCalledWith('call_1', 'attempt_1');
     expect(provider.hangupCall).toHaveBeenCalledWith('buyer_123');
+    expect(provider.bridgeCalls).not.toHaveBeenCalled(); // Verified side-effect: we do not bridge!
   });
 
   it('TEST 2: Buyer answer concurrent with caller hangup while dialNextBuyer is persisting', async () => {
@@ -131,28 +139,27 @@ describe('Routing Concurrency Tests', () => {
       campaign_id: 'camp_1',
       to_number: '+15550001111',
     };
-    prisma.campaign.findUnique.mockResolvedValue({
-      id: 'camp_1',
-      status: 'ACTIVE',
-      buyers: [
-        { buyer_id: 'b1', priority: 1, buyer: { status: 'ACTIVE', destination_number: '+15551234567', timeout: 30 } }
-      ]
+
+    callsService.prepareNextBuyer.mockResolvedValue({
+      action: 'DIAL',
+      call: mockCall,
+      attempt: { id: 'attempt_new' },
+      buyer: { destination_number: '+15551234567', timeout: 30 }
     });
-    callsService.createCallAttempt.mockResolvedValue({ id: 'attempt_new', call_id: 'call_1' });
-    prisma.$queryRaw.mockResolvedValue([{ id: 'call_1', state: CallState.CANCELED }]);
+
+    // Simulate commitBuyerDial determining that the call was canceled (returns true for shouldHangup)
+    callsService.commitBuyerDial.mockResolvedValue(true);
 
     await (controller as any).dialNextBuyer(mockCall, 'conn_1');
 
+    // Verification: We MUST hang up the buyer if the caller canceled during dial!
     expect(provider.hangupCall).toHaveBeenCalledWith('buyer_call_id_123');
-    expect(prisma.callAttempt.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ state: CallAttemptState.CANCELED }) })
-    );
   });
 
   it('TEST 3: Two concurrent routing events for the same Call', async () => {
     const event1 = { type: CallEventType.CALL_HANGUP, callId: 'caller_123', direction: 'incoming' };
     const event2 = { type: CallEventType.CALL_HANGUP, callId: 'caller_123', direction: 'incoming' };
-    
+
     prisma.call.findUnique.mockResolvedValue({
       id: 'call_1',
       provider_call_id: 'caller_123',
@@ -184,17 +191,7 @@ describe('Routing Concurrency Tests', () => {
       }
       return Promise.resolve(null);
     });
-    prisma.campaign.findUnique.mockResolvedValue({
-      id: 'camp_1',
-      status: 'ACTIVE',
-      buyers: [
-        { buyer_id: 'b1', priority: 1, buyer: { status: 'ACTIVE', destination_number: '+111' } },
-        { buyer_id: 'b2', priority: 2, buyer: { status: 'ACTIVE', destination_number: '+222' } }
-      ]
-    });
-    prisma.$queryRaw.mockResolvedValue([{ id: 'call_1', state: CallState.ROUTING }]);
-    callsService.createCallAttempt.mockResolvedValue({ id: 'att_2', call_id: 'call_1' });
-    
+
     prisma.callAttempt.findUnique.mockResolvedValue({
        id: 'att_1',
        call_id: 'call_1',
@@ -203,17 +200,31 @@ describe('Routing Concurrency Tests', () => {
        call: mockCall
     });
 
+    callsService.handleBuyerHangup = vi.fn().mockResolvedValue({
+       action: 'DIAL_NEXT',
+       call: { ...mockCall, state: CallState.ROUTING }
+    });
+
+    callsService.prepareNextBuyer = vi.fn().mockResolvedValue({
+       action: 'DIAL',
+       call: mockCall,
+       attempt: { id: 'att_2' },
+       buyer: { destination_number: '+222' }
+    });
+    callsService.commitBuyerDial.mockResolvedValue(false);
+
     const event = { type: CallEventType.CALL_HANGUP, callId: 'buyer_123' };
     await controller.handleEvent(event as any);
 
-    expect(callsService.transitionAttempt).toHaveBeenCalledWith('att_1', CallAttemptState.NO_ANSWER);
-    expect(callsService.createCallAttempt).toHaveBeenCalledWith(expect.objectContaining({ buyer_id: 'b2' }));
+    expect(callsService.handleBuyerHangup).toHaveBeenCalledWith('call_1', 'att_1');
+    expect(callsService.prepareNextBuyer).toHaveBeenCalledWith('call_1');
+    expect(provider.dialBuyer).toHaveBeenCalledWith('+222', '+15550001111', '', undefined);
   });
 
   it('TEST 7: Successful higher-priority buyer -> does NOT dial next', async () => {
     const mockCall = { id: 'call_1', provider_call_id: 'caller_123', state: CallState.ROUTING };
     const mockAttempt = { id: 'att_1', call_id: 'call_1', provider_call_id: 'buyer_123', state: CallAttemptState.RINGING, call: mockCall };
-    
+
     prisma.call.findUnique.mockImplementation(({ where }: any) => {
       if (where.provider_call_id === mockCall.provider_call_id || where.id === mockCall.id) {
         return Promise.resolve(mockCall);
@@ -221,13 +232,13 @@ describe('Routing Concurrency Tests', () => {
       return Promise.resolve(null);
     });
     prisma.callAttempt.findUnique.mockResolvedValue(mockAttempt);
+    callsService.markCallAnswered = vi.fn().mockResolvedValue(true);
 
     const event = { type: CallEventType.CALL_ANSWERED, callId: 'buyer_123' };
     await controller.handleEvent(event as any);
 
-    expect(callsService.transitionAttempt).toHaveBeenCalledWith('att_1', CallAttemptState.ANSWERED);
+    expect(callsService.markCallAnswered).toHaveBeenCalledWith('call_1', 'att_1');
     expect(provider.bridgeCalls).toHaveBeenCalledWith('caller_123', 'buyer_123');
-    expect(callsService.transitionCall).toHaveBeenCalledWith('call_1', CallState.COMPLETED);
     expect(callsService.createCallAttempt).not.toHaveBeenCalled();
   });
 });

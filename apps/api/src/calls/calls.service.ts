@@ -310,6 +310,68 @@ export class CallsService {
     });
   }
 
+  async markCallAnswered(callId: string, attemptId: string): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${callId}::uuid FOR UPDATE`;
+      const call = await tx.call.findUnique({ where: { id: callId } });
+      if (!call || call.state !== CallState.ROUTING) {
+        return false;
+      }
+
+      await tx.callAttempt.update({
+        where: { id: attemptId },
+        data: { state: CallAttemptState.ANSWERED },
+      });
+
+      const updatedCall = await tx.call.update({
+        where: { id: callId },
+        data: { state: CallState.COMPLETED },
+      });
+
+      this.webhooksService
+        .queueEvent(call.workspace_id, 'call.answered', updatedCall)
+        .catch(console.error);
+
+      return true;
+    });
+  }
+
+  async handleBuyerHangup(callId: string, attemptId: string): Promise<{ action: 'HANGUP_CALLER' | 'DIAL_NEXT' | 'NONE', call?: any }> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${callId}::uuid FOR UPDATE`;
+      const call = await tx.call.findUnique({
+        where: { id: callId },
+        include: { attempts: { include: { buyer: true }, orderBy: { created_at: 'asc' } } }
+      });
+      const attempt = call?.attempts.find((a: any) => a.id === attemptId);
+
+      if (!call || !attempt) return { action: 'NONE' };
+
+      if (call.state === CallState.COMPLETED && attempt.state === CallAttemptState.ANSWERED) {
+        await tx.callAttempt.update({
+          where: { id: attemptId },
+          data: { state: CallAttemptState.COMPLETED },
+        });
+        return { action: 'HANGUP_CALLER' };
+      }
+
+      if (call.state === CallState.ROUTING) {
+        await tx.callAttempt.update({
+          where: { id: attemptId },
+          data: { state: CallAttemptState.NO_ANSWER },
+        });
+
+        const updatedCall = await tx.call.findUnique({
+          where: { id: callId },
+          include: { attempts: { include: { buyer: true }, orderBy: { created_at: 'asc' } } }
+        });
+        return { action: 'DIAL_NEXT', call: updatedCall };
+      }
+
+      return { action: 'NONE' };
+    });
+  }
+
   private isValidTransition(from: CallState, to: CallState): boolean {
     if (from === to) return true; // idempotency
     return VALID_CALL_TRANSITIONS[from].includes(to);
@@ -481,5 +543,111 @@ export class CallsService {
     });
 
     return metrics;
+  }
+  async commitBuyerDial(attemptId: string, providerCallId: string): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const initialAttempt = await tx.callAttempt.findUnique({ where: { id: attemptId } });
+      if (!initialAttempt) return true; // if attempt missing, hangup
+
+      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${initialAttempt.call_id}::uuid FOR UPDATE`;
+      const call = await tx.call.findUnique({ where: { id: initialAttempt.call_id } });
+
+      if (!call || call.state !== CallState.ROUTING) {
+        await tx.callAttempt.update({
+          where: { id: attemptId },
+          data: { provider_call_id: providerCallId, state: CallAttemptState.CANCELED },
+        });
+        return true;
+      }
+
+      await tx.callAttempt.update({
+        where: { id: attemptId },
+        data: { provider_call_id: providerCallId },
+      });
+      return false;
+    });
+  }
+
+  async prepareNextBuyer(callId: string): Promise<{
+    action: 'HANGUP' | 'DIAL' | 'NONE';
+    call?: any;
+    attempt?: any;
+    buyer?: any;
+  }> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${callId}::uuid FOR UPDATE`;
+      const call = await tx.call.findUnique({
+        where: { id: callId },
+        include: { attempts: true },
+      });
+
+      if (!call || call.state !== CallState.ROUTING) {
+        return { action: 'NONE' };
+      }
+
+      const activeAttempt = call.attempts.find(
+        (a) =>
+          a.state === CallAttemptState.INITIATED ||
+          a.state === CallAttemptState.RINGING,
+      );
+      if (activeAttempt) {
+        return { action: 'NONE' }; // Already dialing someone concurrently
+      }
+
+      if (!call.campaign_id) {
+        const updatedCall = await tx.call.update({
+          where: { id: callId },
+          data: { state: CallState.FAILED },
+        });
+        return { action: 'HANGUP', call: updatedCall };
+      }
+
+      const campaign = await tx.campaign.findUnique({
+        where: { id: call.campaign_id },
+        include: {
+          buyers: {
+            where: { status: 'ACTIVE', buyer: { status: 'ACTIVE' } },
+            orderBy: { priority: 'asc' },
+            include: { buyer: true },
+          },
+        },
+      });
+
+      if (!campaign || campaign.status !== 'ACTIVE' || campaign.buyers.length === 0) {
+        const updatedCall = await tx.call.update({
+          where: { id: callId },
+          data: { state: CallState.FAILED },
+        });
+        return { action: 'HANGUP', call: updatedCall };
+      }
+
+      const attemptedBuyerIds = new Set(call.attempts.map((a: any) => a.buyer_id));
+      const nextCampaignBuyer = campaign.buyers.find(
+        (cb) => !attemptedBuyerIds.has(cb.buyer_id),
+      );
+
+      if (!nextCampaignBuyer) {
+        const updatedCall = await tx.call.update({
+          where: { id: callId },
+          data: { state: CallState.NO_ANSWER },
+        });
+        return { action: 'HANGUP', call: updatedCall };
+      }
+
+      const attempt = await tx.callAttempt.create({
+        data: {
+          call_id: call.id,
+          buyer_id: nextCampaignBuyer.buyer_id,
+          state: CallAttemptState.INITIATED,
+        },
+      });
+
+      // Fire webhook
+      this.webhooksService
+        .queueEvent(call.workspace_id, 'call.attempt.started', attempt)
+        .catch(console.error);
+
+      return { action: 'DIAL', call, attempt, buyer: nextCampaignBuyer.buyer };
+    });
   }
 }
