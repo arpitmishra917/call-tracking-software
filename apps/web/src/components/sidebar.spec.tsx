@@ -5,6 +5,7 @@ import Sidebar from './sidebar';
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(''),
+  usePathname: () => '/protected',
 }));
 
 // Mock next/link
@@ -19,7 +20,7 @@ describe('Sidebar Role-Aware Navigation', () => {
     
     // Should see Administration header and Members link
     expect(screen.getByText('Administration')).toBeTruthy();
-    expect(screen.getByText('Members (Soon)')).toBeTruthy();
+    expect(screen.getByText('Members')).toBeTruthy();
   });
 
   it('9. VIEWER does not see UI controls that imply unauthorized mutation capability', () => {
@@ -28,7 +29,7 @@ describe('Sidebar Role-Aware Navigation', () => {
     
     // Should NOT see Administration
     expect(screen.queryByText('Administration')).toBeNull();
-    expect(screen.queryByText('Members (Soon)')).toBeNull();
+    expect(screen.queryByText('Members')).toBeNull();
   });
 
   it('10. MEMBER does not see member-management controls', () => {
@@ -37,6 +38,6 @@ describe('Sidebar Role-Aware Navigation', () => {
     
     // Should NOT see Administration
     expect(screen.queryByText('Administration')).toBeNull();
-    expect(screen.queryByText('Members (Soon)')).toBeNull();
+    expect(screen.queryByText('Members')).toBeNull();
   });
 });
