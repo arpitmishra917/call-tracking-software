@@ -4,6 +4,14 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent, CardFooter, CardDescription } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+
 interface Campaign {
   id: string;
   name: string;
@@ -34,6 +42,7 @@ export default function PhoneNumbersPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isProvisioning, setIsProvisioning] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -44,9 +53,24 @@ export default function PhoneNumbersPage() {
   const [isAssigning, setIsAssigning] = useState(false);
 
   useEffect(() => {
+    async function loadAll() {
+      if (!workspaceId) return;
+      try {
+        const [numData, campData] = await Promise.all([
+          apiFetch(`/workspaces/${workspaceId}/phone-numbers`).catch(() => []),
+          apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => [])
+        ]);
+        setNumbers(numData);
+        setCampaigns(campData);
+      } catch (e: unknown) {
+        setError('Failed to load phone numbers or campaigns.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
     if (workspaceId) {
-      loadPhoneNumbers(workspaceId);
-      loadCampaigns(workspaceId);
+      loadAll();
     }
   }, [workspaceId]);
 
@@ -56,15 +80,6 @@ export default function PhoneNumbersPage() {
       setNumbers(data);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function loadCampaigns(id: string) {
-    try {
-      const data = await apiFetch(`/workspaces/${id}/campaigns`);
-      setCampaigns(data);
-    } catch (e: unknown) {
-      console.error('Failed to load campaigns', e);
     }
   }
 
@@ -134,155 +149,181 @@ export default function PhoneNumbersPage() {
     setAssignModalOpen(true);
   }
 
-  if (!workspaceId) {
-    return <div className="p-8 text-gray-500">Please select a workspace first.</div>;
-  }
+  if (loading) return <div className="p-8 flex items-center justify-center text-muted-foreground">Loading phone numbers...</div>;
+  if (!workspaceId) return <div className="p-8 flex items-center justify-center text-muted-foreground">Please select a workspace first.</div>;
 
   return (
-    <div className="p-8 max-w-4xl mx-auto relative">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Phone Numbers</h1>
+    <div className="flex flex-col gap-6 md:gap-8 pb-8 w-full max-w-6xl mx-auto">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Phone Numbers</h1>
       </div>
 
       {error && (
-        <div className="bg-red-50 text-red-600 p-4 rounded mb-6">
+        <div className="bg-error-muted text-error-muted-foreground p-4 rounded-md text-sm border border-error-muted">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="bg-green-50 text-green-700 p-4 rounded mb-6">
+        <div className="bg-success-muted text-success-muted-foreground p-4 rounded-md text-sm border border-success-muted">
           {success}
         </div>
       )}
 
-      <div className="bg-white rounded shadow p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4">Your Numbers</h2>
-        {numbers.length === 0 ? (
-          <p className="text-gray-500">No phone numbers provisioned yet.</p>
-        ) : (
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="py-2 text-sm text-gray-600">Number</th>
-                <th className="py-2 text-sm text-gray-600">Campaign</th>
-                <th className="py-2 text-sm text-gray-600">Status</th>
-                <th className="py-2 text-sm text-gray-600">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {numbers.map((num) => (
-                <tr key={num.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                  <td className="py-3 font-mono text-gray-800">{num.phone_number}</td>
-                  <td className="py-3 text-gray-800">
-                    {num.campaign ? (
-                      <span className="font-medium text-blue-700">{num.campaign.name}</span>
-                    ) : (
-                      <span className="text-gray-400 italic">Not assigned</span>
-                    )}
-                  </td>
-                  <td className="py-3">
-                    <span className={`px-2 py-1 text-xs rounded-full ${num.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {num.status}
-                    </span>
-                  </td>
-                  <td className="py-3">
-                    <button
-                      onClick={() => openAssignModal(num)}
-                      className="text-sm px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded transition-colors"
-                    >
-                      {num.campaign ? 'Change' : 'Assign'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Provisioned Numbers</CardTitle>
+          <CardDescription>Numbers active in your workspace that can be assigned to campaigns.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {numbers.length === 0 ? (
+             <EmptyState
+               title="No phone numbers"
+               description="Search and provision a new phone number below."
+             />
+          ) : (
+            <div className="border border-border rounded-md overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30">
+                    <TableHead className="min-w-[150px]">Number</TableHead>
+                    <TableHead className="min-w-[150px]">Campaign</TableHead>
+                    <TableHead className="min-w-[100px]">Status</TableHead>
+                    <TableHead className="text-right min-w-[100px]">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {numbers.map((num) => (
+                    <TableRow key={num.id}>
+                      <TableCell className="font-mono font-medium text-foreground">
+                        {num.phone_number}
+                      </TableCell>
+                      <TableCell>
+                        {num.campaign ? (
+                          <span className="font-medium text-foreground">{num.campaign.name}</span>
+                        ) : (
+                          <span className="text-muted-foreground italic">Unassigned</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={num.status === 'ACTIVE' ? 'success' : num.status === 'ASSIGNED' ? 'info' : 'outline'}>
+                          {num.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openAssignModal(num)}
+                        >
+                          {num.campaign ? 'Change' : 'Assign'}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      <div className="bg-white rounded shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Provision New Number</h2>
-        <div className="mb-4">
-          <button
-            onClick={handleSearch}
-            disabled={isSearching}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {isSearching ? 'Searching...' : 'Search US Numbers'}
-          </button>
-        </div>
-
-        {availableNumbers.length > 0 && (
-          <div className="mt-4">
-            <h3 className="font-semibold mb-3 text-gray-700">Available Numbers</h3>
-            <ul className="space-y-3">
-              {availableNumbers.map((num) => (
-                <li key={num.phone_number} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div>
-                    <span className="font-mono text-lg font-medium text-gray-900">{num.phone_number}</span>
-                    <div className="text-sm text-gray-500 mt-1">
-                      {num.locality && num.administrative_area ? `${num.locality}, ${num.administrative_area}` : 'Toll-free / Unknown location'}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleProvision(num.phone_number)}
-                    disabled={isProvisioning}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
-                  >
-                    {isProvisioning ? 'Provisioning...' : 'Provision'}
-                  </button>
-                </li>
-              ))}
-            </ul>
+      <Card>
+        <CardHeader>
+          <CardTitle>Provision New Number</CardTitle>
+          <CardDescription>Search for available US numbers to add to your workspace.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div>
+            <Button
+              onClick={handleSearch}
+              isLoading={isSearching}
+              variant="secondary"
+            >
+              Search US Numbers
+            </Button>
           </div>
-        )}
-      </div>
+
+          {availableNumbers.length > 0 && (
+            <div className="space-y-3">
+              <Label className="text-muted-foreground uppercase tracking-wider text-xs font-semibold">Available Numbers</Label>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {availableNumbers.map((num) => (
+                  <div key={num.phone_number} className="flex flex-col justify-between p-4 bg-muted/20 rounded-lg border border-border">
+                    <div className="mb-4">
+                      <div className="font-mono text-lg font-medium text-foreground mb-1">
+                        {num.phone_number}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {num.locality && num.administrative_area ? `${num.locality}, ${num.administrative_area}` : 'Toll-free / Unknown'}
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => handleProvision(num.phone_number)}
+                      disabled={isProvisioning}
+                      variant="primary"
+                      className="w-full"
+                    >
+                      {isProvisioning ? 'Provisioning...' : 'Provision'}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {assignModalOpen && selectedPhone && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Assign to Campaign</h2>
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md shadow-lg">
+            <CardHeader>
+              <CardTitle>Assign to Campaign</CardTitle>
+            </CardHeader>
             <form onSubmit={handleAssignSubmit}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                <div className="font-mono bg-gray-50 p-2 rounded border border-gray-200">{selectedPhone.phone_number}</div>
-              </div>
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Campaign</label>
-                <select
-                  value={selectedCampaignId}
-                  onChange={(e) => setSelectedCampaignId(e.target.value)}
-                  className="w-full border border-gray-300 rounded p-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                >
-                  <option value="" disabled>Select Campaign ▼</option>
-                  {campaigns.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-                {campaigns.length === 0 && (
-                  <p className="text-sm text-amber-600 mt-2">No campaigns found. Please create one first.</p>
-                )}
-              </div>
-              <div className="flex justify-end gap-3">
-                <button
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label>Phone Number</Label>
+                  <div className="font-mono bg-muted/30 p-2.5 rounded-md border border-border text-sm">
+                    {selectedPhone.phone_number}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Campaign</Label>
+                  <select
+                    value={selectedCampaignId}
+                    onChange={(e) => setSelectedCampaignId(e.target.value)}
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    required
+                  >
+                    <option value="" disabled>Select Campaign ▼</option>
+                    {campaigns.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  {campaigns.length === 0 && (
+                    <p className="text-xs text-warning-muted-foreground mt-1">No campaigns found. Please create one first.</p>
+                  )}
+                </div>
+              </CardContent>
+              <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
+                <Button
+                  variant="outline"
                   type="button"
                   onClick={() => setAssignModalOpen(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded transition-colors"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
-                  disabled={isAssigning || !selectedCampaignId || campaigns.length === 0}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors disabled:opacity-50"
+                  isLoading={isAssigning}
+                  disabled={!selectedCampaignId || campaigns.length === 0}
                 >
-                  {isAssigning ? 'Assigning...' : 'Assign'}
-                </button>
-              </div>
+                  Assign
+                </Button>
+              </CardFooter>
             </form>
-          </div>
+          </Card>
         </div>
       )}
     </div>

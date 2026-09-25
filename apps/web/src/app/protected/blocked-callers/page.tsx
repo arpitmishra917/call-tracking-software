@@ -1,8 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ShieldBan, Phone } from 'lucide-react';
 
 interface BlockedCaller {
   id: string;
@@ -22,23 +29,26 @@ export default function BlockedCallersPage() {
   const [isFetching, setIsFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (workspaceId) {
-      loadCallers(workspaceId);
-    }
-  }, [workspaceId]);
-
-  async function loadCallers(id: string) {
+  const loadCallers = useCallback(async (id: string) => {
     setIsFetching(true);
     try {
       const data = await apiFetch(`/workspaces/${id}/blocked-callers`);
-      setCallers(data);
+      setCallers(data || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsFetching(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    if (workspaceId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadCallers(workspaceId);
+    } else {
+      setTimeout(() => setIsFetching(false), 0);
+    }
+  }, [workspaceId, loadCallers]);
 
   async function handleBlock(e: React.FormEvent) {
     e.preventDefault();
@@ -65,7 +75,7 @@ export default function BlockedCallersPage() {
 
   async function handleUnblock(id: string) {
     if (!workspaceId) return;
-    if (!confirm('Unblock this caller?')) return;
+    if (!confirm('Are you sure you want to unblock this caller? They will be able to reach your routing system again.')) return;
     
     try {
       await apiFetch(`/workspaces/${workspaceId}/blocked-callers/${id}`, {
@@ -77,107 +87,138 @@ export default function BlockedCallersPage() {
     }
   }
 
+  if (isFetching && callers.length === 0) {
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Loading blocked callers...
+      </div>
+    );
+  }
+
   if (!workspaceId) {
-    return <div className="p-8 text-gray-500">Please select a workspace first.</div>;
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Select a workspace first.
+      </div>
+    );
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
+    <div className="flex flex-col gap-8 pb-8 max-w-5xl mx-auto w-full">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Blocked Callers</h1>
-          <p className="text-gray-600 mt-1">Blocked callers are prevented from entering campaign routing.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Blocked Callers</h1>
+          <p className="text-muted-foreground mt-2 max-w-3xl">
+            Blocked callers are prevented from entering campaign routing.
+          </p>
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 text-red-600 p-4 rounded mb-6">
+        <div className="p-4 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm">
           {error}
         </div>
       )}
 
-      <div className="bg-white rounded shadow p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4">Block a Caller</h2>
-        <form onSubmit={handleBlock} className="flex gap-4 items-end flex-wrap">
-          <div className="flex-1 min-w-[200px]">
-            <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-1">
-              Phone Number
-            </label>
-            <input
-              type="text"
-              id="phoneNumber"
-              value={newPhoneNumber}
-              onChange={(e) => setNewPhoneNumber(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              placeholder="+14155551234"
-              disabled={isAdding}
-            />
-            <p className="text-xs text-gray-500 mt-1">Enter the number in E.164 format, for example +14155551234.</p>
-          </div>
-          <div className="flex-1 min-w-[200px]">
-            <label htmlFor="reason" className="block text-sm font-medium text-gray-700 mb-1">
-              Reason (Optional)
-            </label>
-            <input
-              type="text"
-              id="reason"
-              value={newReason}
-              onChange={(e) => setNewReason(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Spam, harassment, etc."
-              disabled={isAdding}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isAdding || !newPhoneNumber.trim()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors h-[42px] mb-6"
-          >
-            {isAdding ? 'Blocking...' : 'Block Caller'}
-          </button>
-        </form>
-      </div>
+      <div className="grid grid-cols-1 gap-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Block a Caller</CardTitle>
+            <CardDescription>Add a new number to your blocked list.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleBlock} className="flex flex-col md:flex-row items-end gap-4 max-w-3xl">
+              <div className="space-y-2 flex-1 w-full min-w-[240px]">
+                <Label htmlFor="phoneNumber">Phone Number</Label>
+                <Input
+                  type="text"
+                  id="phoneNumber"
+                  value={newPhoneNumber}
+                  onChange={(e) => setNewPhoneNumber(e.target.value)}
+                  placeholder="+14155551234"
+                  disabled={isAdding}
+                />
+                <p className="text-xs text-muted-foreground">E.164 format required.</p>
+              </div>
+              <div className="space-y-2 flex-1 w-full min-w-[240px]">
+                <Label htmlFor="reason">Reason (Optional)</Label>
+                <Input
+                  type="text"
+                  id="reason"
+                  value={newReason}
+                  onChange={(e) => setNewReason(e.target.value)}
+                  placeholder="e.g., Spam, Harassment"
+                  disabled={isAdding}
+                />
+                <p className="text-xs text-transparent select-none">Spacer</p>
+              </div>
+              <Button
+                type="submit"
+                disabled={isAdding || !newPhoneNumber.trim()}
+                className="w-full md:w-auto mb-6"
+              >
+                {isAdding ? 'Blocking...' : 'Block Caller'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
-      <div className="bg-white rounded shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Blocked Callers List</h2>
-        
-        {isFetching && callers.length === 0 ? (
-          <p className="text-gray-500">Loading blocked callers...</p>
-        ) : callers.length === 0 ? (
-          <p className="text-gray-500">No blocked callers yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="py-2 text-sm text-gray-600">Phone Number</th>
-                  <th className="py-2 text-sm text-gray-600">Reason</th>
-                  <th className="py-2 text-sm text-gray-600">Blocked On</th>
-                  <th className="py-2 text-sm text-gray-600 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {callers.map((caller) => (
-                  <tr key={caller.id} className="border-b border-gray-100 last:border-0">
-                    <td className="py-3 text-gray-900 font-medium font-mono">{caller.phone_number}</td>
-                    <td className="py-3 text-gray-600">{caller.reason || '-'}</td>
-                    <td className="py-3 text-gray-500 text-sm">
-                      {new Date(caller.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="py-3 text-right">
-                      <button
-                        onClick={() => handleUnblock(caller.id)}
-                        className="text-red-600 hover:text-red-800 text-sm font-medium"
-                      >
-                        Unblock
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <Card>
+          <CardHeader>
+            <CardTitle>Blocked Callers List</CardTitle>
+            <CardDescription>All currently blocked numbers for this workspace.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {callers.length === 0 ? (
+              <div className="p-8">
+                <EmptyState
+                  icon={<ShieldBan />}
+                  title="No blocked callers"
+                  description="Blocked phone numbers will appear here."
+                />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader className="bg-muted/50">
+                  <TableRow>
+                    <TableHead className="min-w-[150px]">Phone Number</TableHead>
+                    <TableHead className="min-w-[150px]">Reason</TableHead>
+                    <TableHead className="min-w-[120px]">Blocked Date</TableHead>
+                    <TableHead className="text-right min-w-[100px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {callers.map((caller) => (
+                    <TableRow key={caller.id}>
+                      <TableCell className="font-mono text-sm max-w-[200px] break-all text-foreground">
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span>{caller.phone_number}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground max-w-xs truncate">
+                        {caller.reason || '-'}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {new Date(caller.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                          onClick={() => handleUnblock(caller.id)}
+                        >
+                          Unblock
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

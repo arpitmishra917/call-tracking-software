@@ -3,6 +3,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Webhook as WebhookIcon, Copy, AlertTriangle, Link } from 'lucide-react';
 
 type Webhook = {
   id: string;
@@ -24,7 +32,10 @@ export default function WebhooksPage() {
   const [newSecret, setNewSecret] = useState<string | null>(null);
 
   const fetchWebhooks = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
@@ -86,115 +97,170 @@ export default function WebhooksPage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Loading webhooks...
+      </div>
+    );
+  }
+
   if (!workspaceId) {
-    return <div className="p-4 text-gray-500">Please select a workspace first.</div>;
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Select a workspace first.
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Customer Webhooks</h1>
-        <p className="text-gray-600 mt-1">
-          Manage endpoints for receiving real-time call and attempt events. 
-          <br/>
-          <span className="text-sm font-semibold">Note: The backend currently does not support editing URLs, disabling endpoints, or viewing delivery history.</span>
-        </p>
+    <div className="flex flex-col gap-8 pb-8 max-w-5xl mx-auto w-full">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Webhooks</h1>
+          <p className="text-muted-foreground mt-2 max-w-3xl">
+            Manage endpoints for receiving real-time call and attempt events. 
+            The current platform provides event streaming but does not support manual editing or viewing delivery history.
+          </p>
+        </div>
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-md border border-red-200">
+        <div className="p-4 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm">
           {error}
         </div>
       )}
 
       {newSecret && (
-        <div className="mb-6 p-4 bg-green-50 text-green-700 rounded-md border border-green-200">
-          <p className="font-bold mb-2">Webhook Created Successfully!</p>
-          <p className="mb-2">Please copy your signing secret now. It will <strong>never</strong> be shown again.</p>
-          <code className="block p-3 bg-white border border-green-200 rounded font-mono text-sm break-all">
-            {newSecret}
-          </code>
-          <button 
-            onClick={() => setNewSecret(null)}
-            className="mt-3 text-sm text-green-800 hover:underline"
-          >
-            I have copied it, dismiss this message
-          </button>
-        </div>
+        <Card className="border-warning/50 bg-warning/5 shadow-sm">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-4">
+              <div className="p-2 bg-warning/20 rounded-full shrink-0">
+                <AlertTriangle className="h-5 w-5 text-warning" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-semibold text-foreground mb-1">Webhook Created</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Please copy your signing secret now. You will need it to verify payload signatures. 
+                  <strong> It will never be shown again.</strong>
+                </p>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-background border rounded-md p-3 max-w-xl">
+                  <code className="text-sm font-mono break-all text-foreground select-all">
+                    {newSecret}
+                  </code>
+                  <div className="flex gap-2 shrink-0">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => navigator.clipboard.writeText(newSecret)}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setNewSecret(null)}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="bg-white shadow rounded-lg border border-gray-200 mb-8 p-6">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">Add Webhook Endpoint</h2>
-        <form onSubmit={handleCreate} className="flex gap-4 items-end">
-          <div className="flex-1">
-            <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-1">
-              Endpoint URL
-            </label>
-            <input
-              type="url"
-              id="url"
-              required
-              placeholder="https://your-server.com/webhook"
-              className="w-full rounded-md border-gray-300 py-2 px-3 text-sm focus:border-blue-500 focus:ring-blue-500 border"
-              value={newUrl}
-              onChange={(e) => setNewUrl(e.target.value)}
-              disabled={isCreating}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isCreating || !newUrl.trim()}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium text-sm transition-colors disabled:opacity-50"
-          >
-            {isCreating ? 'Creating...' : 'Create Webhook'}
-          </button>
-        </form>
-      </div>
+      <div className="grid grid-cols-1 gap-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Add Webhook Endpoint</CardTitle>
+            <CardDescription>Register a new URL to receive HTTP POST payloads.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreate} className="flex flex-col sm:flex-row items-end gap-4 max-w-xl">
+              <div className="space-y-2 flex-1 w-full">
+                <Label htmlFor="url">Endpoint URL</Label>
+                <Input
+                  type="url"
+                  id="url"
+                  required
+                  placeholder="https://your-server.com/webhook"
+                  value={newUrl}
+                  onChange={(e) => setNewUrl(e.target.value)}
+                  disabled={isCreating}
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={isCreating || !newUrl.trim()}
+                className="w-full sm:w-auto"
+              >
+                {isCreating ? 'Creating...' : 'Create Webhook'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
-      <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-800">Active Endpoints</h2>
-        </div>
-        
-        {loading ? (
-          <div className="p-6 text-gray-500 text-center">Loading webhooks...</div>
-        ) : webhooks.length === 0 ? (
-          <div className="p-6 text-gray-500 text-center">No webhooks configured.</div>
-        ) : (
-          <table className="w-full text-left text-sm text-gray-600">
-            <thead className="bg-gray-50 text-gray-700">
-              <tr>
-                <th className="px-6 py-3 font-medium">URL</th>
-                <th className="px-6 py-3 font-medium w-32">Status</th>
-                <th className="px-6 py-3 font-medium w-48">Created</th>
-                <th className="px-6 py-3 font-medium w-24 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {webhooks.map((wh) => (
-                <tr key={wh.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 font-mono text-xs break-all">{wh.url}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                      {wh.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-gray-500">
-                    {new Date(wh.created_at).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={() => handleDelete(wh.id)}
-                      className="text-red-600 hover:text-red-800 font-medium"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <Card>
+          <CardHeader>
+            <CardTitle>Active Endpoints</CardTitle>
+            <CardDescription>Configured webhooks for this workspace.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {webhooks.length === 0 ? (
+              <div className="p-8">
+                <EmptyState
+                  icon={<WebhookIcon />}
+                  title="No webhooks yet"
+                  description="Connect CallFlow to your application by creating your first webhook endpoint."
+                />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader className="bg-muted/50">
+                  <TableRow>
+                    <TableHead className="min-w-[200px]">Endpoint URL</TableHead>
+                    <TableHead className="min-w-[100px]">Status</TableHead>
+                    <TableHead className="min-w-[120px]">Created</TableHead>
+                    <TableHead className="text-right min-w-[100px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {webhooks.map((wh) => (
+                    <TableRow key={wh.id}>
+                      <TableCell className="font-mono text-xs max-w-[200px] md:max-w-md break-all truncate text-foreground">
+                        <div className="flex items-center gap-2">
+                          <Link className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">{wh.url}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 capitalize">
+                          {wh.status.toLowerCase()}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {new Date(wh.created_at).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                          onClick={() => handleDelete(wh.id)}
+                        >
+                          Delete
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

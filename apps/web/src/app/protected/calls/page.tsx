@@ -4,6 +4,14 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import Link from 'next/link';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PhoneCall, Search, X } from 'lucide-react';
 
 interface CallLog {
   id: string;
@@ -55,77 +63,176 @@ export default function CallsPage() {
     }
   }, [workspaceId, filters]);
 
-  if (!workspaceId) return <div className="p-6">Select a workspace first.</div>;
+  const clearFilters = () => {
+    setFilters({
+      startDate: '',
+      endDate: '',
+      callerNumber: '',
+      status: '',
+      campaignId: '',
+      buyerId: '',
+    });
+  };
+
+  const getStatusBadgeVariant = (state: string) => {
+    switch (state.toUpperCase()) {
+      case 'COMPLETED':
+      case 'ANSWERED':
+        return 'success';
+      case 'NO_ANSWER':
+      case 'FAILED':
+        return 'error';
+      case 'BLOCKED':
+        return 'error';
+      case 'ROUTING':
+      case 'RINGING':
+      case 'ACTIVE':
+        return 'warning';
+      default:
+        return 'default';
+    }
+  };
+
+  if (!workspaceId) return <div className="p-6 text-muted-foreground">Select a workspace first.</div>;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Call Logs</h1>
-
-      <div className="bg-white p-4 rounded shadow-sm border flex flex-wrap gap-4 items-end">
+    <div className="flex flex-col gap-6 md:gap-8 pb-8 w-full max-w-7xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <label className="block text-sm">Start Date</label>
-          <input type="date" value={filters.startDate} onChange={e => setFilters({...filters, startDate: e.target.value})} className="border p-1 rounded" />
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Calls</h1>
+          <p className="text-muted-foreground">Operational call logs and routing history.</p>
         </div>
-        <div>
-          <label className="block text-sm">End Date</label>
-          <input type="date" value={filters.endDate} onChange={e => setFilters({...filters, endDate: e.target.value})} className="border p-1 rounded" />
-        </div>
-        <div>
-          <label className="block text-sm">Caller Number</label>
-          <input type="text" value={filters.callerNumber} onChange={e => setFilters({...filters, callerNumber: e.target.value})} placeholder="e.g. +1" className="border p-1 rounded" />
-        </div>
-        <div>
-          <label className="block text-sm">Status</label>
-          <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="border p-1 rounded">
-            <option value="">All</option>
-            <option value="COMPLETED">COMPLETED</option>
-            <option value="NO_ANSWER">NO_ANSWER</option>
-            <option value="FAILED">FAILED</option>
-          </select>
-        </div>
-        <button onClick={() => setFilters({startDate: '', endDate: '', callerNumber: '', status: '', campaignId: '', buyerId: ''})} className="bg-gray-200 px-3 py-1 rounded">
-          Clear
-        </button>
       </div>
 
-      <div className="bg-white rounded shadow-sm border overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="p-3">Time</th>
-              <th className="p-3">Caller</th>
-              <th className="p-3">Tracking No.</th>
-              <th className="p-3">Campaign</th>
-              <th className="p-3">Status</th>
-              <th className="p-3">Duration</th>
-              <th className="p-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
+      <Card>
+        <CardHeader className="pb-3 border-b border-border">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Search className="w-4 h-4" />
+            Filters
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+            <div className="space-y-1.5">
+              <Label htmlFor="startDate">Start Date</Label>
+              <Input 
+                id="startDate"
+                type="date" 
+                value={filters.startDate} 
+                onChange={e => setFilters({...filters, startDate: e.target.value})} 
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="endDate">End Date</Label>
+              <Input 
+                id="endDate"
+                type="date" 
+                value={filters.endDate} 
+                onChange={e => setFilters({...filters, endDate: e.target.value})} 
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="callerNumber">Caller Number</Label>
+              <Input 
+                id="callerNumber"
+                type="text" 
+                value={filters.callerNumber} 
+                onChange={e => setFilters({...filters, callerNumber: e.target.value})} 
+                placeholder="+1..." 
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="status">Status</Label>
+              <select 
+                id="status"
+                value={filters.status} 
+                onChange={e => setFilters({...filters, status: e.target.value})} 
+                className="flex h-10 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+              >
+                <option value="">All Statuses</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="NO_ANSWER">No Answer</option>
+                <option value="FAILED">Failed</option>
+                <option value="BLOCKED">Blocked</option>
+              </select>
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button variant="outline" size="sm" onClick={clearFilters}>
+              <X className="w-4 h-4 mr-2" />
+              Clear Filters
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="min-w-[120px]">Time</TableHead>
+              <TableHead className="min-w-[150px]">Caller</TableHead>
+              <TableHead className="min-w-[150px]">Tracking No.</TableHead>
+              <TableHead className="min-w-[150px]">Campaign</TableHead>
+              <TableHead className="min-w-[100px]">Duration</TableHead>
+              <TableHead className="min-w-[100px]">Status</TableHead>
+              <TableHead className="text-right min-w-[100px]">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {loading ? (
-              <tr><td colSpan={7} className="p-4 text-center">Loading...</td></tr>
+              <TableRow>
+                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Loading calls...
+                  </div>
+                </TableCell>
+              </TableRow>
             ) : calls.length === 0 ? (
-              <tr><td colSpan={7} className="p-4 text-center">No calls found.</td></tr>
+              <TableRow>
+                <TableCell colSpan={7} className="h-48 text-center">
+                  <EmptyState 
+                    icon={<PhoneCall className="w-8 h-8" />}
+                    title="No calls found"
+                    description="No calls match the current filter criteria."
+                  />
+                </TableCell>
+              </TableRow>
             ) : (
               calls.map(call => (
-                <tr key={call.id} className="border-b">
-                  <td className="p-3">{new Date(call.created_at).toLocaleString()}</td>
-                  <td className="p-3">{call.from_number}</td>
-                  <td className="p-3">{call.to_number}</td>
-                  <td className="p-3">{call.campaign?.name || '-'}</td>
-                  <td className="p-3">{call.state}</td>
-                  <td className="p-3">{call.duration_secs ? `${call.duration_secs}s` : '-'}</td>
-                  <td className="p-3">
-                    <Link href={`/protected/calls/${call.id}?workspace=${workspaceId}`} className="text-blue-600 hover:underline">
-                      View Details
+                <TableRow key={call.id} className="group">
+                  <TableCell className="font-medium whitespace-nowrap">
+                    {new Date(call.created_at).toLocaleString(undefined, { 
+                      month: 'short', 
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    })}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{call.from_number}</TableCell>
+                  <TableCell className="font-mono text-xs">{call.to_number}</TableCell>
+                  <TableCell>{call.campaign?.name || '-'}</TableCell>
+                  <TableCell>{call.duration_secs ? `${call.duration_secs}s` : '-'}</TableCell>
+                  <TableCell>
+                    <Badge variant={getStatusBadgeVariant(call.state)}>
+                      {call.state}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Link 
+                      href={`/protected/calls/${call.id}?workspace=${workspaceId}`}
+                      className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground h-9 px-3"
+                    >
+                      View
                     </Link>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))
             )}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </Card>
     </div>
   );
 }

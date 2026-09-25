@@ -18,8 +18,8 @@ describe('Sidebar Role-Aware Navigation', () => {
     const workspaces = [{ id: 'ws1', name: 'WS 1', role: 'OWNER' }];
     render(<Sidebar workspaces={workspaces} />);
     
-    // Should see Administration header and Members link
-    expect(screen.getByText('Administration')).toBeTruthy();
+    // Should see Workspace header and Members link
+    expect(screen.getByText('Workspace')).toBeTruthy();
     expect(screen.getByText('Members')).toBeTruthy();
   });
 
@@ -27,8 +27,8 @@ describe('Sidebar Role-Aware Navigation', () => {
     const workspaces = [{ id: 'ws2', name: 'WS 2', role: 'VIEWER' }];
     render(<Sidebar workspaces={workspaces} />);
     
-    // Should NOT see Administration
-    expect(screen.queryByText('Administration')).toBeNull();
+    // Should NOT see Workspace header
+    expect(screen.queryByText('Workspace')).toBeNull();
     expect(screen.queryByText('Members')).toBeNull();
   });
 
@@ -36,8 +36,9 @@ describe('Sidebar Role-Aware Navigation', () => {
     const workspaces = [{ id: 'ws3', name: 'WS 3', role: 'MEMBER' }];
     render(<Sidebar workspaces={workspaces} />);
     
-    // Should NOT see Administration
-    expect(screen.queryByText('Administration')).toBeNull();
+    // Should NOT see Workspace header
+    expect(screen.queryByText('Workspace')).toBeNull();
     expect(screen.queryByText('Members')).toBeNull();
   });
 });
+

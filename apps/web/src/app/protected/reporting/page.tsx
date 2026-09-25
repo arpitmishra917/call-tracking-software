@@ -3,6 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { BarChart3, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock } from 'lucide-react';
 
 type Metrics = {
   total: number;
@@ -14,11 +20,17 @@ type Metrics = {
   buyers: Record<string, { total: number; answered: number }>;
 };
 
+type Campaign = { id: string; name: string };
+type Buyer = { id: string; name: string };
+
 export default function ReportingPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
 
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [campaignMap, setCampaignMap] = useState<Record<string, string>>({});
+  const [buyerMap, setBuyerMap] = useState<Record<string, string>>({});
+  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +39,11 @@ export default function ReportingPage() {
   const [endDate, setEndDate] = useState('');
 
   const fetchMetrics = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      setLoading(false);
+      return;
+    }
+    
     try {
       setLoading(true);
       setError(null);
@@ -42,10 +58,29 @@ export default function ReportingPage() {
       }
       
       const qs = queryParams.toString();
-      const url = `/workspaces/${workspaceId}/calls/metrics${qs ? `?${qs}` : ''}`;
+      const metricsUrl = `/workspaces/${workspaceId}/calls/metrics${qs ? `?${qs}` : ''}`;
       
-      const data = await apiFetch(url);
-      setMetrics(data);
+      const [metricsData, campaignsData, buyersData] = await Promise.all([
+        apiFetch(metricsUrl),
+        apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => []),
+        apiFetch(`/workspaces/${workspaceId}/buyers`).catch(() => [])
+      ]);
+      
+      setMetrics(metricsData);
+      
+      // Build maps for human-readable names
+      const cMap: Record<string, string> = {};
+      if (Array.isArray(campaignsData)) {
+        campaignsData.forEach((c: Campaign) => { cMap[c.id] = c.name; });
+      }
+      setCampaignMap(cMap);
+      
+      const bMap: Record<string, string> = {};
+      if (Array.isArray(buyersData)) {
+        buyersData.forEach((b: Buyer) => { bMap[b.id] = b.name; });
+      }
+      setBuyerMap(bMap);
+      
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load metrics');
     } finally {
@@ -78,139 +113,224 @@ export default function ReportingPage() {
     return Math.round((part / total) * 100) + '%';
   };
 
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Loading reporting data...
+      </div>
+    );
+  }
+
   if (!workspaceId) {
-    return <div className="p-4 text-gray-500">Please select a workspace first.</div>;
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Select a workspace first.
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+    <div className="flex flex-col gap-6 md:gap-8 pb-8 w-full max-w-6xl mx-auto">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reporting</h1>
-          <p className="text-gray-600 mt-1 text-sm">
-            Call volume and routing performance.
-            <br />
-            <span className="text-xs font-semibold">Note: The backend currently does not support usage cost mapping or real-time billing metrics in this endpoint.</span>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Reporting</h1>
+          <p className="text-muted-foreground mt-2">
+            Understand call volume, outcomes, and routing performance.
           </p>
         </div>
-
-        <div className="flex items-center gap-2 bg-white p-2 rounded-md shadow-sm border border-gray-200">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="text-sm border-gray-300 rounded px-2 py-1 focus:ring-blue-500 focus:border-blue-500 border"
-          />
-          <span className="text-gray-500 text-sm">to</span>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="text-sm border-gray-300 rounded px-2 py-1 focus:ring-blue-500 focus:border-blue-500 border"
-          />
+        
+        {/* Date Controls */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-background border rounded-md px-3 py-1.5 shadow-sm">
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="h-8 border-0 shadow-none focus-visible:ring-0 p-0 w-32"
+            />
+            <span className="text-muted-foreground text-sm font-medium px-1">to</span>
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="h-8 border-0 shadow-none focus-visible:ring-0 p-0 w-32"
+            />
+          </div>
         </div>
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-md border border-red-200">
+        <div className="p-4 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm">
           {error}
         </div>
       )}
 
-      {loading ? (
-        <div className="text-center p-12 text-gray-500">Loading metrics...</div>
-      ) : metrics ? (
+      {!metrics || metrics.total === 0 ? (
+        <div className="mt-8">
+          <EmptyState
+            icon={<BarChart3 />}
+            title="No call data yet"
+            description="Once calls are processed, reporting metrics and performance breakdowns will appear here."
+          />
+        </div>
+      ) : (
         <>
-          {/* Key Metrics Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-            <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-              <div className="text-sm text-gray-500 mb-1">Total Calls</div>
-              <div className="text-3xl font-bold text-gray-900">{metrics.total}</div>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-green-200 shadow-sm">
-              <div className="text-sm text-green-600 mb-1 font-medium">Answered</div>
-              <div className="text-3xl font-bold text-gray-900">{metrics.answered}</div>
-              <div className="text-xs text-gray-500 mt-1">Rate: {calculateRate(metrics.answered, metrics.total)}</div>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-orange-200 shadow-sm">
-              <div className="text-sm text-orange-600 mb-1 font-medium">Missed/No Answer</div>
-              <div className="text-3xl font-bold text-gray-900">{metrics.missed}</div>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-red-200 shadow-sm">
-              <div className="text-sm text-red-600 mb-1 font-medium">Blocked/Failed</div>
-              <div className="text-3xl font-bold text-gray-900">{metrics.blocked}</div>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-blue-200 shadow-sm">
-              <div className="text-sm text-blue-600 mb-1 font-medium">Avg Answered Duration</div>
-              <div className="text-3xl font-bold text-gray-900">{formatDuration(metrics.avgDuration)}</div>
-            </div>
+          {/* KPI Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <PhoneCall className="h-4 w-4" />
+                  <span className="text-sm font-medium">Total Calls</span>
+                </div>
+                <div className="text-3xl font-bold text-foreground">{metrics.total}</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <PhoneIncoming className="h-4 w-4 text-emerald-600" />
+                  <span className="text-sm font-medium">Answered</span>
+                </div>
+                <div className="text-3xl font-bold text-foreground">{metrics.answered}</div>
+                <div className="text-xs text-muted-foreground mt-2">
+                  Rate: {calculateRate(metrics.answered, metrics.total)}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <PhoneMissed className="h-4 w-4 text-orange-500" />
+                  <span className="text-sm font-medium">Missed/No Answer</span>
+                </div>
+                <div className="text-3xl font-bold text-foreground">{metrics.missed}</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <PhoneOff className="h-4 w-4 text-red-500" />
+                  <span className="text-sm font-medium">Blocked/Failed</span>
+                </div>
+                <div className="text-3xl font-bold text-foreground">{metrics.blocked}</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Clock className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm font-medium">Avg Answered Duration</span>
+                </div>
+                <div className="text-3xl font-bold text-foreground">{formatDuration(metrics.avgDuration)}</div>
+              </CardContent>
+            </Card>
           </div>
+
+          {/* Call Volume Visualization Placeholder */}
+          <Card className="bg-muted/30 border-dashed">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">Call Volume</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <BarChart3 className="h-8 w-8 text-muted-foreground/50 mb-3" />
+                <p className="text-sm text-muted-foreground font-medium">Time-series visualization not available</p>
+                <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                  The current API only provides aggregated metrics for the selected period. Daily or hourly breakdowns are not supported.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Campaign Breakdown */}
-            <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Campaign Performance</h2>
-              </div>
-              {Object.keys(metrics.campaigns).length === 0 ? (
-                <div className="p-6 text-center text-gray-500 text-sm">No campaign data in this period.</div>
-              ) : (
-                <table className="w-full text-left text-sm text-gray-600">
-                  <thead className="border-b border-gray-200 bg-white">
-                    <tr>
-                      <th className="px-6 py-3 font-medium">Campaign ID</th>
-                      <th className="px-6 py-3 font-medium text-right">Total Calls</th>
-                      <th className="px-6 py-3 font-medium text-right">Answered</th>
-                      <th className="px-6 py-3 font-medium text-right">Answer Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {Object.entries(metrics.campaigns).map(([id, stats]) => (
-                      <tr key={id} className="hover:bg-gray-50">
-                        <td className="px-6 py-3 font-mono text-xs">{id}</td>
-                        <td className="px-6 py-3 text-right font-medium">{stats.total}</td>
-                        <td className="px-6 py-3 text-right text-green-600 font-medium">{stats.answered}</td>
-                        <td className="px-6 py-3 text-right">{calculateRate(stats.answered, stats.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            {/* Campaign Performance */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-semibold">Campaign Performance</CardTitle>
+                <CardDescription>Breakdown of routing performance by campaign.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {Object.keys(metrics.campaigns).length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground text-sm">No campaign data in this period.</div>
+                ) : (
+                  <Table>
+                    <TableHeader className="bg-muted/50">
+                      <TableRow>
+                        <TableHead className="min-w-[150px]">Campaign</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Total Calls</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Answered</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Answer Rate</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {Object.entries(metrics.campaigns).map(([id, stats]) => (
+                        <TableRow key={id}>
+                          <TableCell className="font-medium">
+                            {campaignMap[id] || <span className="font-mono text-xs text-muted-foreground">{id}</span>}
+                          </TableCell>
+                          <TableCell className="text-right">{stats.total}</TableCell>
+                          <TableCell className="text-right font-medium text-emerald-600">{stats.answered}</TableCell>
+                          <TableCell className="text-right">
+                            <Badge variant="outline" className="font-mono text-xs bg-muted">
+                              {calculateRate(stats.answered, stats.total)}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
 
-            {/* Buyer Breakdown */}
-            <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Buyer Performance</h2>
-              </div>
-              {Object.keys(metrics.buyers).length === 0 ? (
-                <div className="p-6 text-center text-gray-500 text-sm">No buyer data in this period.</div>
-              ) : (
-                <table className="w-full text-left text-sm text-gray-600">
-                  <thead className="border-b border-gray-200 bg-white">
-                    <tr>
-                      <th className="px-6 py-3 font-medium">Buyer ID</th>
-                      <th className="px-6 py-3 font-medium text-right">Total Attempts</th>
-                      <th className="px-6 py-3 font-medium text-right">Answered</th>
-                      <th className="px-6 py-3 font-medium text-right">Connect Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {Object.entries(metrics.buyers).map(([id, stats]) => (
-                      <tr key={id} className="hover:bg-gray-50">
-                        <td className="px-6 py-3 font-mono text-xs">{id}</td>
-                        <td className="px-6 py-3 text-right font-medium">{stats.total}</td>
-                        <td className="px-6 py-3 text-right text-green-600 font-medium">{stats.answered}</td>
-                        <td className="px-6 py-3 text-right">{calculateRate(stats.answered, stats.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            {/* Buyer Performance */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-semibold">Buyer Performance</CardTitle>
+                <CardDescription>Breakdown of connection success by buyer.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {Object.keys(metrics.buyers).length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground text-sm">No buyer data in this period.</div>
+                ) : (
+                  <Table>
+                    <TableHeader className="bg-muted/50">
+                      <TableRow>
+                        <TableHead className="min-w-[150px]">Buyer</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Total Attempts</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Answered</TableHead>
+                        <TableHead className="text-right min-w-[100px]">Connect Rate</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {Object.entries(metrics.buyers).map(([id, stats]) => (
+                        <TableRow key={id}>
+                          <TableCell className="font-medium">
+                            {buyerMap[id] || <span className="font-mono text-xs text-muted-foreground">{id}</span>}
+                          </TableCell>
+                          <TableCell className="text-right">{stats.total}</TableCell>
+                          <TableCell className="text-right font-medium text-emerald-600">{stats.answered}</TableCell>
+                          <TableCell className="text-right">
+                            <Badge variant="outline" className="font-mono text-xs bg-muted">
+                              {calculateRate(stats.answered, stats.total)}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </>
-      ) : null}
+      )}
     </div>
   );
 }

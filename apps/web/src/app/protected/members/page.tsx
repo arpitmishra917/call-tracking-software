@@ -3,6 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Users } from 'lucide-react';
 
 type Profile = {
   id: string;
@@ -31,7 +37,6 @@ export default function MembersPage() {
   const fetchMembers = useCallback(async () => {
     if (!workspaceId) return;
     try {
-      // Find out current user's role in this workspace
       const workspaces = await apiFetch('/workspaces');
       const ws = workspaces.find((w: { id: string; role: string }) => w.id === workspaceId);
       setUserRole(ws?.role || null);
@@ -75,84 +80,96 @@ export default function MembersPage() {
   };
 
   if (!workspaceId) {
-    return <div className="p-4 text-gray-500">Please select a workspace first.</div>;
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Select a workspace first.
+      </div>
+    );
   }
 
   const isOwnerOrAdmin = userRole === 'OWNER' || userRole === 'ADMIN';
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Workspace Members</h1>
-        <p className="text-gray-600 mt-1">
-          Manage access to this workspace.
-          <br/>
-          <span className="text-sm font-semibold">Note: The backend currently does not support inviting new members via email or editing existing roles.</span>
+    <div className="flex flex-col gap-8 pb-8 max-w-5xl mx-auto w-full">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Workspace Members</h1>
+        <p className="text-muted-foreground mt-2 max-w-3xl">
+          Manage access to this workspace. The backend currently does not support inviting new members via email or editing existing roles.
         </p>
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-md border border-red-200">
+        <div className="p-4 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm">
           {error}
         </div>
       )}
 
-      <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-800">Team Members</h2>
-        </div>
-        
-        {loading ? (
-          <div className="p-6 text-gray-500 text-center">Loading members...</div>
-        ) : members.length === 0 ? (
-          <div className="p-6 text-gray-500 text-center">No members found.</div>
-        ) : (
-          <table className="w-full text-left text-sm text-gray-600">
-            <thead className="bg-gray-50 text-gray-700">
-              <tr>
-                <th className="px-6 py-3 font-medium">User / Identity</th>
-                <th className="px-6 py-3 font-medium w-32">Role</th>
-                <th className="px-6 py-3 font-medium w-48">Joined</th>
-                {isOwnerOrAdmin && <th className="px-6 py-3 font-medium w-24 text-right">Actions</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {members.map((member) => (
-                <tr key={member.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-gray-900">
-                      {member.profile.display_name || 'Anonymous User'}
-                    </div>
-                    <div className="text-xs font-mono text-gray-500 mt-1 break-all">
-                      {member.profile.id}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                      {member.role}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-gray-500">
-                    {new Date(member.created_at).toLocaleDateString()}
-                  </td>
-                  {isOwnerOrAdmin && (
-                    <td className="px-6 py-4 text-right">
-                      {member.role !== 'OWNER' && (
-                        <button
-                          onClick={() => handleRemove(member.user_id)}
-                          className="text-red-600 hover:text-red-800 font-medium"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Team Members</CardTitle>
+          <CardDescription>All members who have access to this workspace.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-8 text-center text-muted-foreground">Loading members...</div>
+          ) : members.length === 0 ? (
+            <div className="p-8">
+              <EmptyState
+                icon={<Users />}
+                title="No members found"
+                description="This workspace currently has no active members."
+              />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="bg-muted/50">
+                <TableRow>
+                  <TableHead className="min-w-[200px]">User / Identity</TableHead>
+                  <TableHead className="min-w-[100px]">Role</TableHead>
+                  <TableHead className="min-w-[120px]">Joined</TableHead>
+                  {isOwnerOrAdmin && <TableHead className="text-right min-w-[100px]">Actions</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {members.map((member) => (
+                  <TableRow key={member.id}>
+                    <TableCell>
+                      <div className="font-medium text-foreground">
+                        {member.profile.display_name || 'Anonymous User'}
+                      </div>
+                      <div className="text-xs font-mono text-muted-foreground mt-1 break-all max-w-xs">
+                        {member.profile.id}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={member.role === 'OWNER' ? 'success' : member.role === 'ADMIN' ? 'info' : 'outline'}>
+                        {member.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {new Date(member.created_at).toLocaleDateString()}
+                    </TableCell>
+                    {isOwnerOrAdmin && (
+                      <TableCell className="text-right">
+                        {member.role !== 'OWNER' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                            onClick={() => handleRemove(member.user_id)}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

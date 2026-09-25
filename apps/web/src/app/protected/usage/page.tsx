@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Phone, Clock, HardDrive } from 'lucide-react';
 
 type UsageSummary = {
   CALL_MINUTE: number;
@@ -51,7 +53,11 @@ export default function UsagePage() {
   }, [fetchUsage]);
 
   if (!workspaceId) {
-    return <div className="p-4 text-gray-500">Please select a workspace first.</div>;
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Select a workspace first.
+      </div>
+    );
   }
 
   const formatPeriod = (start: string | null, end: string | null) => {
@@ -60,57 +66,96 @@ export default function UsagePage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Workspace Usage</h1>
-        <p className="text-gray-600 mt-1">
+    <div className="flex flex-col gap-8 pb-8 max-w-5xl mx-auto w-full">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Workspace Usage</h1>
+        <p className="text-muted-foreground mt-2 max-w-3xl">
           Review your usage metrics for the current billing cycle.
-          <br />
-          <span className="text-sm font-semibold">Note: The backend currently exposes raw usage without dynamic date filtering.</span>
         </p>
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-md border border-red-200">
+        <div className="p-4 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="p-12 text-gray-500 text-center">Loading usage data...</div>
-      ) : usage ? (
-        <div className="space-y-6">
-          <div className="bg-white px-6 py-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center">
-            <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Billing Period</h2>
-              <p className="text-lg font-medium text-gray-900">{formatPeriod(usage.period_start, usage.period_end)}</p>
-            </div>
-          </div>
+        <div className="p-8 text-center text-muted-foreground">Loading usage data...</div>
+      ) : usage && usage.summary ? (
+        <div className="flex flex-col gap-6">
+          <Card className="bg-muted/30 border-dashed">
+            <CardContent className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                  Billing Period
+                </p>
+                <p className="text-lg font-semibold text-foreground">
+                  {formatPeriod(usage.period_start, usage.period_end)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white shadow rounded-lg border border-gray-200 p-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-1">Call Minutes</h3>
-              <p className="text-4xl font-bold text-gray-900">{usage.summary.CALL_MINUTE}</p>
-              <p className="text-sm text-gray-500 mt-2">Total voice minutes processed</p>
-            </div>
-            
-            <div className="bg-white shadow rounded-lg border border-gray-200 p-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-1">Phone Numbers</h3>
-              <p className="text-4xl font-bold text-gray-900">{usage.summary.PHONE_NUMBER}</p>
-              <p className="text-sm text-gray-500 mt-2">Active phone numbers provisioned</p>
-            </div>
-            
-            <div className="bg-white shadow rounded-lg border border-gray-200 p-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-1">Recording Storage</h3>
-              <p className="text-4xl font-bold text-gray-900">{usage.summary.RECORDING_STORAGE}</p>
-              <p className="text-sm text-gray-500 mt-2">Storage units consumed by call recordings</p>
-            </div>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Call Minutes
+                </CardTitle>
+                <Clock className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-4xl font-bold text-foreground">
+                  {usage.summary.CALL_MINUTE}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Total voice minutes processed
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Phone Numbers
+                </CardTitle>
+                <Phone className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-4xl font-bold text-foreground">
+                  {usage.summary.PHONE_NUMBER}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Active phone numbers provisioned
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Recording Storage
+                </CardTitle>
+                <HardDrive className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-4xl font-bold text-foreground">
+                  {usage.summary.RECORDING_STORAGE}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Storage units consumed by call recordings
+                </p>
+              </CardContent>
+            </Card>
           </div>
         </div>
       ) : (
-        <div className="p-12 text-gray-500 text-center bg-white shadow rounded-lg border border-gray-200">
-          No usage data available for this workspace.
-        </div>
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground flex flex-col items-center">
+            <p>No usage data available for this workspace.</p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
