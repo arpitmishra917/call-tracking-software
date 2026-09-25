@@ -2,11 +2,29 @@
 
 import Link from 'next/link';
 import { useSearchParams, usePathname } from 'next/navigation';
+import { cn } from '@/utils/cn';
+import {
+  LayoutDashboard,
+  PhoneCall,
+  BarChart,
+  Megaphone,
+  Users,
+  Hash,
+  ShieldBan,
+  Key,
+  Webhook,
+  Activity,
+  CreditCard,
+  Settings,
+  Users2
+} from 'lucide-react';
 
 export default function Sidebar({
   workspaces,
+  onNavClick
 }: {
   workspaces: { id: string; name: string; role: string }[];
+  onNavClick?: () => void;
 }) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -16,66 +34,85 @@ export default function Sidebar({
 
   const isOwnerOrAdmin = role === 'OWNER' || role === 'ADMIN';
 
-  const getLinkClass = (path: string) => {
-    return pathname === path
-      ? "block px-3 py-2 rounded-md bg-blue-50 text-blue-700 font-medium"
-      : "block px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100 font-medium";
+  const getUrl = (path: string) => {
+    return `${path}${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`;
   };
 
+  const NavItem = ({ href, icon: Icon, children }: { href: string, icon: any, children: React.ReactNode }) => {
+    const isActive = pathname === href;
+    return (
+      <Link
+        href={getUrl(href)}
+        onClick={onNavClick}
+        className={cn(
+          "group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
+          isActive 
+            ? "bg-secondary text-primary" 
+            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+        )}
+      >
+        <Icon className={cn(
+          "mr-3 flex-shrink-0 h-5 w-5 transition-colors",
+          isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+        )} />
+        {children}
+      </Link>
+    );
+  };
+
+  const NavGroup = ({ title, children }: { title: string, children: React.ReactNode }) => (
+    <div className="mb-6">
+      <h4 className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </h4>
+      <div className="space-y-1">
+        {children}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
-      <div className="h-16 flex items-center px-6 border-b border-gray-200 font-bold text-xl text-blue-600">
-        CallFlow
+    <div className="flex h-full flex-col overflow-y-auto bg-surface pb-4">
+      <div className="flex h-16 shrink-0 items-center px-6 border-b border-border">
+        <div className="flex items-center gap-2 text-xl font-bold text-primary tracking-tight">
+          <PhoneCall className="h-6 w-6 text-info" />
+          <span>CallFlow</span>
+        </div>
       </div>
       
-      <nav className="flex-1 p-4 space-y-1">
-        <Link href={`/protected${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected')}>
-          Dashboard
-        </Link>
-        <Link href={`/protected/phone-numbers${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/phone-numbers')}>
-          Phone Numbers
-        </Link>
-        <Link href={`/protected/campaigns${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/campaigns')}>
-          Campaigns
-        </Link>
-        <Link href={`/protected/buyers${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/buyers')}>
-          Buyers
-        </Link>
-        <Link href={`/protected/calls${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/calls')}>
-          Calls
-        </Link>
-        <Link href={`/protected/reporting${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/reporting')}>
-          Reporting
-        </Link>
+      <nav className="flex-1 px-4 py-6">
+        <NavGroup title="Overview">
+          <NavItem href="/protected" icon={LayoutDashboard}>Dashboard</NavItem>
+          <NavItem href="/protected/calls" icon={PhoneCall}>Calls</NavItem>
+          <NavItem href="/protected/reporting" icon={BarChart}>Reporting</NavItem>
+        </NavGroup>
 
-        {/* Role-aware navigation */}
+        <NavGroup title="Routing">
+          <NavItem href="/protected/campaigns" icon={Megaphone}>Campaigns</NavItem>
+          <NavItem href="/protected/buyers" icon={Users}>Buyers</NavItem>
+          <NavItem href="/protected/phone-numbers" icon={Hash}>Phone Numbers</NavItem>
+          {isOwnerOrAdmin && (
+            <NavItem href="/protected/blocked-callers" icon={ShieldBan}>Blocked Callers</NavItem>
+          )}
+        </NavGroup>
+
         {isOwnerOrAdmin && (
-          <div className="mt-8 pt-4 border-t border-gray-100 space-y-1">
-            <h4 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-              Administration
-            </h4>
-            <Link href={`/protected/members${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/members')}>
-              Members
-            </Link>
-            <Link href={`/protected/settings${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/settings')}>
-              Settings
-            </Link>
-            <Link href={`/protected/usage${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/usage')}>
-              Usage
-            </Link>
-            <Link href={`/protected/api-keys${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/api-keys')}>
-              API Keys
-            </Link>
-            <Link href={`/protected/webhooks${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/webhooks')}>
-              Webhooks
-            </Link>
-            <Link href={`/protected/billing${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/billing')}>
-              Billing
-            </Link>
-            <Link href={`/protected/blocked-callers${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`} className={getLinkClass('/protected/blocked-callers')}>
-              Blocked Callers
-            </Link>
-          </div>
+          <>
+            <NavGroup title="Developer">
+              <NavItem href="/protected/api-keys" icon={Key}>API Keys</NavItem>
+              <NavItem href="/protected/webhooks" icon={Webhook}>Webhooks</NavItem>
+            </NavGroup>
+
+            <NavGroup title="Billing">
+              <NavItem href="/protected/usage" icon={Activity}>Usage</NavItem>
+              <NavItem href="/protected/billing" icon={CreditCard}>Billing</NavItem>
+            </NavGroup>
+
+            <NavGroup title="Workspace">
+              <NavItem href="/protected/members" icon={Users2}>Members</NavItem>
+              <NavItem href="/protected/settings" icon={Settings}>Settings</NavItem>
+            </NavGroup>
+          </>
         )}
       </nav>
     </div>
