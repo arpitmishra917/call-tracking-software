@@ -3,6 +3,14 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Key, Copy, AlertTriangle, KeyRound } from 'lucide-react';
 
 interface ApiKey {
   id: string;
@@ -22,19 +30,25 @@ export default function ApiKeysPage() {
   const [newRawSecret, setNewRawSecret] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (workspaceId) {
       loadKeys(workspaceId);
+    } else {
+      setTimeout(() => setLoading(false), 0);
     }
   }, [workspaceId]);
 
   async function loadKeys(id: string) {
     try {
+      setLoading(true);
       const data = await apiFetch(`/workspaces/${id}/api-keys`);
       setKeys(data);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -73,123 +87,162 @@ export default function ApiKeysPage() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Loading API keys...
+      </div>
+    );
+  }
+
   if (!workspaceId) {
-    return <div className="p-8 text-gray-500">Please select a workspace first.</div>;
+    return (
+      <div className="p-8 flex items-center justify-center text-muted-foreground">
+        Select a workspace first.
+      </div>
+    );
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">API Keys</h1>
+    <div className="flex flex-col gap-8 pb-8 max-w-5xl mx-auto w-full">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">API Keys</h1>
+          <p className="text-muted-foreground mt-2">
+            Manage developer access to your CallFlow resources.
+          </p>
+        </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 text-red-600 p-4 rounded mb-6">
+        <div className="p-4 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm">
           {error}
         </div>
       )}
 
       {newRawSecret && (
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-6 rounded-lg mb-8 shadow-sm">
-          <h3 className="text-lg font-bold mb-2 flex items-center">
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-            Save your API key
-          </h3>
-          <p className="mb-4 text-sm">Please copy this API key and store it somewhere safe. For security reasons, <strong>we will never show it to you again</strong>.</p>
-          <div className="bg-white p-3 rounded border font-mono text-sm break-all flex justify-between items-center">
-            <code>{newRawSecret}</code>
-            <button 
-              onClick={() => navigator.clipboard.writeText(newRawSecret)}
-              className="ml-4 text-blue-600 hover:text-blue-800 text-sm font-medium"
-            >
-              Copy
-            </button>
-          </div>
-        </div>
+        <Card className="border-warning/50 bg-warning/5 shadow-sm">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-4">
+              <div className="p-2 bg-warning/20 rounded-full shrink-0">
+                <AlertTriangle className="h-5 w-5 text-warning" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-semibold text-foreground mb-1">API Key Created</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Please copy this API key and store it somewhere safe. For security reasons, <strong>we will never show it to you again</strong>.
+                </p>
+                <div className="flex items-center justify-between gap-4 bg-background border rounded-md p-3 max-w-xl">
+                  <code className="text-sm font-mono break-all text-foreground select-all">
+                    {newRawSecret}
+                  </code>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => navigator.clipboard.writeText(newRawSecret)}
+                  >
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="bg-white rounded shadow p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4">Create New API Key</h2>
-        <form onSubmit={handleCreate} className="flex gap-4 items-end">
-          <div className="flex-1">
-            <label htmlFor="keyName" className="block text-sm font-medium text-gray-700 mb-1">
-              Key Name
-            </label>
-            <input
-              type="text"
-              id="keyName"
-              value={newKeyName}
-              onChange={(e) => setNewKeyName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              placeholder="e.g. Production Backend"
-              disabled={isCreating}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isCreating || !newKeyName.trim()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {isCreating ? 'Creating...' : 'Create Key'}
-          </button>
-        </form>
-      </div>
+      <div className="grid grid-cols-1 gap-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Create API Key</CardTitle>
+            <CardDescription>Generate a new API key to authenticate requests.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreate} className="flex flex-col sm:flex-row items-end gap-4 max-w-xl">
+              <div className="space-y-2 flex-1 w-full">
+                <Label htmlFor="keyName">Key Name</Label>
+                <Input
+                  type="text"
+                  id="keyName"
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                  placeholder="e.g. Production Backend"
+                  disabled={isCreating}
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={isCreating || !newKeyName.trim()}
+                className="w-full sm:w-auto"
+              >
+                {isCreating ? 'Creating...' : 'Create Key'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
-      <div className="bg-white rounded shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Your API Keys</h2>
-        {keys.length === 0 ? (
-          <p className="text-gray-500">No API keys created yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="py-2 text-sm text-gray-600">Name</th>
-                  <th className="py-2 text-sm text-gray-600">Key Prefix</th>
-                  <th className="py-2 text-sm text-gray-600">Status</th>
-                  <th className="py-2 text-sm text-gray-600">Created At</th>
-                  <th className="py-2 text-sm text-gray-600">Last Used</th>
-                  <th className="py-2 text-sm text-gray-600 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {keys.map((key) => (
-                  <tr key={key.id} className="border-b border-gray-100 last:border-0">
-                    <td className="py-3 text-gray-900 font-medium">{key.name}</td>
-                    <td className="py-3 font-mono text-gray-600">{key.key_prefix}...</td>
-                    <td className="py-3">
-                      {key.revoked_at ? (
-                        <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">
-                          Revoked
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
-                          Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 text-gray-500 text-sm">
-                      {new Date(key.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="py-3 text-gray-500 text-sm">
-                      {key.last_used_at ? new Date(key.last_used_at).toLocaleDateString() : 'Never'}
-                    </td>
-                    <td className="py-3 text-right">
-                      {!key.revoked_at && (
-                        <button
-                          onClick={() => handleRevoke(key.id)}
-                          className="text-red-600 hover:text-red-800 text-sm font-medium"
-                        >
-                          Revoke
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <Card>
+          <CardHeader>
+            <CardTitle>Active Keys</CardTitle>
+            <CardDescription>All API keys associated with this workspace.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {keys.length === 0 ? (
+              <div className="p-8">
+                <EmptyState
+                  icon={<KeyRound />}
+                  title="No API keys yet"
+                  description="Create an API key to connect your application to CallFlow."
+                />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader className="bg-muted/50">
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Key Prefix</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Last Used</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {keys.map((key) => (
+                    <TableRow key={key.id}>
+                      <TableCell className="font-medium">{key.name}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{key.key_prefix}...</TableCell>
+                      <TableCell>
+                        {key.revoked_at ? (
+                          <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/20">Revoked</Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Active</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{new Date(key.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {key.last_used_at ? new Date(key.last_used_at).toLocaleDateString() : 'Never'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {!key.revoked_at && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                            onClick={() => handleRevoke(key.id)}
+                          >
+                            Revoke
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
