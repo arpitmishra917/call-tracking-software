@@ -1,1 +1,0 @@
-{"version":3,"file":"tenant-scoped.repository.js","sourceRoot":"","sources":["../../src/authorization/tenant-scoped.repository.ts"],"names":[],"mappings":"AAAA,MAAM,OAAO,sBAAsB;IACF;IAA/B,YAA+B,WAAmB;QAAnB,gBAAW,GAAX,WAAW,CAAQ;IAAG,CAAC;IAEtD,IAAc,YAAY;QACxB,OAAO,EAAE,YAAY,EAAE,IAAI,CAAC,WAAW,EAAE,CAAC;IAC5C,CAAC;CACF"}
