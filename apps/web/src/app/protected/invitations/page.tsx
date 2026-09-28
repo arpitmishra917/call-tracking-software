@@ -13,14 +13,8 @@ export default function AcceptInvitationPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(token ? null : "No invitation token provided. Please check your invitation link.");
   const [success, setSuccess] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!token) {
-      setError("No invitation token provided. Please check your invitation link.");
-    }
-  }, [token]);
 
   const handleAccept = async () => {
     if (!token) return;

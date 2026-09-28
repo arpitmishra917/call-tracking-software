@@ -17,10 +17,17 @@ export class PhoneNumbersService {
   ) {}
 
   async listWorkspaceNumbers(workspaceId: string, params: any = {}) {
-    return this.prisma.phoneNumber.findMany({
-      where: { workspace_id: workspaceId },
-      orderBy: { created_at: 'desc' },
-    });
+    const where = { workspace_id: workspaceId };
+    const [items, total] = await Promise.all([
+      this.prisma.phoneNumber.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip: params.offset || 0,
+        take: params.limit || 50,
+      }),
+      this.prisma.phoneNumber.count({ where }),
+    ]);
+    return { items, total };
   }
 
   async searchAvailableNumbers(countryCode: string = 'US', limit: number = 5) {

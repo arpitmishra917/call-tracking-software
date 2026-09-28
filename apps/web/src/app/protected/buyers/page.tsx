@@ -38,7 +38,7 @@ export default function BuyersPage() {
     async function loadBuyers() {
       try {
         const data = await apiFetch(`/workspaces/${workspaceId}/buyers`);
-        setBuyers(data?.items || data || []);
+        setBuyers(data?.items || []);
       } catch (e) {
         console.error(e);
         setError('Failed to load buyers.');
@@ -55,7 +55,7 @@ export default function BuyersPage() {
   async function refreshBuyers() {
     try {
       const data = await apiFetch(`/workspaces/${workspaceId}/buyers`);
-      setBuyers(data?.items || data || []);
+      setBuyers(data?.items || []);
     } catch (e) {
       console.error(e);
     }

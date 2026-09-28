@@ -63,7 +63,7 @@ export default function CampaignsPage() {
           apiFetch(`/workspaces/${workspaceId}/campaigns`),
           apiFetch(`/workspaces/${workspaceId}/buyers`)
         ]);
-        setCampaigns(cData?.items || cData || []);
+        setCampaigns(cData?.items || []);
         setAvailableBuyers(bData?.items || bData || []);
       } catch (e: unknown) {
         setError('Failed to load campaigns/buyers: ' + (e instanceof Error ? e.message : String(e)));
@@ -81,7 +81,7 @@ export default function CampaignsPage() {
     if (!workspaceId) return;
     try {
       const data = await apiFetch(`/workspaces/${workspaceId}/campaigns`);
-      setCampaigns(data?.items || data || []);
+      setCampaigns(data?.items || []);
     } catch (e) {
       console.error(e);
     }

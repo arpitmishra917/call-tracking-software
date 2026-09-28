@@ -60,7 +60,7 @@ export default function PhoneNumbersPage() {
           apiFetch(`/workspaces/${workspaceId}/phone-numbers`).catch(() => []),
           apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => [])
         ]);
-        setNumbers(numData?.items || numData || []);
+        setNumbers(numData?.items || []);
         setCampaigns(campData?.items || campData || []);
       } catch (e: unknown) {
         setError('Failed to load phone numbers or campaigns.');
@@ -77,7 +77,7 @@ export default function PhoneNumbersPage() {
   async function loadPhoneNumbers(id: string) {
     try {
       const data = await apiFetch(`/workspaces/${id}/phone-numbers`);
-      setNumbers(data?.items || data || []);
+      setNumbers(data?.items || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -149,6 +149,33 @@ export default function PhoneNumbersPage() {
     setAssignModalOpen(true);
   }
 
+  const [releaseModalOpen, setReleaseModalOpen] = useState(false);
+  const [isReleasing, setIsReleasing] = useState(false);
+
+  function openReleaseModal(phone: PhoneNumber) {
+    setSelectedPhone(phone);
+    setReleaseModalOpen(true);
+  }
+
+  async function handleRelease() {
+    if (!workspaceId || !selectedPhone) return;
+    setIsReleasing(true);
+    setError(null);
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/phone-numbers/${selectedPhone.id}`, {
+        method: 'DELETE',
+      });
+      setSuccess('Phone number released successfully.');
+      setReleaseModalOpen(false);
+      setSelectedPhone(null);
+      await loadPhoneNumbers(workspaceId);
+    } catch (e: unknown) {
+      setError('Failed to release number: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsReleasing(false);
+    }
+  }
+
   if (loading) return <div className="p-8 flex items-center justify-center text-muted-foreground">Loading phone numbers...</div>;
   if (!workspaceId) return <div className="p-8 flex items-center justify-center text-muted-foreground">Please select a workspace first.</div>;
 
@@ -210,14 +237,25 @@ export default function PhoneNumbersPage() {
                           {num.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openAssignModal(num)}
-                        >
-                          {num.campaign ? 'Change' : 'Assign'}
-                        </Button>
+                      <TableCell className="text-right space-x-2">
+                        {num.status !== 'RELEASED' && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openAssignModal(num)}
+                            >
+                              {num.campaign ? 'Change' : 'Assign'}
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => openReleaseModal(num)}
+                            >
+                              Release
+                            </Button>
+                          </>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -323,6 +361,37 @@ export default function PhoneNumbersPage() {
                 </Button>
               </CardFooter>
             </form>
+          </Card>
+        </div>
+      )}
+      {releaseModalOpen && selectedPhone && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md shadow-lg">
+            <CardHeader>
+              <CardTitle>Release Phone Number</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Are you sure you want to release <strong>{selectedPhone.phone_number}</strong>? 
+                This action cannot be undone and you will lose this number permanently.
+              </p>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setReleaseModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleRelease}
+                isLoading={isReleasing}
+              >
+                Release
+              </Button>
+            </CardFooter>
           </Card>
         </div>
       )}

@@ -34,7 +34,7 @@ export default function BlockedCallersPage() {
     setIsFetching(true);
     try {
       const data = await apiFetch(`/workspaces/${id}/blocked-callers`);
-      setCallers(data?.items || data || []);
+      setCallers(data?.items || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
