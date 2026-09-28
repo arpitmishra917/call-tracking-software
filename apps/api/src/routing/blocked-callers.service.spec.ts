@@ -11,7 +11,8 @@ describe('BlockedCallersService', () => {
   beforeEach(async () => {
     prisma = {
       blockedCaller: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
         upsert: vi.fn(),
         delete: vi.fn(),
       },
@@ -31,6 +32,9 @@ describe('BlockedCallersService', () => {
     await service.listBlockedCallers('ws_1');
     expect(prisma.blockedCaller.findMany).toHaveBeenCalledWith({
       where: { workspace_id: 'ws_1' },
+      orderBy: { created_at: 'desc' },
+      skip: 0,
+      take: 50,
     });
   });
 

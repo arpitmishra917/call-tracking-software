@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { normalizeE164 } from '../common/phone.utils.js';
 
@@ -6,9 +7,9 @@ import { normalizeE164 } from '../common/phone.utils.js';
 export class BlockedCallersService {
   constructor(private prisma: PrismaService) {}
   async listBlockedCallers(workspaceId: string, params: any = {}) {
-    const where = { workspace_id: workspaceId };
+    const where: Prisma.BlockedCallerWhereInput = { workspace_id: workspaceId };
     if (params.search) {
-      where['phone_number'] = { contains: params.search };
+      where.phone_number = { contains: params.search };
     }
     const [items, total] = await Promise.all([
       this.prisma.blockedCaller.findMany({
