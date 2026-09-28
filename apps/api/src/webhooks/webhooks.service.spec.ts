@@ -38,7 +38,7 @@ describe('WebhooksService', () => {
     prisma = module.get<PrismaService>(PrismaService);
 
     // Mock global fetch
-    safeFetch = vi.fn();
+    // safeFetch = vi.fn();
   });
 
   afterEach(() => {

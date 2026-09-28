@@ -16,7 +16,7 @@ export class PhoneNumbersService {
     private readonly usageService: UsageService,
   ) {}
 
-  async listWorkspaceNumbers(workspaceId: string) {
+  async listWorkspaceNumbers(workspaceId: string, params: any = {}) {
     return this.prisma.phoneNumber.findMany({
       where: { workspace_id: workspaceId },
       orderBy: { created_at: 'desc' },
@@ -99,10 +99,16 @@ export class PhoneNumbersService {
       throw new NotFoundException('Phone number not found');
     }
 
-    // Only mark status as RELEASED, do not call telnyx to delete.
+    if (number.provider_number_id) {
+      await this.telnyxProvisioning.releaseNumber(number.provider_number_id);
+    }
+
     return this.prisma.phoneNumber.update({
       where: { id },
-      data: { status: PhoneNumberStatus.RELEASED },
+      data: { 
+        status: PhoneNumberStatus.RELEASED,
+        campaign_id: null 
+      },
     });
   }
 }

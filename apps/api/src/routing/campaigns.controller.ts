@@ -6,7 +6,7 @@ import {
   Delete,
   Param,
   Body,
-  UseGuards,
+  UseGuards, Query,
 } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -21,8 +21,19 @@ export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
 
   @Get()
-  list(@Param('workspaceId') workspaceId: string) {
-    return this.campaignsService.listCampaigns(workspaceId);
+  list(
+    @Param('workspaceId') workspaceId: string,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string
+  ) {
+    return this.campaignsService.listCampaigns(workspaceId, {
+      search,
+      status,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      offset: offset ? parseInt(offset, 10) : undefined
+    });
   }
 
   @Get(':id')
@@ -36,6 +47,35 @@ export class CampaignsController {
     @Body('name') name: string,
   ) {
     return this.campaignsService.createCampaign(workspaceId, name);
+  }
+
+  @Put(':id')
+  update(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Body() body: { name?: string; status?: string },
+  ) {
+    return this.campaignsService.updateCampaign(workspaceId, id, body);
+  }
+
+  @Post(':id/archive')
+  archive(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+  ) {
+    return this.campaignsService.updateCampaign(workspaceId, id, {
+      status: 'INACTIVE',
+    });
+  }
+
+  @Post(':id/activate')
+  activate(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+  ) {
+    return this.campaignsService.updateCampaign(workspaceId, id, {
+      status: 'ACTIVE',
+    });
   }
 
   @Post(':id/phone-numbers')
@@ -63,5 +103,23 @@ export class CampaignsController {
       body.buyerId,
       body.priority,
     );
+  }
+
+  @Delete(':id/buyers/:buyerId')
+  removeBuyer(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Param('buyerId') buyerId: string,
+  ) {
+    return this.campaignsService.removeBuyerFromCampaign(workspaceId, id, buyerId);
+  }
+
+  @Put(':id/buyers/reorder')
+  reorderBuyers(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Body() body: { buyerIds: string[] },
+  ) {
+    return this.campaignsService.reorderBuyersInCampaign(workspaceId, id, body.buyerIds);
   }
 }

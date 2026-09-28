@@ -59,11 +59,29 @@ export class CallController {
       if (call) return; // idempotency
 
       const trackingNumber = await this.prisma.phoneNumber.findFirst({
-        where: { phone_number: to! },
+        where: { phone_number: to!, status: 'ACTIVE' },
+        include: { workspace: true, campaign: true },
       });
 
       if (!trackingNumber) {
         this.logger.warn(`Unknown tracking number: ${to}`);
+        return;
+      }
+
+      if (trackingNumber.workspace.status !== 'ACTIVE' || (trackingNumber.campaign && trackingNumber.campaign.status !== 'ACTIVE')) {
+        this.logger.warn(`Call to ${to} rejected because workspace ${trackingNumber.workspace_id} is ${trackingNumber.workspace.status}`);
+        await this.prisma.call.create({
+          data: {
+            workspace_id: trackingNumber.workspace_id,
+            campaign_id: trackingNumber.campaign_id,
+            provider: 'provider',
+            provider_call_id: callId,
+            from_number: from!,
+            to_number: to!,
+            state: CallState.FAILED,
+          },
+        });
+        await this.provider.hangupCall(callId);
         return;
       }
 
@@ -121,6 +139,7 @@ export class CallController {
           CallState.ROUTING,
         );
       } catch (err) {
+        console.error('FAIL ROUTING', err);
         // If the call was canceled by a concurrent hangup, transition fails
         return;
       }

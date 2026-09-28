@@ -100,7 +100,10 @@ describe('PhoneNumbersService', () => {
     expect(result.status).toBe(PhoneNumberStatus.RELEASED);
     expect(prismaMock.phoneNumber.update).toHaveBeenCalledWith({
       where: { id: 'new-uuid' },
-      data: { status: PhoneNumberStatus.RELEASED },
+      data: { 
+        status: PhoneNumberStatus.RELEASED,
+        campaign_id: null
+      },
     });
   });
 });

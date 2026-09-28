@@ -5,7 +5,7 @@ import {
   Delete,
   Param,
   Body,
-  UseGuards,
+  UseGuards, Query,
 } from '@nestjs/common';
 import { BlockedCallersService } from './blocked-callers.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -20,8 +20,17 @@ export class BlockedCallersController {
   constructor(private readonly blockedCallersService: BlockedCallersService) {}
 
   @Get()
-  list(@Param('workspaceId') workspaceId: string) {
-    return this.blockedCallersService.listBlockedCallers(workspaceId);
+  list(
+    @Param('workspaceId') workspaceId: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string
+  ) {
+    return this.blockedCallersService.listBlockedCallers(workspaceId, {
+      search,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      offset: offset ? parseInt(offset, 10) : undefined
+    });
   }
 
   @Post()

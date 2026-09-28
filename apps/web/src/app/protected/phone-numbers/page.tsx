@@ -60,8 +60,8 @@ export default function PhoneNumbersPage() {
           apiFetch(`/workspaces/${workspaceId}/phone-numbers`).catch(() => []),
           apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => [])
         ]);
-        setNumbers(numData);
-        setCampaigns(campData);
+        setNumbers(numData?.items || numData || []);
+        setCampaigns(campData?.items || campData || []);
       } catch (e: unknown) {
         setError('Failed to load phone numbers or campaigns.');
       } finally {
@@ -77,7 +77,7 @@ export default function PhoneNumbersPage() {
   async function loadPhoneNumbers(id: string) {
     try {
       const data = await apiFetch(`/workspaces/${id}/phone-numbers`);
-      setNumbers(data);
+      setNumbers(data?.items || data || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }

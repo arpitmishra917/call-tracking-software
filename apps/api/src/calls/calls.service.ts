@@ -95,7 +95,7 @@ export class CallsService {
     durationSecs?: number,
   ): Promise<Call> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${callId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${callId} FOR UPDATE`;
       const call = await tx.call.findUnique({ where: { id: callId } });
       if (!call) throw new NotFoundException(`Call ${callId} not found`);
 
@@ -138,7 +138,7 @@ export class CallsService {
 
   async handleCallerHangup(providerCallId: string, durationSecs?: number) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Call" WHERE provider_call_id = ${providerCallId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "calls" WHERE provider_call_id = ${providerCallId} FOR UPDATE`;
       const call = await tx.call.findUnique({
         where: { provider_call_id: providerCallId },
         include: { attempts: true },
@@ -231,7 +231,7 @@ export class CallsService {
     provider_call_id?: string;
   }): Promise<CallAttempt> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${data.call_id}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${data.call_id} FOR UPDATE`;
       const call = await tx.call.findUnique({ where: { id: data.call_id } });
       if (!call) throw new NotFoundException(`Call ${data.call_id} not found`);
 
@@ -265,7 +265,7 @@ export class CallsService {
     if (!initialAttempt) throw new NotFoundException(`CallAttempt ${attemptId} not found`);
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${initialAttempt.call_id}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${initialAttempt.call_id} FOR UPDATE`;
       const attempt = await tx.callAttempt.findUnique({
         where: { id: attemptId },
       });
@@ -312,9 +312,10 @@ export class CallsService {
 
   async markCallAnswered(callId: string, attemptId: string): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${callId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${callId} FOR UPDATE`;
       const call = await tx.call.findUnique({ where: { id: callId } });
-      if (!call || call.state !== CallState.ROUTING) {
+      const attempt = await tx.callAttempt.findUnique({ where: { id: attemptId } });
+      if (!call || call.state !== CallState.ROUTING || !attempt || (attempt.state !== 'RINGING' && attempt.state !== 'INITIATED')) {
         return false;
       }
 
@@ -338,7 +339,7 @@ export class CallsService {
 
   async handleBuyerHangup(callId: string, attemptId: string): Promise<{ action: 'HANGUP_CALLER' | 'DIAL_NEXT' | 'NONE', call?: any }> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${callId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${callId} FOR UPDATE`;
       const call = await tx.call.findUnique({
         where: { id: callId },
         include: { attempts: { include: { buyer: true }, orderBy: { created_at: 'asc' } } }
@@ -549,7 +550,7 @@ export class CallsService {
       const initialAttempt = await tx.callAttempt.findUnique({ where: { id: attemptId } });
       if (!initialAttempt) return true; // if attempt missing, hangup
 
-      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${initialAttempt.call_id}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${initialAttempt.call_id} FOR UPDATE`;
       const call = await tx.call.findUnique({ where: { id: initialAttempt.call_id } });
 
       if (!call || call.state !== CallState.ROUTING) {
@@ -575,7 +576,7 @@ export class CallsService {
     buyer?: any;
   }> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Call" WHERE id = ${callId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${callId} FOR UPDATE`;
       const call = await tx.call.findUnique({
         where: { id: callId },
         include: { attempts: true },

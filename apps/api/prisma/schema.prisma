@@ -39,8 +39,35 @@ model Workspace {
   invoices          Invoice[]
   api_keys          ApiKey[]
   outbound_webhooks OutboundWebhook[]
+  invitations       WorkspaceInvitation[]
 
   @@map("workspaces")
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+model WorkspaceInvitation {
+  id           String           @id @default(uuid())
+  workspace_id String
+  email        String
+  role         WorkspaceRole
+  token_hash   String           @unique
+  status       InvitationStatus @default(PENDING)
+  expires_at   DateTime
+  created_at   DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+  created_by   String?          // The user_id who created the invitation
+
+  workspace    Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id])
+  @@index([email])
+  @@map("workspace_invitations")
 }
 
 model WorkspaceMember {
@@ -164,6 +191,7 @@ model CampaignBuyer {
   buyer     Buyer     @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
 
   @@unique([campaign_id, priority])
+  @@unique([campaign_id, buyer_id])
   @@index([workspace_id])
   @@map("campaign_buyers")
 }

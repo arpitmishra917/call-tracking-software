@@ -32,7 +32,6 @@ export class WorkspacesController {
 
   @Get(':workspaceId')
   @UseGuards(WorkspaceRolesGuard)
-  // Any member can view the workspace
   @RequireWorkspaceRoles(
     WorkspaceRole.OWNER,
     WorkspaceRole.ADMIN,
@@ -65,6 +64,29 @@ export class WorkspacesController {
     return this.workspacesService.updateWorkspaceSettings(workspaceId, data);
   }
 
+  @Put(':workspaceId/status')
+  @UseGuards(WorkspaceRolesGuard)
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER)
+  async updateStatus(
+    @Param('workspaceId') workspaceId: string,
+    @Body() data: { status: string },
+    @Request() req: any,
+  ) {
+    return this.workspacesService.updateWorkspaceStatus(workspaceId, data.status, req.user.userId);
+  }
+
+  @Put(':workspaceId/members/:userId/role')
+  @UseGuards(WorkspaceRolesGuard)
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  async updateMemberRole(
+    @Param('workspaceId') workspaceId: string,
+    @Param('userId') targetUserId: string,
+    @Body() data: { role: WorkspaceRole },
+    @Request() req: any,
+  ) {
+    return this.workspacesService.updateMemberRole(workspaceId, targetUserId, data.role, req.user.userId);
+  }
+
   @Delete(':workspaceId/members/:userId')
   @UseGuards(WorkspaceRolesGuard)
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
@@ -73,5 +95,38 @@ export class WorkspacesController {
     @Param('userId') userId: string,
   ) {
     return this.workspacesService.removeMember(workspaceId, userId);
+  }
+
+  @Get(':workspaceId/invitations')
+  @UseGuards(WorkspaceRolesGuard)
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  async getInvitations(@Param('workspaceId') workspaceId: string) {
+    return this.workspacesService.getWorkspaceInvitations(workspaceId);
+  }
+
+  @Post(':workspaceId/invitations')
+  @UseGuards(WorkspaceRolesGuard)
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  async createInvitation(
+    @Param('workspaceId') workspaceId: string,
+    @Body() data: { email: string; role: WorkspaceRole },
+    @Request() req: any,
+  ) {
+    return this.workspacesService.createInvitation(workspaceId, data.email, data.role, req.user.userId);
+  }
+
+  @Delete(':workspaceId/invitations/:inviteId')
+  @UseGuards(WorkspaceRolesGuard)
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  async revokeInvitation(
+    @Param('workspaceId') workspaceId: string,
+    @Param('inviteId') inviteId: string,
+  ) {
+    return this.workspacesService.revokeInvitation(workspaceId, inviteId);
+  }
+
+  @Post('accept-invitation')
+  async acceptInvitation(@Body() data: { token: string }, @Request() req: any) {
+    return this.workspacesService.acceptInvitation(data.token, req.user.userId, req.user.email);
   }
 }

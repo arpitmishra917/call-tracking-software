@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -64,18 +65,24 @@ export default function MembersPage() {
     return () => { ignore = true; };
   }, [fetchMembers]);
 
-  const handleRemove = async (userId: string) => {
-    if (!workspaceId) return;
-    if (!confirm('Are you sure you want to remove this member from the workspace? This action cannot be undone.')) return;
+  const [removeId, setRemoveId] = useState<string | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
 
+  const handleRemove = async () => {
+    if (!workspaceId || !removeId) return;
+    
+    setIsRemoving(true);
     try {
       setError(null);
-      await apiFetch(`/workspaces/${workspaceId}/members/${userId}`, {
+      await apiFetch(`/workspaces/${workspaceId}/members/${removeId}`, {
         method: 'DELETE',
       });
       await fetchMembers();
+      setRemoveId(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to remove member');
+    } finally {
+      setIsRemoving(false);
     }
   };
 
@@ -156,7 +163,7 @@ export default function MembersPage() {
                             variant="outline"
                             size="sm"
                             className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
-                            onClick={() => handleRemove(member.user_id)}
+                            onClick={() => setRemoveId(member.user_id)}
                           >
                             Remove
                           </Button>
@@ -170,6 +177,16 @@ export default function MembersPage() {
           )}
         </CardContent>
       </Card>
+      
+      <ConfirmDialog
+        open={!!removeId}
+        onOpenChange={(open) => !open && setRemoveId(null)}
+        title="Remove Member"
+        description="Are you sure you want to remove this member from the workspace? This action cannot be undone."
+        onConfirm={handleRemove}
+        isLoading={isRemoving}
+        confirmText="Remove"
+      />
     </div>
   );
 }

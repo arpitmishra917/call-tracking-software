@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
-
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -63,8 +63,8 @@ export default function CampaignsPage() {
           apiFetch(`/workspaces/${workspaceId}/campaigns`),
           apiFetch(`/workspaces/${workspaceId}/buyers`)
         ]);
-        setCampaigns(cData);
-        setAvailableBuyers(bData);
+        setCampaigns(cData?.items || cData || []);
+        setAvailableBuyers(bData?.items || bData || []);
       } catch (e: unknown) {
         setError('Failed to load campaigns/buyers: ' + (e instanceof Error ? e.message : String(e)));
       } finally {
@@ -81,7 +81,7 @@ export default function CampaignsPage() {
     if (!workspaceId) return;
     try {
       const data = await apiFetch(`/workspaces/${workspaceId}/campaigns`);
-      setCampaigns(data);
+      setCampaigns(data?.items || data || []);
     } catch (e) {
       console.error(e);
     }
@@ -208,6 +208,9 @@ export default function CampaignsPage() {
                     {c.status}
                   </Badge>
                 </div>
+                <Link href={`/protected/campaigns/${c.id}?workspace=${workspaceId}`} className="text-sm font-medium text-primary hover:underline flex items-center gap-1">
+                  View Details
+                </Link>
               </div>
               
               <CardContent className="p-0">

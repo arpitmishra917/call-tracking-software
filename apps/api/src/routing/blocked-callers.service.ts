@@ -6,7 +6,7 @@ import { normalizeE164 } from '../common/phone.utils.js';
 export class BlockedCallersService {
   constructor(private prisma: PrismaService) {}
 
-  async listBlockedCallers(workspaceId: string) {
+  async listBlockedCallers(workspaceId: string, params: any = {}) {
     return this.prisma.blockedCaller.findMany({
       where: { workspace_id: workspaceId },
     });

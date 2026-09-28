@@ -128,4 +128,19 @@ export class TelnyxProvisioningService {
       throw new BadRequestException('Failed to provision phone number');
     }
   }
+
+  async releaseNumber(phoneNumberId: string): Promise<void> {
+    if (!this.telnyxClient) {
+      this.logger.debug(`[MOCK] Releasing number ${phoneNumberId}`);
+      return;
+    }
+
+    try {
+      await this.telnyxClient.phoneNumbers.del(phoneNumberId);
+      this.logger.log(`Released number from Telnyx: ${phoneNumberId}`);
+    } catch (error: any) {
+      this.logger.error(`Error releasing number ${phoneNumberId} from Telnyx`, error);
+      throw new InternalServerErrorException('Failed to release phone number from provider');
+    }
+  }
 }

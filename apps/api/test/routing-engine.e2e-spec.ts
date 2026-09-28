@@ -393,4 +393,417 @@ describe('Sequential Buyer Routing Engine (Stage 14)', () => {
       finalCall?.state,
     );
   });
+
+  it('7. inactive buyer skipped', async () => {
+    // Make Buyer A inactive
+    await prisma.campaignBuyer.updateMany({
+      where: { buyer_id: buyerAId },
+      data: { status: 'INACTIVE' }
+    });
+
+    const callId = 'call_test_inactive_buyer';
+    await triggerIncoming(callId);
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+
+    const call = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: true },
+    });
+    // First attempt should be buyer B
+    expect(call?.attempts.length).toBe(1);
+    expect(call?.attempts[0].buyer_id).toBe(buyerBId);
+
+    // Restore Buyer A
+    await prisma.campaignBuyer.updateMany({
+      where: { buyer_id: buyerAId },
+      data: { status: 'ACTIVE' }
+    });
+  });
+
+  it('8. inactive campaign rejected', async () => {
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: 'INACTIVE' }
+    });
+
+    const callId = 'call_test_inactive_campaign';
+    await triggerIncoming(callId);
+
+    const call = await prisma.call.findUnique({
+      where: { provider_call_id: callId }
+    });
+    expect(call?.state).toBe(CallState.FAILED);
+
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: 'ACTIVE' }
+    });
+  });
+
+  it('9. blocked caller rejected', async () => {
+    await prisma.blockedCaller.create({
+      data: { workspace_id: workspaceId, phone_number: '+15559999999' }
+    });
+
+    const callId = 'call_test_blocked_caller';
+    await triggerIncoming(callId);
+
+    const call = await prisma.call.findUnique({
+      where: { provider_call_id: callId }
+    });
+    expect(call?.state).toBe(CallState.FAILED);
+  });
+
+  it('10. released number rejected', async () => {
+    const pnum = await prisma.phoneNumber.create({
+      data: {
+        workspace_id: workspaceId,
+        campaign_id: campaignId,
+        phone_number: '+15550000001',
+        provider: 'fake',
+        status: 'RELEASED',
+      },
+    });
+
+    const callId = 'call_test_released_number';
+    await callController.handleEvent({
+      type: CallEventType.CALL_INITIATED,
+      callId,
+      direction: 'incoming',
+      connectionId: 'conn-1',
+      from: '+15559999998',
+      to: '+15550000001', // released number
+      timestamp: new Date().toISOString(),
+    });
+
+    const call = await prisma.call.findUnique({
+      where: { provider_call_id: callId }
+    });
+    expect(call).toBeNull();
+  });
+
+  it('11. suspended workspace rejected', async () => {
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { status: 'SUSPENDED' }
+    });
+
+    const callId = 'call_test_suspended_ws';
+    await triggerIncoming(callId);
+
+    const call = await prisma.call.findUnique({
+      where: { provider_call_id: callId }
+    });
+    expect(call?.state).toBe(CallState.FAILED);
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { status: 'ACTIVE' }
+    });
+  });
+
+  it('12. cross-tenant routing prevented', async () => {
+    const ws2 = await prisma.workspace.create({
+      data: { name: 'Test WS 2', slug: 'test-ws-2' },
+    });
+    const camp2 = await prisma.campaign.create({
+      data: { workspace_id: ws2.id, name: 'Test Campaign 2', status: 'ACTIVE' },
+    });
+    const pnum2 = await prisma.phoneNumber.create({
+      data: {
+        workspace_id: ws2.id,
+        campaign_id: camp2.id,
+        phone_number: '+15550000002',
+        provider: 'fake',
+        status: 'ACTIVE',
+      },
+    });
+
+    const callId = 'call_test_cross_tenant';
+    await callController.handleEvent({
+      type: CallEventType.CALL_INITIATED,
+      callId,
+      direction: 'incoming',
+      connectionId: 'conn-2',
+      from: '+15559999998',
+      to: '+15550000002', // workspace 2 number
+      timestamp: new Date().toISOString(),
+    });
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+
+    const call = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: true }
+    });
+    // It should have 0 attempts because campaign 2 has no buyers
+    expect(call?.workspace_id).toBe(ws2.id);
+    expect(call?.state).toBe(CallState.FAILED);
+    expect(call?.attempts.length).toBe(0);
+  });
+
+  it('13. Duplicate CALL_INITIATED webhook does not create duplicate Call', async () => {
+    const callId = 'call_test_dup_init';
+    await triggerIncoming(callId);
+    await triggerIncoming(callId); // Duplicate
+    
+    const count = await prisma.call.count({ where: { provider_call_id: callId } });
+    expect(count).toBe(1);
+  });
+
+  it('14. Duplicate CALL_ANSWERED webhook is ignored', async () => {
+    const callId = 'call_test_dup_ans';
+    await triggerIncoming(callId);
+    
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Send it again
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: true },
+    });
+    // Should still just be 1 attempt because 2nd answer was ignored
+    expect(call?.attempts.length).toBe(1);
+  });
+
+  it('15. Duplicate CALL_HANGUP webhook is ignored', async () => {
+    const callId = 'call_test_dup_hang';
+    await triggerIncoming(callId);
+    
+    await callController.handleEvent({
+      type: CallEventType.CALL_HANGUP,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Call is now canceled
+    let call = await prisma.call.findUnique({ where: { provider_call_id: callId } });
+    expect(call?.state).toBe(CallState.CANCELED);
+    
+    // Duplicate hangup should not crash or change state illegally
+    await callController.handleEvent({
+      type: CallEventType.CALL_HANGUP,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    call = await prisma.call.findUnique({ where: { provider_call_id: callId } });
+    expect(call?.state).toBe(CallState.CANCELED);
+  });
+
+  it('16. Late CALL_ANSWERED from a cancelled buyer is ignored', async () => {
+    const callId = 'call_test_late_ans';
+    await triggerIncoming(callId);
+    
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call1 = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: true },
+    });
+    const attemptAId = call1!.attempts[0].provider_call_id!;
+    
+    // Buyer A fails
+    await callController.handleEvent({
+      type: CallEventType.CALL_HANGUP,
+      callId: attemptAId,
+      direction: 'outgoing',
+      timestamp: new Date().toISOString(),
+    });
+    
+    // But then sends a late ANSWERED
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId: attemptAId,
+      direction: 'outgoing',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call2 = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: { orderBy: { created_at: 'asc' } } },
+    });
+    // Attempt A should still be NO_ANSWER, Attempt B should be RINGING or whatever it reached
+    expect(call2!.attempts[0].state).toBe('NO_ANSWER');
+  });
+
+  it('17. Caller Hangup BEFORE answer cancels routing', async () => {
+    const callId = 'call_test_hang_b4';
+    await triggerIncoming(callId);
+    
+    // Caller hangs up before CALL_ANSWERED is ever sent
+    await callController.handleEvent({
+      type: CallEventType.CALL_HANGUP,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: true },
+    });
+    expect(call?.state).toBe(CallState.CANCELED);
+    expect(call?.attempts.length).toBe(0);
+  });
+
+  it('18. Caller Hangup AFTER answer ends call properly', async () => {
+    const callId = 'call_test_hang_after';
+    await triggerIncoming(callId);
+    
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call1 = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: true },
+    });
+    const attemptAId = call1!.attempts[0].provider_call_id!;
+    
+    // Buyer answers
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId: attemptAId,
+      direction: 'outgoing',
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Caller hangs up
+    await callController.handleEvent({
+      type: CallEventType.CALL_HANGUP,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call2 = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+    });
+    expect(call2?.state).toBe(CallState.COMPLETED);
+  });
+
+  it('19. Simultaneous dial fallback race creates exactly one next attempt', async () => {
+    const callId = 'call_test_race_fb';
+    await triggerIncoming(callId);
+    
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call1 = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: true },
+    });
+    const attemptAId = call1!.attempts[0].provider_call_id!;
+    
+    // Two simultaneous HANGUPs from the provider for the same attempt
+    await Promise.all([
+      callController.handleEvent({
+        type: CallEventType.CALL_HANGUP,
+        callId: attemptAId,
+        direction: 'outgoing',
+        timestamp: new Date().toISOString(),
+      }),
+      callController.handleEvent({
+        type: CallEventType.CALL_HANGUP,
+        callId: attemptAId,
+        direction: 'outgoing',
+        timestamp: new Date().toISOString(),
+      })
+    ]);
+    
+    const call2 = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: true },
+    });
+    // Should have Attempt A and Attempt B only
+    expect(call2?.attempts.length).toBe(2);
+  });
+  
+  it('20. Caller hangup after buyer completed still leaves COMPLETED', async () => {
+    const callId = 'call_test_comp_hang';
+    await triggerIncoming(callId);
+    
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call1 = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+      include: { attempts: true },
+    });
+    const attemptAId = call1!.attempts[0].provider_call_id!;
+    
+    // Buyer A answers
+    await callController.handleEvent({
+      type: CallEventType.CALL_ANSWERED,
+      callId: attemptAId,
+      direction: 'outgoing',
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Buyer A hangs up
+    await callController.handleEvent({
+      type: CallEventType.CALL_HANGUP,
+      callId: attemptAId,
+      direction: 'outgoing',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call2 = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+    });
+    expect(call2?.state).toBe(CallState.COMPLETED);
+    
+    // Caller hangs up late
+    await callController.handleEvent({
+      type: CallEventType.CALL_HANGUP,
+      callId,
+      direction: 'incoming',
+      timestamp: new Date().toISOString(),
+    });
+    
+    const call3 = await prisma.call.findUnique({
+      where: { provider_call_id: callId },
+    });
+    expect(call3?.state).toBe(CallState.COMPLETED);
+  });
 });

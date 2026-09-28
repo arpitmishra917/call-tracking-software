@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
-
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -38,7 +38,7 @@ export default function BuyersPage() {
     async function loadBuyers() {
       try {
         const data = await apiFetch(`/workspaces/${workspaceId}/buyers`);
-        setBuyers(data);
+        setBuyers(data?.items || data || []);
       } catch (e) {
         console.error(e);
         setError('Failed to load buyers.');
@@ -55,7 +55,7 @@ export default function BuyersPage() {
   async function refreshBuyers() {
     try {
       const data = await apiFetch(`/workspaces/${workspaceId}/buyers`);
-      setBuyers(data);
+      setBuyers(data?.items || data || []);
     } catch (e) {
       console.error(e);
     }
@@ -167,6 +167,7 @@ export default function BuyersPage() {
                   <TableHead className="min-w-[150px]">Destination</TableHead>
                   <TableHead className="min-w-[100px]">Timeout</TableHead>
                   <TableHead className="text-right min-w-[100px]">Status</TableHead>
+                  <TableHead className="text-right min-w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -185,6 +186,11 @@ export default function BuyersPage() {
                       <Badge variant={b.status === 'ACTIVE' ? 'success' : b.status === 'INACTIVE' ? 'warning' : 'default'}>
                         {b.status}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/protected/buyers/${b.id}?workspace=${workspaceId}`} className="text-sm font-medium text-primary hover:underline">
+                        View Details
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}

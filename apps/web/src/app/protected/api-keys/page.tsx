@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,17 +74,23 @@ export default function ApiKeysPage() {
     }
   }
 
-  async function handleRevoke(id: string) {
-    if (!workspaceId) return;
-    if (!confirm('Are you sure you want to revoke this API key? This action cannot be undone.')) return;
+  const [revokeId, setRevokeId] = useState<string | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
+
+  async function handleRevoke() {
+    if (!workspaceId || !revokeId) return;
     
+    setIsRevoking(true);
     try {
-      await apiFetch(`/workspaces/${workspaceId}/api-keys/${id}`, {
+      await apiFetch(`/workspaces/${workspaceId}/api-keys/${revokeId}`, {
         method: 'DELETE',
       });
       await loadKeys(workspaceId);
+      setRevokeId(null);
     } catch (e: unknown) {
       setError('Failed to revoke key: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsRevoking(false);
     }
   }
 
@@ -230,7 +237,7 @@ export default function ApiKeysPage() {
                             variant="outline"
                             size="sm"
                             className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
-                            onClick={() => handleRevoke(key.id)}
+                            onClick={() => setRevokeId(key.id)}
                           >
                             Revoke
                           </Button>
@@ -244,6 +251,16 @@ export default function ApiKeysPage() {
           </CardContent>
         </Card>
       </div>
+
+      <ConfirmDialog
+        open={!!revokeId}
+        onOpenChange={(open) => !open && setRevokeId(null)}
+        title="Revoke API Key"
+        description="Are you sure you want to revoke this API key? This action cannot be undone and any integrations using this key will immediately stop working."
+        onConfirm={handleRevoke}
+        isLoading={isRevoking}
+        confirmText="Revoke Key"
+      />
     </div>
   );
 }

@@ -37,20 +37,42 @@ export class AuthorizationService {
     userId: string,
     workspaceId: string,
     allowedRoles?: WorkspaceRole[],
+    method?: string,
+    url?: string,
   ) {
-    const role = await this.getUserWorkspaceRole(userId, workspaceId);
-    if (!role) {
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspace_id_user_id: {
+          workspace_id: workspaceId,
+          user_id: userId,
+        },
+      },
+      include: { workspace: true }
+    });
+
+    if (!membership) {
       throw new ForbiddenException('You do not have access to this workspace');
     }
 
     if (allowedRoles && allowedRoles.length > 0) {
-      if (!this.hasPermission(role, allowedRoles)) {
+      if (!this.hasPermission(membership.role, allowedRoles)) {
         throw new ForbiddenException(
           'Insufficient permissions for this workspace',
         );
       }
     }
 
-    return role;
+    // Lifecycle enforcement: Block operational mutations if not ACTIVE
+    if (membership.workspace.status !== 'ACTIVE' && method && method !== 'GET') {
+      // Allow modifying the workspace status itself (for restoration)
+      // Usually looks like /workspaces/:id/status
+      if (url && url.match(/\/workspaces\/[^\/]+\/status$/)) {
+        // Allowed
+      } else {
+        throw new ForbiddenException(`Operational actions are blocked because workspace is ${membership.workspace.status}`);
+      }
+    }
+
+    return membership.role;
   }
 }

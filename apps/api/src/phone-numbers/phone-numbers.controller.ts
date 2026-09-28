@@ -27,8 +27,17 @@ export class PhoneNumbersController {
     WorkspaceRole.MEMBER,
     WorkspaceRole.VIEWER,
   )
-  async listNumbers(@Param('workspaceId') workspaceId: string) {
-    return this.phoneNumbersService.listWorkspaceNumbers(workspaceId);
+  async listNumbers(
+    @Param('workspaceId') workspaceId: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string
+  ) {
+    return this.phoneNumbersService.listWorkspaceNumbers(workspaceId, {
+      search,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      offset: offset ? parseInt(offset, 10) : undefined
+    });
   }
 
   @Get('search')

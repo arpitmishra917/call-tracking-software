@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,7 +34,7 @@ export default function BlockedCallersPage() {
     setIsFetching(true);
     try {
       const data = await apiFetch(`/workspaces/${id}/blocked-callers`);
-      setCallers(data || []);
+      setCallers(data?.items || data || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -73,17 +74,23 @@ export default function BlockedCallersPage() {
     }
   }
 
-  async function handleUnblock(id: string) {
-    if (!workspaceId) return;
-    if (!confirm('Are you sure you want to unblock this caller? They will be able to reach your routing system again.')) return;
+  const [unblockId, setUnblockId] = useState<string | null>(null);
+  const [isUnblocking, setIsUnblocking] = useState(false);
+
+  async function handleUnblock() {
+    if (!workspaceId || !unblockId) return;
     
+    setIsUnblocking(true);
     try {
-      await apiFetch(`/workspaces/${workspaceId}/blocked-callers/${id}`, {
+      await apiFetch(`/workspaces/${workspaceId}/blocked-callers/${unblockId}`, {
         method: 'DELETE',
       });
       await loadCallers(workspaceId);
+      setUnblockId(null);
     } catch (e: unknown) {
       setError('Failed to unblock caller: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsUnblocking(false);
     }
   }
 
@@ -207,7 +214,7 @@ export default function BlockedCallersPage() {
                           variant="outline"
                           size="sm"
                           className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
-                          onClick={() => handleUnblock(caller.id)}
+                          onClick={() => setUnblockId(caller.id)}
                         >
                           Unblock
                         </Button>
@@ -220,6 +227,16 @@ export default function BlockedCallersPage() {
           </CardContent>
         </Card>
       </div>
+
+      <ConfirmDialog
+        open={!!unblockId}
+        onOpenChange={(open) => !open && setUnblockId(null)}
+        title="Unblock Caller"
+        description="Are you sure you want to unblock this caller? They will be able to reach your routing system again."
+        onConfirm={handleUnblock}
+        isLoading={isUnblocking}
+        confirmText="Unblock"
+      />
     </div>
   );
 }

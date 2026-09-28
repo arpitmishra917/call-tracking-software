@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,19 +82,25 @@ export default function WebhooksPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!workspaceId) return;
-    if (!confirm('Are you sure you want to delete this webhook?')) return;
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
+  const handleDelete = async () => {
+    if (!workspaceId || !deleteId) return;
+    
+    setIsDeleting(true);
     try {
       setError(null);
-      await apiFetch(`/workspaces/${workspaceId}/webhooks/${id}`, {
+      await apiFetch(`/workspaces/${workspaceId}/webhooks/${deleteId}`, {
         method: 'DELETE',
       });
       setNewSecret(null); // Clear secret if they delete
       await fetchWebhooks();
+      setDeleteId(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to delete webhook');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -249,19 +256,28 @@ export default function WebhooksPage() {
                           variant="outline"
                           size="sm"
                           className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
-                          onClick={() => handleDelete(wh.id)}
-                        >
-                          Delete
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                            onClick={() => setDeleteId(wh.id)}
+                          >
+                            Delete
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>`n`n      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+        title="Delete Webhook"
+        description="Are you sure you want to delete this webhook? It will no longer receive any events."
+        onConfirm={handleDelete}
+        isLoading={isDeleting}
+        confirmText="Delete"
+      />
     </div>
   );
 }
+

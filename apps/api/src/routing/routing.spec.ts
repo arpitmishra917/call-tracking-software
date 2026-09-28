@@ -74,4 +74,62 @@ describe('Routing Services (Stage 12)', () => {
       }),
     );
   });
+
+  it('should update buyer fields including status', async () => {
+    prisma.buyer.update = vi.fn().mockResolvedValue({
+      id: 'b1',
+      status: 'INACTIVE',
+    });
+    
+    await buyersService.updateBuyer('ws_1', 'b1', { status: 'INACTIVE', name: 'Updated' });
+    
+    expect(prisma.buyer.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'b1' },
+        data: {
+          name: 'Updated',
+          status: 'INACTIVE',
+        },
+      })
+    );
+  });
+
+  it('should update campaign fields including status', async () => {
+    prisma.campaign.update = vi.fn().mockResolvedValue({
+      id: 'c1',
+      status: 'INACTIVE',
+    });
+    
+    await campaignsService.updateCampaign('ws_1', 'c1', { status: 'INACTIVE', name: 'Updated Campaign' });
+    
+    expect(prisma.campaign.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'c1' },
+        data: {
+          name: 'Updated Campaign',
+          status: 'INACTIVE',
+        },
+      })
+    );
+  });
+
+  it('should reorder buyers safely using a transaction', async () => {
+    prisma.$transaction = vi.fn().mockImplementation(async (cb) => {
+      // Mock the transaction client
+      const tx = {
+        campaignBuyer: {
+          findMany: vi.fn().mockResolvedValue([
+            { id: 'cb1', buyer_id: 'b1', priority: 1 },
+            { id: 'cb2', buyer_id: 'b2', priority: 2 },
+          ]),
+          update: vi.fn().mockResolvedValue({}),
+        }
+      };
+      return cb(tx);
+    });
+
+    await campaignsService.reorderBuyersInCampaign('ws_1', 'c1', ['b2', 'b1']);
+    
+    expect(prisma.$transaction).toHaveBeenCalled();
+  });
 });
