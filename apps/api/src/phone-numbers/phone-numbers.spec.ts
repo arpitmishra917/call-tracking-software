@@ -20,6 +20,7 @@ describe('PhoneNumbersService', () => {
         findUnique: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        count: vi.fn().mockResolvedValue(1),
       },
     };
 
@@ -54,11 +55,14 @@ describe('PhoneNumbersService', () => {
     prismaMock.phoneNumber.findMany.mockResolvedValue([
       { id: 'mock-uuid', phone_number: '+15550001000' },
     ]);
-    const result = await service.listWorkspaceNumbers('ws-1');
-    expect(result).toHaveLength(1);
+    const result = await service.listWorkspaceNumbers('ws-1', { page: 1, limit: 50 });
+    expect(result.items).toHaveLength(1);
+    expect(result.total).toBe(1);
     expect(prismaMock.phoneNumber.findMany).toHaveBeenCalledWith({
       where: { workspace_id: 'ws-1' },
       orderBy: { created_at: 'desc' },
+      skip: 0,
+      take: 50,
     });
   });
 
