@@ -1,42 +1,137 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
-export default function SignupPage() {
+export default async function SignupPage(
+  props: { searchParams: Promise<{ token?: string, message?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const token = searchParams.token;
+  let invitationDetails: { workspace_name: string; email: string } | null = null;
+
+  if (token) {
+    try {
+      // NOTE: server component fetching to public API
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/invitations/verify/${token}`, { cache: 'no-store' });
+      if (res.ok) {
+        invitationDetails = await res.json();
+      }
+    } catch (e) {
+      console.error('Failed to verify token', e);
+    }
+  }
+
   const signup = async (formData: FormData) => {
     'use server'
     const email = formData.get('email') as string
     const password = formData.get('password') as string
+    const confirmPassword = formData.get('confirmPassword') as string
+    const fullName = formData.get('fullName') as string
+    const inviteToken = formData.get('inviteToken') as string
+
+    if (password !== confirmPassword) {
+      return redirect(`/signup?message=Passwords do not match${inviteToken ? `&token=${inviteToken}` : ''}`)
+    }
+
     const supabase = await createClient()
 
-    const { error } = await supabase.auth.signUp({
+    let redirectUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3001'}/auth/callback`
+    if (inviteToken) {
+      redirectUrl += `?next=${encodeURIComponent('/protected/accept-invitation?token=' + inviteToken)}` 
+    }
+
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3001'}/auth/callback`,
+        data: {
+          full_name: fullName,
+        },
+        emailRedirectTo: redirectUrl,
       },
     })
 
     if (error) {
-      return redirect('/signup?message=Could not create user')
+      return redirect(`/signup?message=${encodeURIComponent(error.message)}${inviteToken ? `&token=${inviteToken}` : ''}`)
     }
 
-    return redirect('/login?message=Check email to continue sign in process')
+    if (data.user && !data.session) {
+      return redirect(`/login?message=Check email to continue sign in process${inviteToken ? `&token=${inviteToken}` : ''}`)
+    }
+
+    if (inviteToken) {
+      return redirect(`/protected/accept-invitation?token=${inviteToken}`)
+    }
+    
+    return redirect('/protected')
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen py-2">
-      <main className="flex flex-col items-center justify-center w-full flex-1 px-20 text-center">
-        <h1 className="text-4xl font-bold mb-8">Sign Up</h1>
-        <form className="flex flex-col gap-4 w-64">
-          <input className="border p-2" name="email" placeholder="Email" required />
-          <input className="border p-2" type="password" name="password" placeholder="Password" required />
-          <button className="bg-green-500 text-white p-2 rounded" formAction={signup}>Sign Up</button>
-        </form>
-        <p className="mt-4">
-          Already have an account? <Link href="/login" className="text-blue-500">Log In</Link>
-        </p>
-      </main>
+    <div className="flex flex-col items-center justify-center min-h-screen py-2 bg-gray-50">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="text-2xl font-bold text-center">Sign Up</CardTitle>
+          {invitationDetails ? (
+            <CardDescription className="text-center text-green-600 font-medium">
+              You have been invited to join <strong>{invitationDetails.workspace_name}</strong>
+            </CardDescription>
+          ) : (
+            <CardDescription className="text-center">Create a new account</CardDescription>
+          )}
+        </CardHeader>
+        <CardContent>
+          <form className="flex flex-col gap-4" action={signup}>
+            {token && <input type="hidden" name="inviteToken" value={token} />}
+            
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="fullName">Full Name</Label>
+              <Input id="fullName" name="fullName" placeholder="John Doe" required />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="email">Email</Label>
+              <Input 
+                id="email" 
+                name="email" 
+                type="email" 
+                placeholder="you@example.com" 
+                required 
+                defaultValue={invitationDetails?.email || ''}
+                readOnly={!!invitationDetails}
+                className={invitationDetails ? 'bg-gray-100' : ''}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="password">Password</Label>
+              <Input id="password" type="password" name="password" placeholder="••••••••" required />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Input id="confirmPassword" type="password" name="confirmPassword" placeholder="••••••••" required />
+            </div>
+
+            {searchParams.message && (
+              <p className="text-red-500 text-sm mt-2 text-center">{searchParams.message}</p>
+            )}
+
+            <Button type="submit" className="w-full mt-2">Sign Up</Button>
+          </form>
+        </CardContent>
+        <CardFooter className="justify-center">
+          <p className="text-sm text-gray-600">
+            Already have an account?{' '}
+            <Link href={`/login${token ? `?token=${token}` : ''}`} className="text-blue-600 hover:underline">
+              Log In
+            </Link>
+          </p>
+        </CardFooter>
+      </Card>
     </div>
   )
 }
