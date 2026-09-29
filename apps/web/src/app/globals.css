@@ -52,9 +52,59 @@
   padding-inline: 1rem;
 }
 
+:root {
+  --foreground-hex: #0f172a;
+}
+
+.dark {
+  --color-background: #020817;
+  --color-surface: #0f172a;
+  
+  --color-primary: #f8fafc;
+  --color-primary-foreground: #0f172a;
+  --color-primary-hover: #cbd5e1;
+  
+  --color-secondary: #1e293b;
+  --color-secondary-foreground: #f8fafc;
+  --color-secondary-hover: #334155;
+  
+  --color-destructive: #7f1d1d;
+  --color-destructive-foreground: #fef2f2;
+  --color-destructive-hover: #991b1b;
+
+  --color-muted: #1e293b;
+  --color-muted-foreground: #94a3b8;
+
+  --color-border: #334155;
+  --color-border-subtle: #1e293b;
+  --color-border-focus: #475569;
+
+  --color-success: #065f46;
+  --color-success-foreground: #ecfdf5;
+  --color-success-muted: #064e3b;
+  --color-success-muted-foreground: #6ee7b7;
+
+  --color-warning: #92400e;
+  --color-warning-foreground: #fffbeb;
+  --color-warning-muted: #78350f;
+  --color-warning-muted-foreground: #fcd34d;
+
+  --color-error: #7f1d1d;
+  --color-error-foreground: #fef2f2;
+  --color-error-muted: #450a0a;
+  --color-error-muted-foreground: #fca5a5;
+
+  --color-info: #1e40af;
+  --color-info-foreground: #eff6ff;
+  --color-info-muted: #172554;
+  --color-info-muted-foreground: #93c5fd;
+
+  --foreground-hex: #f8fafc;
+}
+
 body {
   background-color: var(--color-background);
-  color: #0f172a;
+  color: var(--foreground-hex);
   font-family: var(--font-sans), sans-serif;
   -webkit-font-smoothing: antialiased;
 }
