@@ -15,7 +15,8 @@ export default async function LoginPage(
 
   if (token) {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/invitations/verify/${token}`, { cache: 'no-store' });
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const res = await fetch(`${apiUrl}/invitations/verify/${token}`, { cache: 'no-store' });
       if (res.ok) {
         invitationDetails = await res.json();
       }
