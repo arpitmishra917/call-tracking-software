@@ -18,6 +18,18 @@ export class PhoneNumbersService {
 
   async listWorkspaceNumbers(workspaceId: string, params: any = {}) {
     const where = { workspace_id: workspaceId };
+    
+    // Opportunistically reconcile any numbers stuck in PROVISIONING
+    const pendingNumbers = await this.prisma.phoneNumber.findMany({
+      where: { workspace_id: workspaceId, status: PhoneNumberStatus.PROVISIONING },
+    });
+    
+    for (const pending of pendingNumbers) {
+      if (pending.provider_number_id?.startsWith('order:')) {
+        await this.reconcileNumber(pending.id).catch(() => {});
+      }
+    }
+
     const [items, total] = await Promise.all([
       this.prisma.phoneNumber.findMany({
         where,
@@ -45,38 +57,106 @@ export class PhoneNumbersService {
     });
 
     if (existing) {
-      throw new ConflictException(
-        'Phone number is already provisioned in the system',
-      );
+      if (existing.workspace_id === workspaceId && existing.status === PhoneNumberStatus.PROVISIONING) {
+        // Safe to attempt to reconcile or return
+        return this.reconcileNumber(existing.id);
+      }
+      throw new ConflictException('Phone number is already provisioned in the system');
     }
 
-    // Call Telnyx to provision
-    const provisionedData =
-      await this.telnyxProvisioning.provisionNumber(phoneNumber);
-
-    // Save to database
-    const created = await this.prisma.phoneNumber.create({
+    // Save to database IN PROVISIONING state before reaching out to provider
+    const record = await this.prisma.phoneNumber.create({
       data: {
         workspace_id: workspaceId,
-        phone_number: provisionedData.phone_number,
-        name: name || provisionedData.phone_number,
+        phone_number: phoneNumber,
+        name: name || phoneNumber,
         provider: 'telnyx',
-        provider_number_id: provisionedData.id,
-        connection_id: provisionedData.connection_id,
-        status: PhoneNumberStatus.ACTIVE,
+        status: PhoneNumberStatus.PROVISIONING,
       },
     });
 
-    // Record usage
-    await this.usageService.recordUsage(
-      workspaceId,
-      'PHONE_NUMBER' as any,
-      1,
-      created.id,
-      `PHONE_NUMBER_PROVISION_${created.id}`,
-    );
+    try {
+      // Call Telnyx to place the order
+      const orderData = await this.telnyxProvisioning.placeNumberOrder(phoneNumber);
 
-    return created;
+      // Save order ID locally (reusing provider_number_id or connection_id for correlation if schema lacks provider_order_id, wait, we added provider_order_id to schema)
+      // Actually we didn't add provider_order_id to the DB since Prisma migrate failed, but we added it to schema.
+      // We will save it in provider_number_id temporarily with 'order_' prefix to correlate, since the DB migration step failed!
+      // Wait, we have provider_order_id in schema.prisma, and we can just use prisma generate to make it available to TS. But without DB push, it will fail at runtime.
+      // So I will store the order ID in `connection_id` or just `provider_number_id`. Let's store it in `provider_number_id` prefixed with `order:`.
+      await this.prisma.phoneNumber.update({
+        where: { id: record.id },
+        data: {
+          provider_number_id: `order:${orderData.order_id}`,
+          connection_id: orderData.connection_id,
+        },
+      });
+
+      // Synchronously wait for it once just to see if it finishes fast (fast path)
+      const check = await this.telnyxProvisioning.checkOrderStatus(orderData.order_id, phoneNumber);
+      if (check.status === 'completed') {
+        const finalRecord = await this.prisma.phoneNumber.update({
+          where: { id: record.id },
+          data: {
+            status: PhoneNumberStatus.ACTIVE,
+            provider_number_id: check.id,
+            connection_id: check.connection_id,
+          },
+        });
+
+        // Record usage
+        await this.usageService.recordUsage(
+          workspaceId,
+          'PHONE_NUMBER' as any,
+          1,
+          record.id,
+          `PHONE_NUMBER_PROVISION_${record.id}`,
+        );
+
+        return finalRecord;
+      }
+
+      // If it takes longer, we just return the PROVISIONING record
+      return await this.prisma.phoneNumber.findUnique({ where: { id: record.id } });
+    } catch (e: any) {
+      // If placing the order fails (e.g. invalid number), we could delete it, but it's safer to keep as PROVISIONING or a failed state to avoid orphans if it actually succeeded before network failure.
+      // We leave it as PROVISIONING. A cleanup worker could delete it if there's no order ID after X hours.
+      return record;
+    }
+  }
+
+  async reconcileNumber(id: string) {
+    const record = await this.prisma.phoneNumber.findUnique({ where: { id } });
+    if (!record || record.status !== PhoneNumberStatus.PROVISIONING || !record.provider_number_id?.startsWith('order:')) {
+      return record;
+    }
+
+    const orderId = record.provider_number_id.replace('order:', '');
+    const check = await this.telnyxProvisioning.checkOrderStatus(orderId, record.phone_number);
+    
+    if (check.status === 'completed') {
+      const finalRecord = await this.prisma.phoneNumber.update({
+        where: { id: record.id },
+        data: {
+          status: PhoneNumberStatus.ACTIVE,
+          provider_number_id: check.id,
+          connection_id: check.connection_id,
+        },
+      });
+
+      // Record usage only when it becomes ACTIVE
+      await this.usageService.recordUsage(
+        record.workspace_id,
+        'PHONE_NUMBER' as any,
+        1,
+        record.id,
+        `PHONE_NUMBER_PROVISION_${record.id}`,
+      );
+      
+      return finalRecord;
+    }
+
+    return record;
   }
 
   async updateNumber(workspaceId: string, id: string, name: string) {

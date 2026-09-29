@@ -78,14 +78,31 @@ describe('PhoneNumbersService', () => {
       id: 'new-uuid',
       workspace_id: 'ws-1',
       phone_number: '+15550001000',
+      status: PhoneNumberStatus.PROVISIONING,
+    });
+    prismaMock.phoneNumber.update.mockResolvedValue({
+      id: 'new-uuid',
+      workspace_id: 'ws-1',
+      phone_number: '+15550001000',
       status: PhoneNumberStatus.ACTIVE,
+    });
+
+    telnyxMock.placeNumberOrder = vi.fn().mockResolvedValue({
+      order_id: 'mock_order_id',
+      connection_id: 'mock_conn_id',
+    });
+    telnyxMock.checkOrderStatus = vi.fn().mockResolvedValue({
+      status: 'completed',
+      id: 'mock_telnyx_id',
+      connection_id: 'mock_conn_id',
     });
 
     const result = await service.provisionNumber('ws-1', '+15550001000');
     expect(result.id).toBe('new-uuid');
     expect(result.status).toBe(PhoneNumberStatus.ACTIVE);
-    expect(telnyxMock.provisionNumber).toHaveBeenCalledWith('+15550001000');
+    expect(telnyxMock.placeNumberOrder).toHaveBeenCalledWith('+15550001000');
     expect(prismaMock.phoneNumber.create).toHaveBeenCalled();
+    expect(prismaMock.phoneNumber.update).toHaveBeenCalledTimes(2);
   });
 
   it('should release a number (soft delete)', async () => {

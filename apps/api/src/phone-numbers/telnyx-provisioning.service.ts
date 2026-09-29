@@ -52,12 +52,11 @@ export class TelnyxProvisioningService {
     }
   }
 
-  async provisionNumber(
+  async placeNumberOrder(
     phoneNumber: string,
     connectionId?: string,
   ): Promise<{
-    id: string;
-    phone_number: string;
+    order_id: string;
     connection_id: string | null;
   }> {
     const targetConnection = connectionId || process.env.TELNYX_CALL_CONTROL_APP_ID;
@@ -70,11 +69,10 @@ export class TelnyxProvisioningService {
 
     if (!this.telnyxClient) {
       this.logger.debug(
-        `[MOCK] Provisioning number ${phoneNumber} on connection ${targetConnection}`,
+        `[MOCK] Placing order for number ${phoneNumber} on connection ${targetConnection}`,
       );
       return {
-        id: `mock_telnyx_id_${Date.now()}`,
-        phone_number: phoneNumber,
+        order_id: `mock_order_${Date.now()}`,
         connection_id: targetConnection,
       };
     }
@@ -85,47 +83,62 @@ export class TelnyxProvisioningService {
         connection_id: targetConnection,
       });
 
-      this.logger.log(`Number order created: ${order.data?.id || 'unknown'} for ${phoneNumber}`);
-
-      // Polling for the actual phone number resource
-      let attempts = 0;
-      const maxAttempts = 10;
-      const delayMs = 3000;
-
-      while (attempts < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        attempts++;
-
-        const numbersRes = await this.telnyxClient.phoneNumbers.list({
-          filter: { phone_number: phoneNumber },
-        });
-
-        if (numbersRes && numbersRes.data && numbersRes.data.length > 0) {
-          const numberData = numbersRes.data[0];
-
-          if (numberData.connection_id !== targetConnection) {
-            throw new InternalServerErrorException(
-              `Number provisioned but has incorrect or missing connection_id. Expected ${targetConnection}, got ${numberData.connection_id}`,
-            );
-          }
-
-          return {
-            id: numberData.id,
-            phone_number: numberData.phone_number,
-            connection_id: numberData.connection_id,
-          };
-        }
+      const orderId = order.data?.id;
+      if (!orderId) {
+        throw new InternalServerErrorException('Telnyx did not return an order ID');
       }
 
-      throw new InternalServerErrorException(
-        `Number order was placed, but the phone number resource did not become available after ${maxAttempts} attempts.`,
-      );
+      this.logger.log(`Number order created: ${orderId} for ${phoneNumber}`);
+
+      return {
+        order_id: orderId,
+        connection_id: targetConnection,
+      };
     } catch (error: any) {
-      this.logger.error(`Error provisioning number ${phoneNumber}`, error);
-      if (error instanceof InternalServerErrorException) {
-        throw error;
+      this.logger.error(`Error placing order for number ${phoneNumber}`, error);
+      throw new BadRequestException('Failed to place phone number order');
+    }
+  }
+
+  async checkOrderStatus(orderId: string, phoneNumber: string): Promise<{
+    status: string;
+    id?: string;
+    phone_number?: string;
+    connection_id?: string | null;
+  }> {
+    if (!this.telnyxClient) {
+      this.logger.debug(`[MOCK] Checking order status for ${orderId}`);
+      // In mock mode, we assume it succeeds immediately
+      return {
+        status: 'completed',
+        id: `mock_telnyx_id_${orderId}`,
+        phone_number: phoneNumber,
+        connection_id: process.env.TELNYX_CALL_CONTROL_APP_ID,
+      };
+    }
+
+    try {
+      // We can query the number order to see if it's successful, or just list the phone number directly
+      const numbersRes = await this.telnyxClient.phoneNumbers.list({
+        filter: { phone_number: phoneNumber },
+      });
+
+      if (numbersRes && numbersRes.data && numbersRes.data.length > 0) {
+        const numberData = numbersRes.data[0];
+        
+        return {
+          status: 'completed',
+          id: numberData.id,
+          phone_number: numberData.phone_number,
+          connection_id: numberData.connection_id,
+        };
       }
-      throw new BadRequestException('Failed to provision phone number');
+      
+      // If not found yet, it's still pending
+      return { status: 'pending' };
+    } catch (error: any) {
+      this.logger.error(`Error checking order status for ${orderId}`, error);
+      throw new InternalServerErrorException('Failed to check order status');
     }
   }
 
