@@ -290,7 +290,7 @@ export default function MembersPage() {
                   <TableRow key={member.id}>
                     <TableCell>
                       <div className="font-medium text-foreground flex items-center gap-2">
-                        {member.profile?.display_name || 'Anonymous User'}
+                        {member.profile?.display_name || member.user_id}
                         {currentUserId === member.user_id && (
                           <Badge variant="outline" className="text-xs">You</Badge>
                         )}
@@ -404,10 +404,18 @@ export default function MembersPage() {
           <div className="bg-background rounded-lg shadow-lg w-full max-w-md p-6 border border-border">
             <h2 className="text-xl font-bold mb-2">Invitation Created</h2>
             <p className="text-sm text-muted-foreground mb-4">
-              Since email delivery is not configured, please copy this invitation link and share it with the user directly.
+              Email delivery is not configured. Copy this invitation link and send it to the recipient.
             </p>
-            <div className="p-3 bg-muted rounded-md mb-6 break-all text-sm font-mono select-all">
-              {inviteToken}
+            <div className="flex gap-2 mb-6">
+              <input 
+                type="text" 
+                readOnly 
+                className="flex h-9 w-full rounded-md border border-input bg-muted px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={`${typeof window !== 'undefined' ? window.location.origin : ''}/protected/invitations?token=${inviteToken}`}
+              />
+              <Button onClick={() => navigator.clipboard.writeText(`${typeof window !== 'undefined' ? window.location.origin : ''}/protected/invitations?token=${inviteToken}`)}>
+                Copy
+              </Button>
             </div>
             <div className="flex justify-end">
               <Button onClick={() => setInviteToken(null)}>Close</Button>
