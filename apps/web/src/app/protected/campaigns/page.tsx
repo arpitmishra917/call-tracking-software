@@ -56,6 +56,18 @@ export default function CampaignsPage() {
   const [isAddingBuyer, setIsAddingBuyer] = useState(false);
   const [isCreatingCampaign, setIsCreatingCampaign] = useState(false);
 
+  // Action Modals State
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [campaignToEdit, setCampaignToEdit] = useState<Campaign | null>(null);
+  const [editCampaignName, setEditCampaignName] = useState('');
+  const [isEditingCampaign, setIsEditingCampaign] = useState(false);
+
+  const [deactivateModalOpen, setDeactivateModalOpen] = useState(false);
+  const [campaignToDeactivate, setCampaignToDeactivate] = useState<Campaign | null>(null);
+  const [isDeactivatingCampaign, setIsDeactivatingCampaign] = useState(false);
+
+  const [activatingCampaignId, setActivatingCampaignId] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadData() {
       try {
@@ -147,6 +159,80 @@ export default function CampaignsPage() {
     setAddBuyerModalOpen(true);
   }
 
+  async function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!workspaceId || !campaignToEdit) return;
+    setIsEditingCampaign(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/campaigns/${campaignToEdit.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: editCampaignName }),
+      });
+      setSuccess('Campaign updated successfully.');
+      setEditModalOpen(false);
+      setCampaignToEdit(null);
+      refreshCampaigns();
+    } catch (e: unknown) {
+      setError('Failed to update campaign: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsEditingCampaign(false);
+    }
+  }
+
+  function openEditModal(campaign: Campaign) {
+    setCampaignToEdit(campaign);
+    setEditCampaignName(campaign.name);
+    setEditModalOpen(true);
+  }
+
+  async function handleActivate(campaignId: string) {
+    if (!workspaceId) return;
+    setActivatingCampaignId(campaignId);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/campaigns/${campaignId}/activate`, {
+        method: 'POST'
+      });
+      setSuccess('Campaign activated successfully.');
+      refreshCampaigns();
+    } catch (e: unknown) {
+      setError('Failed to activate campaign: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setActivatingCampaignId(null);
+    }
+  }
+
+  function openDeactivateModal(campaign: Campaign) {
+    setCampaignToDeactivate(campaign);
+    setDeactivateModalOpen(true);
+  }
+
+  async function handleDeactivateConfirm() {
+    if (!workspaceId || !campaignToDeactivate) return;
+    setIsDeactivatingCampaign(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/campaigns/${campaignToDeactivate.id}/archive`, {
+        method: 'POST'
+      });
+      setSuccess('Campaign deactivated successfully.');
+      setDeactivateModalOpen(false);
+      setCampaignToDeactivate(null);
+      refreshCampaigns();
+    } catch (e: unknown) {
+      setError('Failed to deactivate campaign: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsDeactivatingCampaign(false);
+    }
+  }
+
   if (loading) return <div className="p-8 flex items-center justify-center text-muted-foreground">Loading campaigns...</div>;
   if (!workspaceId) return <div className="p-8 flex items-center justify-center text-muted-foreground">Select a workspace first.</div>;
 
@@ -208,9 +294,32 @@ export default function CampaignsPage() {
                     {c.status}
                   </Badge>
                 </div>
-                <Link href={`/protected/campaigns/${c.id}?workspace=${workspaceId}`} className="text-sm font-medium text-primary hover:underline flex items-center gap-1">
-                  View Details
-                </Link>
+                <div className="flex items-center gap-4">
+                  <Button variant="ghost" size="sm" onClick={() => openEditModal(c)}>
+                    Edit
+                  </Button>
+                  {c.status !== 'ACTIVE' ? (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handleActivate(c.id)}
+                      isLoading={activatingCampaignId === c.id}
+                    >
+                      Activate
+                    </Button>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => openDeactivateModal(c)}
+                    >
+                      Deactivate
+                    </Button>
+                  )}
+                  <Link href={`/protected/campaigns/${c.id}?workspace=${workspaceId}`} className="text-sm font-medium text-primary hover:underline flex items-center gap-1">
+                    View Details
+                  </Link>
+                </div>
               </div>
               
               <CardContent className="p-0">
@@ -285,6 +394,61 @@ export default function CampaignsPage() {
           ))
         )}
       </div>
+
+      {editModalOpen && campaignToEdit && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md shadow-lg">
+            <CardHeader>
+              <CardTitle>Edit Campaign</CardTitle>
+            </CardHeader>
+            <form onSubmit={handleEditSubmit}>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="editCampaignName">Campaign Name</Label>
+                  <Input 
+                    id="editCampaignName"
+                    type="text" 
+                    value={editCampaignName} 
+                    onChange={e => setEditCampaignName(e.target.value)}
+                    required
+                  />
+                </div>
+              </CardContent>
+              <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
+                <Button variant="outline" type="button" onClick={() => { setEditModalOpen(false); setCampaignToEdit(null); }}>
+                  Cancel
+                </Button>
+                <Button type="submit" isLoading={isEditingCampaign}>
+                  Save Changes
+                </Button>
+              </CardFooter>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {deactivateModalOpen && campaignToDeactivate && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md shadow-lg">
+            <CardHeader>
+              <CardTitle>Deactivate Campaign</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Are you sure you want to deactivate the campaign <strong>{campaignToDeactivate.name}</strong>? It will no longer route calls.
+              </p>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
+              <Button variant="outline" onClick={() => { setDeactivateModalOpen(false); setCampaignToDeactivate(null); }}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleDeactivateConfirm} isLoading={isDeactivatingCampaign}>
+                Deactivate
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      )}
 
       {addBuyerModalOpen && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">

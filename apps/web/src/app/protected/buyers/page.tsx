@@ -34,6 +34,18 @@ export default function BuyersPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Modal states
+  const [editingBuyer, setEditingBuyer] = useState<Buyer | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDestination, setEditDestination] = useState('');
+  const [editTimeout, setEditTimeout] = useState(30);
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+
+  const [deactivatingBuyer, setDeactivatingBuyer] = useState<Buyer | null>(null);
+  const [isSubmittingDeactivate, setIsSubmittingDeactivate] = useState(false);
+
+  const [activatingId, setActivatingId] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadBuyers() {
       try {
@@ -58,6 +70,74 @@ export default function BuyersPage() {
       setBuyers(data?.items || []);
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  function openEditModal(buyer: Buyer) {
+    setEditingBuyer(buyer);
+    setEditName(buyer.name);
+    setEditDestination(buyer.destination_number);
+    setEditTimeout(buyer.timeout);
+  }
+
+  async function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!workspaceId || !editingBuyer) return;
+    setIsSubmittingEdit(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/buyers/${editingBuyer.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: editName, destinationNumber: editDestination, timeout: editTimeout }),
+      });
+      setSuccess('Buyer updated successfully.');
+      setEditingBuyer(null);
+      refreshBuyers();
+    } catch (err: unknown) {
+      setError(`Failed to update buyer: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSubmittingEdit(false);
+    }
+  }
+
+  async function handleActivate(id: string) {
+    if (!workspaceId) return;
+    setActivatingId(id);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/buyers/${id}/activate`, {
+        method: 'POST',
+      });
+      setSuccess('Buyer activated successfully.');
+      refreshBuyers();
+    } catch (err: unknown) {
+      setError(`Failed to activate buyer: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setActivatingId(null);
+    }
+  }
+
+  async function handleDeactivateSubmit() {
+    if (!workspaceId || !deactivatingBuyer) return;
+    setIsSubmittingDeactivate(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/buyers/${deactivatingBuyer.id}/archive`, {
+        method: 'POST',
+      });
+      setSuccess('Buyer deactivated successfully.');
+      setDeactivatingBuyer(null);
+      refreshBuyers();
+    } catch (err: unknown) {
+      setError(`Failed to deactivate buyer: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSubmittingDeactivate(false);
     }
   }
 
@@ -187,10 +267,33 @@ export default function BuyersPage() {
                         {b.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right space-x-2">
                       <Link href={`/protected/buyers/${b.id}?workspace=${workspaceId}`} className="text-sm font-medium text-primary hover:underline">
                         View Details
                       </Link>
+                      <button 
+                        onClick={() => openEditModal(b)} 
+                        className="text-sm font-medium text-primary hover:underline"
+                      >
+                        Edit
+                      </button>
+                      {b.status !== 'ACTIVE' && (
+                        <button 
+                          onClick={() => handleActivate(b.id)} 
+                          className="text-sm font-medium text-success hover:underline disabled:opacity-50"
+                          disabled={activatingId === b.id}
+                        >
+                          {activatingId === b.id ? 'Activating...' : 'Activate'}
+                        </button>
+                      )}
+                      {b.status === 'ACTIVE' && (
+                        <button 
+                          onClick={() => setDeactivatingBuyer(b)} 
+                          className="text-sm font-medium text-error hover:underline"
+                        >
+                          Deactivate
+                        </button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -199,6 +302,84 @@ export default function BuyersPage() {
           </Card>
         )}
       </div>
+
+      {/* Edit Modal */}
+      {editingBuyer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="w-full max-w-md bg-background">
+            <CardHeader>
+              <CardTitle>Edit Buyer</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleEditSubmit} className="flex flex-col gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="editName">Buyer Name</Label>
+                  <Input 
+                    id="editName"
+                    type="text" 
+                    value={editName} 
+                    onChange={e => setEditName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="editDestination">Destination Number</Label>
+                  <Input 
+                    id="editDestination"
+                    type="text" 
+                    value={editDestination} 
+                    onChange={e => setEditDestination(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="editTimeout">Timeout (s)</Label>
+                  <Input 
+                    id="editTimeout"
+                    type="number" 
+                    value={editTimeout} 
+                    onChange={e => setEditTimeout(Number(e.target.value))}
+                    min="1"
+                    required
+                  />
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <Button type="button" variant="outline" onClick={() => setEditingBuyer(null)} disabled={isSubmittingEdit}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" isLoading={isSubmittingEdit}>
+                    Save Changes
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Deactivate Modal */}
+      {deactivatingBuyer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="w-full max-w-sm bg-background">
+            <CardHeader>
+              <CardTitle>Deactivate Buyer</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-6 text-sm text-muted-foreground">
+                Are you sure you want to deactivate <strong>{deactivatingBuyer.name}</strong>? This will archive the buyer and they will no longer receive calls.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setDeactivatingBuyer(null)} disabled={isSubmittingDeactivate}>
+                  Cancel
+                </Button>
+                <Button type="button" variant="destructive" onClick={handleDeactivateSubmit} isLoading={isSubmittingDeactivate}>
+                  Deactivate
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

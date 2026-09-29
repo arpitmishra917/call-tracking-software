@@ -52,6 +52,11 @@ export default function PhoneNumbersPage() {
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
 
+  // Edit Modal State
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+
   useEffect(() => {
     async function loadAll() {
       if (!workspaceId) return;
@@ -149,6 +154,36 @@ export default function PhoneNumbersPage() {
     setAssignModalOpen(true);
   }
 
+  function openEditModal(phone: PhoneNumber) {
+    setSelectedPhone(phone);
+    setEditName(phone.name || '');
+    setEditModalOpen(true);
+  }
+
+  async function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!workspaceId || !selectedPhone) return;
+    setIsEditing(true);
+    setError(null);
+    setSuccess(null);
+    
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/phone-numbers/${selectedPhone.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: editName }),
+      });
+      
+      setSuccess('Phone number updated.');
+      setEditModalOpen(false);
+      setSelectedPhone(null);
+      await loadPhoneNumbers(workspaceId);
+    } catch (e: unknown) {
+      setError('Failed to update phone number: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsEditing(false);
+    }
+  }
+
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
   const [isReleasing, setIsReleasing] = useState(false);
 
@@ -222,8 +257,9 @@ export default function PhoneNumbersPage() {
                 <TableBody>
                   {numbers.map((num) => (
                     <TableRow key={num.id}>
-                      <TableCell className="font-mono font-medium text-foreground">
-                        {num.phone_number}
+                      <TableCell>
+                        <div className="font-mono font-medium text-foreground">{num.phone_number}</div>
+                        {num.name && <div className="text-sm text-muted-foreground">{num.name}</div>}
                       </TableCell>
                       <TableCell>
                         {num.campaign ? (
@@ -240,6 +276,13 @@ export default function PhoneNumbersPage() {
                       <TableCell className="text-right space-x-2">
                         {num.status !== 'RELEASED' && (
                           <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openEditModal(num)}
+                            >
+                              Edit
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"
@@ -392,6 +435,48 @@ export default function PhoneNumbersPage() {
                 Release
               </Button>
             </CardFooter>
+          </Card>
+        </div>
+      )}
+      {editModalOpen && selectedPhone && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md shadow-lg">
+            <CardHeader>
+              <CardTitle>Edit Phone Number</CardTitle>
+            </CardHeader>
+            <form onSubmit={handleEditSubmit}>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label>Phone Number</Label>
+                  <div className="font-mono bg-muted/30 p-2.5 rounded-md border border-border text-sm">
+                    {selectedPhone.phone_number}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Name</Label>
+                  <Input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="e.g. Support Line"
+                  />
+                </div>
+              </CardContent>
+              <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => setEditModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  isLoading={isEditing}
+                >
+                  Save
+                </Button>
+              </CardFooter>
+            </form>
           </Card>
         </div>
       )}

@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Target, Phone, Hash, AlertCircle, Info, ListOrdered } from 'lucide-react';
+import { ArrowLeft, Target, Phone, Hash, AlertCircle, Info, ListOrdered, Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface CampaignDetail {
@@ -38,20 +38,37 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadCampaign() {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await apiFetch(`/workspaces/${workspaceId}/campaigns/${campaignId}`);
-        setCampaign(data);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Campaign not found or access denied.');
-      } finally {
-        setLoading(false);
-      }
-    }
+  // Routing Management State
+  const [localBuyers, setLocalBuyers] = useState<CampaignDetail['buyers']>([]);
+  const [hasOrderChanged, setHasOrderChanged] = useState(false);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
 
+  // Add Buyer Modal State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [availableBuyers, setAvailableBuyers] = useState<any[]>([]);
+  const [isLoadingBuyers, setIsLoadingBuyers] = useState(false);
+  const [selectedBuyerId, setSelectedBuyerId] = useState<string>('');
+  const [isAddingBuyer, setIsAddingBuyer] = useState(false);
+
+  // Remove Buyer State
+  const [isRemovingBuyerId, setIsRemovingBuyerId] = useState<string | null>(null);
+
+  const loadCampaign = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch(`/workspaces/${workspaceId}/campaigns/${campaignId}`);
+      setCampaign(data);
+      setLocalBuyers([...data.buyers].sort((a, b) => a.priority - b.priority));
+      setHasOrderChanged(false);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Campaign not found or access denied.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     if (workspaceId && campaignId) {
       loadCampaign();
     }
@@ -66,6 +83,97 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
         return 'warning';
       default:
         return 'default';
+    }
+  };
+
+  const moveBuyer = (index: number, direction: 'up' | 'down') => {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === localBuyers.length - 1) return;
+    
+    const newBuyers = [...localBuyers];
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    
+    const temp = newBuyers[index];
+    newBuyers[index] = newBuyers[newIndex];
+    newBuyers[newIndex] = temp;
+    
+    // Update priorities to reflect current local order
+    const updatedBuyers = newBuyers.map((b, i) => ({ ...b, priority: i + 1 }));
+    setLocalBuyers(updatedBuyers);
+    setHasOrderChanged(true);
+  };
+
+  const handleSaveOrder = async () => {
+    setIsSavingOrder(true);
+    try {
+      const buyerIds = localBuyers.map(cb => cb.buyer.id);
+      await apiFetch(`/workspaces/${workspaceId}/campaigns/${campaignId}/buyers/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buyerIds })
+      });
+      await loadCampaign();
+    } catch (e) {
+      alert('Failed to save order: ' + (e instanceof Error ? e.message : 'Unknown error'));
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
+
+  const handleCancelOrder = () => {
+    if (campaign) {
+      setLocalBuyers([...campaign.buyers].sort((a, b) => a.priority - b.priority));
+      setHasOrderChanged(false);
+    }
+  };
+
+  const handleOpenAddModal = async () => {
+    setIsAddModalOpen(true);
+    setIsLoadingBuyers(true);
+    try {
+      const data = await apiFetch(`/workspaces/${workspaceId}/buyers?status=ACTIVE`);
+      const existingBuyerIds = new Set(localBuyers.map(cb => cb.buyer.id));
+      const filtered = (data || []).filter((b: any) => !existingBuyerIds.has(b.id));
+      setAvailableBuyers(filtered);
+    } catch (e) {
+      alert('Failed to load buyers');
+    } finally {
+      setIsLoadingBuyers(false);
+    }
+  };
+
+  const handleAddBuyer = async () => {
+    if (!selectedBuyerId) return;
+    setIsAddingBuyer(true);
+    try {
+      const priority = localBuyers.length + 1;
+      await apiFetch(`/workspaces/${workspaceId}/campaigns/${campaignId}/buyers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buyerId: selectedBuyerId, priority })
+      });
+      setIsAddModalOpen(false);
+      setSelectedBuyerId('');
+      await loadCampaign();
+    } catch (e) {
+      alert('Failed to add buyer');
+    } finally {
+      setIsAddingBuyer(false);
+    }
+  };
+
+  const handleRemoveBuyer = async (buyerId: string) => {
+    if (!confirm('Are you sure you want to remove this buyer from the campaign?')) return;
+    setIsRemovingBuyerId(buyerId);
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/campaigns/${campaignId}/buyers/${buyerId}`, {
+        method: 'DELETE'
+      });
+      await loadCampaign();
+    } catch (e) {
+      alert('Failed to remove buyer');
+    } finally {
+      setIsRemovingBuyerId(null);
     }
   };
 
@@ -101,7 +209,50 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
   }
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto pb-12">
+    <div className="space-y-8 max-w-5xl mx-auto pb-12 relative">
+      {/* Add Buyer Modal Overlay */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="bg-card text-card-foreground border border-border rounded-lg shadow-lg w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-border">
+              <h2 className="text-lg font-semibold">Add Buyer to Campaign</h2>
+            </div>
+            <div className="p-6">
+              {isLoadingBuyers ? (
+                <div className="flex justify-center py-4">
+                  <span className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                </div>
+              ) : availableBuyers.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No available active buyers to add.</p>
+              ) : (
+                <div className="space-y-4">
+                  <label className="text-sm font-medium">Select Buyer</label>
+                  <select 
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                    value={selectedBuyerId}
+                    onChange={(e) => setSelectedBuyerId(e.target.value)}
+                  >
+                    <option value="">-- Choose a buyer --</option>
+                    {availableBuyers.map(b => (
+                      <option key={b.id} value={b.id}>{b.name} ({b.destination_number})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-border flex justify-end gap-3 bg-muted/20">
+              <Button variant="outline" onClick={() => setIsAddModalOpen(false)}>Cancel</Button>
+              <Button 
+                onClick={handleAddBuyer} 
+                disabled={!selectedBuyerId || isAddingBuyer || isLoadingBuyers}
+              >
+                {isAddingBuyer ? 'Adding...' : 'Add Buyer'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border pb-6">
         <div className="space-y-1">
@@ -182,7 +333,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
         {/* Right Column: Assigned Buyers */}
         <div className="lg:col-span-2 space-y-6">
           <Card className="h-full flex flex-col">
-            <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+            <CardHeader className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
                   <ListOrdered className="w-4 h-4 text-primary" />
@@ -192,9 +343,25 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
                   Buyers in order of ring attempts.
                 </CardDescription>
               </div>
+              <div className="flex items-center gap-2">
+                {hasOrderChanged && (
+                  <>
+                    <Button variant="ghost" size="sm" onClick={handleCancelOrder} disabled={isSavingOrder}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={handleSaveOrder} disabled={isSavingOrder}>
+                      {isSavingOrder ? 'Saving...' : 'Save Order'}
+                    </Button>
+                  </>
+                )}
+                <Button size="sm" variant="outline" onClick={handleOpenAddModal}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Buyer
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0 flex-1">
-              {campaign.buyers.length === 0 ? (
+              {localBuyers.length === 0 ? (
                 <div className="text-sm text-muted-foreground text-center py-12">
                   No buyers assigned to this campaign yet.
                 </div>
@@ -206,10 +373,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
                       <TableHead>Buyer</TableHead>
                       <TableHead>Destination</TableHead>
                       <TableHead className="text-right">Status</TableHead>
+                      <TableHead className="text-right w-[150px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {campaign.buyers.map((cb) => (
+                    {localBuyers.map((cb, index) => (
                       <TableRow key={cb.id}>
                         <TableCell className="text-center font-medium">
                           <span className="bg-secondary text-secondary-foreground w-6 h-6 rounded-full inline-flex items-center justify-center text-xs">
@@ -228,6 +396,40 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
                           <Badge variant={cb.buyer.status === 'ACTIVE' ? 'success' : cb.buyer.status === 'INACTIVE' ? 'warning' : 'default'} className="text-[10px] px-1.5 h-5">
                             {cb.buyer.status}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8" 
+                              onClick={() => moveBuyer(index, 'up')}
+                              disabled={index === 0}
+                              title="Move Up"
+                            >
+                              <ArrowUp className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8" 
+                              onClick={() => moveBuyer(index, 'down')}
+                              disabled={index === localBuyers.length - 1}
+                              title="Move Down"
+                            >
+                              <ArrowDown className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-error hover:text-error hover:bg-error/10" 
+                              onClick={() => handleRemoveBuyer(cb.buyer.id)}
+                              disabled={isRemovingBuyerId === cb.buyer.id}
+                              title="Remove Buyer"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

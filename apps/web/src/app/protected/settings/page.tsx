@@ -30,6 +30,10 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<'SUSPEND' | 'ARCHIVE' | null>(null);
+  const [confirmName, setConfirmName] = useState('');
+
   const fetchWorkspace = useCallback(async () => {
     if (!workspaceId) return;
     try {
@@ -79,6 +83,27 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : 'Failed to update settings');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleStatusChange = async (newStatus: 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED') => {
+    if (!workspaceId) return;
+    try {
+      setStatusSaving(true);
+      setError(null);
+      setSuccessMsg(null);
+      const data = await apiFetch(`/workspaces/${workspaceId}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus }),
+      });
+      setWorkspaceInfo(data);
+      setConfirmAction(null);
+      setConfirmName('');
+      setSuccessMsg(`Workspace status updated to ${newStatus}.`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update workspace status');
+    } finally {
+      setStatusSaving(false);
     }
   };
 
@@ -182,6 +207,58 @@ export default function SettingsPage() {
                   <dd className="text-muted-foreground">{new Date(workspaceInfo.created_at).toLocaleString()}</dd>
                 </div>
               </dl>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Workspace Status</CardTitle>
+              <CardDescription>Manage the lifecycle of your workspace.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {workspaceInfo.status === 'ACTIVE' ? (
+                <div className="flex gap-4">
+                  <Button variant="outline" onClick={() => setConfirmAction('SUSPEND')} disabled={!isOwnerOrAdmin || statusSaving}>
+                    Suspend
+                  </Button>
+                  <Button variant="destructive" onClick={() => setConfirmAction('ARCHIVE')} disabled={!isOwnerOrAdmin || statusSaving}>
+                    Archive
+                  </Button>
+                </div>
+              ) : (
+                <Button onClick={() => handleStatusChange('ACTIVE')} disabled={!isOwnerOrAdmin || statusSaving}>
+                  Restore
+                </Button>
+              )}
+
+              {confirmAction && (
+                <div className="mt-4 p-4 border rounded-md border-destructive/50 bg-destructive/5">
+                  <h4 className="font-medium text-destructive mb-2">
+                    Confirm {confirmAction === 'SUSPEND' ? 'Suspension' : 'Archival'}
+                  </h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Type <strong>{workspaceInfo.name}</strong> to confirm you want to {confirmAction.toLowerCase()} this workspace.
+                  </p>
+                  <div className="flex gap-2 max-w-sm">
+                    <Input 
+                      value={confirmName} 
+                      onChange={(e) => setConfirmName(e.target.value)} 
+                      placeholder={workspaceInfo.name}
+                      disabled={statusSaving}
+                    />
+                    <Button 
+                      variant="destructive" 
+                      onClick={() => handleStatusChange(confirmAction === 'SUSPEND' ? 'SUSPENDED' : 'ARCHIVED')}
+                      disabled={confirmName !== workspaceInfo.name || statusSaving}
+                    >
+                      {statusSaving ? 'Saving...' : 'Confirm'}
+                    </Button>
+                    <Button variant="outline" onClick={() => { setConfirmAction(null); setConfirmName(''); }} disabled={statusSaving}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
