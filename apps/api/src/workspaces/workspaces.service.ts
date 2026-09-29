@@ -63,7 +63,7 @@ export class WorkspacesService {
 
   async getWorkspaceMembers(workspaceId: string) {
     return this.prisma.workspaceMember.findMany({
-      where: { workspace_id: workspaceId, status: 'PENDING' },
+      where: { workspace_id: workspaceId },
       include: { profile: true },
     });
   }
