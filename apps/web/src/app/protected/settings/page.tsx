@@ -39,17 +39,11 @@ export default function SettingsPage() {
       setWorkspaceInfo(data);
       setNameInput(data.name);
       
-      const sessionRes = await fetch('/api/auth/session');
-      if (sessionRes.ok) {
-        const sessionData = await sessionRes.json();
-        const userId = sessionData?.user?.id;
-        
-        if (userId) {
-          const membersData = await apiFetch(`/workspaces/${workspaceId}/members`);
-          const currentMember = membersData.find((m: { user_id: string; role: string }) => m.user_id === userId);
-          if (currentMember) {
-            setUserRole(currentMember.role);
-          }
+      const workspacesData = await apiFetch('/workspaces');
+      if (workspacesData && Array.isArray(workspacesData)) {
+        const currentWs = workspacesData.find((w: { id: string; role: string }) => w.id === workspaceId);
+        if (currentWs) {
+          setUserRole(currentWs.role);
         }
       }
     } catch (err: unknown) {
