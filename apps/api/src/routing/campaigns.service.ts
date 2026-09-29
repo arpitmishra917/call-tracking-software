@@ -101,6 +101,32 @@ export class CampaignsService {
     });
   }
 
+  async removePhoneNumber(
+    workspaceId: string,
+    campaignId: string,
+    phoneNumberId: string,
+  ) {
+    // verify campaign exists
+    await this.getCampaign(workspaceId, campaignId);
+
+    // verify phone number exists and belongs to workspace
+    const phone = await this.prisma.phoneNumber.findUnique({
+      where: { id: phoneNumberId, workspace_id: workspaceId },
+    });
+
+    if (!phone)
+      throw new NotFoundException('Phone number not found in workspace');
+
+    if (phone.campaign_id !== campaignId) {
+      throw new BadRequestException('Phone number is not assigned to this campaign');
+    }
+
+    return this.prisma.phoneNumber.update({
+      where: { id: phoneNumberId },
+      data: { campaign_id: null },
+    });
+  }
+
   async addBuyerToCampaign(
     workspaceId: string,
     campaignId: string,

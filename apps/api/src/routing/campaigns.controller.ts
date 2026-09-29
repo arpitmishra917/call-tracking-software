@@ -91,6 +91,19 @@ export class CampaignsController {
     );
   }
 
+  @Delete(':id/phone-numbers/:phoneNumberId')
+  removePhoneNumber(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Param('phoneNumberId') phoneNumberId: string,
+  ) {
+    return this.campaignsService.removePhoneNumber(
+      workspaceId,
+      id,
+      phoneNumberId,
+    );
+  }
+
   @Post(':id/buyers')
   addBuyer(
     @Param('workspaceId') workspaceId: string,
