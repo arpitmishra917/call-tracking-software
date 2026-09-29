@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { WorkspacesController } from './workspaces.controller.js';
+import { InvitationsController } from './invitations.controller.js';
 import { WorkspacesService } from './workspaces.service.js';
 
 import { PrismaModule } from '../prisma/prisma.module.js';
@@ -7,7 +8,7 @@ import { AuthModule } from '../auth/auth.module.js';
 
 @Module({
   imports: [PrismaModule, AuthModule],
-  controllers: [WorkspacesController],
+  controllers: [WorkspacesController, InvitationsController],
   providers: [WorkspacesService],
   exports: [WorkspacesService],
 })

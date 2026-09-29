@@ -62,10 +62,36 @@ export class WorkspacesService {
   }
 
   async getWorkspaceMembers(workspaceId: string) {
-    return this.prisma.workspaceMember.findMany({
+    const members = await this.prisma.workspaceMember.findMany({
       where: { workspace_id: workspaceId },
       include: { profile: true },
     });
+
+    try {
+      const res = await fetch(`${process.env.SUPABASE_URL}/auth/v1/admin/users`, {
+        headers: {
+          'apikey': process.env.SUPABASE_SECRET_KEY as string,
+          'Authorization': `Bearer ${process.env.SUPABASE_SECRET_KEY}`
+        }
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        const users = data.users || [];
+        const emailMap = new Map<string, string>();
+        for (const u of users) {
+          emailMap.set(u.id, u.email);
+        }
+        return members.map((m: any) => ({
+          ...m,
+          email: emailMap.get(m.user_id) || null
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to fetch user emails', e);
+    }
+
+    return members;
   }
 
   async updateWorkspaceSettings(workspaceId: string, data: any) {
@@ -168,7 +194,38 @@ export class WorkspacesService {
     });
   }
 
-  async acceptInvitation(token: string, userId: string, userEmail: string) {
+  async verifyInvitationToken(token: string) {
+    if (!token) throw new BadRequestException('Token is required');
+    const token_hash = crypto.createHash('sha256').update(token).digest('hex');
+
+    const invitation = await this.prisma.workspaceInvitation.findUnique({
+      where: { token_hash },
+      include: { workspace: true }
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('Invitation not found or invalid');
+    }
+
+    if (invitation.status === 'PENDING' && invitation.expires_at < new Date()) {
+      await this.prisma.workspaceInvitation.update({
+        where: { id: invitation.id },
+        data: { status: 'EXPIRED' as any },
+      });
+      invitation.status = 'EXPIRED' as any;
+    }
+
+    return {
+      id: invitation.id,
+      email: invitation.email,
+      role: invitation.role,
+      status: invitation.status,
+      workspace_name: invitation.workspace.name,
+      expires_at: invitation.expires_at
+    };
+  }
+
+  async acceptInvitation(token: string, userId: string, userEmail: string, fullName?: string) {
     if (!token) throw new BadRequestException('Token is required');
     const token_hash = crypto.createHash('sha256').update(token).digest('hex');
 
@@ -200,8 +257,13 @@ export class WorkspacesService {
       // Ensure Profile exists
       await tx.profile.upsert({
         where: { id: userId },
-        update: {},
-        create: { id: userId },
+        update: {
+          ...(fullName && { display_name: fullName })
+        },
+        create: { 
+          id: userId,
+          display_name: fullName || null 
+        },
       });
 
       // Update invitation status

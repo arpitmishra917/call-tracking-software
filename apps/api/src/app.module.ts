@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AccountModule } from './account/account.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -17,6 +18,7 @@ import { WebhooksModule } from './webhooks/webhooks.module.js';
 
 @Module({
   imports: [
+    AccountModule,
     PrismaModule,
     TelephonyModule,
     PhoneNumbersModule,

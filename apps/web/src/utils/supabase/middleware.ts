@@ -40,7 +40,11 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/protected')
   ) {
     const url = request.nextUrl.clone()
-    url.pathname = '/login'
+    if (request.nextUrl.pathname.startsWith('/protected/invitations') && request.nextUrl.searchParams.has('token')) {
+      url.pathname = '/signup'
+    } else {
+      url.pathname = '/login'
+    }
     return NextResponse.redirect(url)
   }
 

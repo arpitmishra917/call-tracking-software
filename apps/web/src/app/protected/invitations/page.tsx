@@ -29,7 +29,7 @@ export default function AcceptInvitationPage() {
       
       // Redirect to the workspace after a short delay
       setTimeout(() => {
-        router.push(`/?workspace=${result.workspaceId}`);
+        router.push(`/protected`);
       }, 2000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to accept invitation');

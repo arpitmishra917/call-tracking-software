@@ -290,13 +290,13 @@ export default function MembersPage() {
                   <TableRow key={member.id}>
                     <TableCell>
                       <div className="font-medium text-foreground flex items-center gap-2">
-                        {member.profile?.display_name || member.user_id}
+                        {member.profile?.display_name || (member as { email?: string }).email || member.user_id}
                         {currentUserId === member.user_id && (
                           <Badge variant="outline" className="text-xs">You</Badge>
                         )}
                       </div>
                       <div className="text-xs font-mono text-muted-foreground mt-1 break-all max-w-xs">
-                        {member.profile?.id}
+                        {(member as { email?: string }).email ? member.user_id : (member.profile?.id || member.user_id)}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -411,9 +411,9 @@ export default function MembersPage() {
                 type="text" 
                 readOnly 
                 className="flex h-9 w-full rounded-md border border-input bg-muted px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={`${typeof window !== 'undefined' ? window.location.origin : ''}/protected/invitations?token=${inviteToken}`}
+                value={`${typeof window !== 'undefined' ? window.location.origin : ''}/invitations?token=${inviteToken}`}
               />
-              <Button onClick={() => navigator.clipboard.writeText(`${typeof window !== 'undefined' ? window.location.origin : ''}/protected/invitations?token=${inviteToken}`)}>
+              <Button onClick={() => navigator.clipboard.writeText(`${typeof window !== 'undefined' ? window.location.origin : ''}/invitations?token=${inviteToken}`)}>
                 Copy
               </Button>
             </div>

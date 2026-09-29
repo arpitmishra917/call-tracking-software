@@ -18,7 +18,10 @@ export default async function LoginPage(
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
       const res = await fetch(`${apiUrl}/invitations/verify/${token}`, { cache: 'no-store' });
       if (res.ok) {
-        invitationDetails = await res.json();
+        const data = await res.json();
+        if (data.status === 'PENDING') {
+          invitationDetails = data;
+        }
       }
     } catch (e) {
       console.error('Failed to verify token', e);

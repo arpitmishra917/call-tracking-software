@@ -127,6 +127,6 @@ export class WorkspacesController {
 
   @Post('accept-invitation')
   async acceptInvitation(@Body() data: { token: string }, @Request() req: any) {
-    return this.workspacesService.acceptInvitation(data.token, req.user.userId, req.user.email);
+    return this.workspacesService.acceptInvitation(data.token, req.user.userId, req.user.email, req.user.fullName);
   }
 }

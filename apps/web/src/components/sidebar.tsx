@@ -81,6 +81,10 @@ export default function Sidebar({
             </NavGroup>
           </>
         )}
+
+        <NavGroup title="Personal">
+          <NavItem href="/protected/account" icon={Users} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>My Account</NavItem>
+        </NavGroup>
       </nav>
     </div>
   );

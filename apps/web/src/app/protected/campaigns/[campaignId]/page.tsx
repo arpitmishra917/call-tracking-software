@@ -45,6 +45,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
 
   // Add Buyer Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [availableBuyers, setAvailableBuyers] = useState<any[]>([]);
   const [isLoadingBuyers, setIsLoadingBuyers] = useState(false);
   const [selectedBuyerId, setSelectedBuyerId] = useState<string>('');
@@ -139,6 +140,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
     try {
       const data = await apiFetch(`/workspaces/${workspaceId}/buyers?status=ACTIVE`);
       const existingBuyerIds = new Set(localBuyers.map(cb => cb.buyer.id));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filtered = (data || []).filter((b: any) => !existingBuyerIds.has(b.id));
       setAvailableBuyers(filtered);
     } catch (e) {
