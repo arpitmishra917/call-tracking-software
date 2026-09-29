@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PhoneCall, PhoneMissed, ShieldBan, Clock, Activity, Megaphone, Users } from 'lucide-react';
+import { PhoneCall, PhoneMissed, ShieldBan, Activity, Megaphone, Users } from 'lucide-react';
 
 interface DashboardMetrics {
   total: number;

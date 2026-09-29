@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import Link from 'next/link';
@@ -24,7 +24,7 @@ interface CampaignDetail {
       name: string;
       destination_number: string;
       status: string;
-    };
+    },
   }[];
 }
 
@@ -53,7 +53,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
   // Remove Buyer State
   const [isRemovingBuyerId, setIsRemovingBuyerId] = useState<string | null>(null);
 
-  const loadCampaign = async () => {
+  const loadCampaign = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -61,18 +61,24 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
       setCampaign(data);
       setLocalBuyers([...data.buyers].sort((a, b) => a.priority - b.priority));
       setHasOrderChanged(false);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Campaign not found or access denied.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Campaign not found or access denied.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [workspaceId, campaignId]);
 
   useEffect(() => {
-    if (workspaceId && campaignId) {
-      loadCampaign();
+    let ignore = false;
+    async function init() {
+      await Promise.resolve();
+      if (!ignore && workspaceId && campaignId) {
+        loadCampaign();
+      }
     }
-  }, [workspaceId, campaignId]);
+    init();
+    return () => { ignore = true; };
+  }, [workspaceId, campaignId, loadCampaign]);
 
   const getStatusBadgeVariant = (state: string) => {
     switch (state?.toUpperCase()) {
@@ -84,7 +90,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
       default:
         return 'default';
     }
-  };
+  }, [workspaceId, campaignId]);
 
   const moveBuyer = (index: number, direction: 'up' | 'down') => {
     if (direction === 'up' && index === 0) return;
@@ -101,7 +107,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
     const updatedBuyers = newBuyers.map((b, i) => ({ ...b, priority: i + 1 }));
     setLocalBuyers(updatedBuyers);
     setHasOrderChanged(true);
-  };
+  }, [workspaceId, campaignId]);
 
   const handleSaveOrder = async () => {
     setIsSavingOrder(true);
@@ -118,14 +124,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
     } finally {
       setIsSavingOrder(false);
     }
-  };
+  }, [workspaceId, campaignId]);
 
   const handleCancelOrder = () => {
     if (campaign) {
       setLocalBuyers([...campaign.buyers].sort((a, b) => a.priority - b.priority));
       setHasOrderChanged(false);
     }
-  };
+  }, [workspaceId, campaignId]);
 
   const handleOpenAddModal = async () => {
     setIsAddModalOpen(true);
@@ -133,14 +139,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
     try {
       const data = await apiFetch(`/workspaces/${workspaceId}/buyers?status=ACTIVE`);
       const existingBuyerIds = new Set(localBuyers.map(cb => cb.buyer.id));
-      const filtered = (data || []).filter((b: any) => !existingBuyerIds.has(b.id));
+      const filtered = (data || []).filter((b: { id: string }) => !existingBuyerIds.has(b.id));
       setAvailableBuyers(filtered);
     } catch (e) {
       alert('Failed to load buyers');
     } finally {
       setIsLoadingBuyers(false);
     }
-  };
+  }, [workspaceId, campaignId]);
 
   const handleAddBuyer = async () => {
     if (!selectedBuyerId) return;
@@ -160,7 +166,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
     } finally {
       setIsAddingBuyer(false);
     }
-  };
+  }, [workspaceId, campaignId]);
 
   const handleRemoveBuyer = async (buyerId: string) => {
     if (!confirm('Are you sure you want to remove this buyer from the campaign?')) return;
@@ -175,7 +181,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ campa
     } finally {
       setIsRemovingBuyerId(null);
     }
-  };
+  }, [workspaceId, campaignId]);
 
   if (!workspaceId) {
     return <div className="p-8 text-muted-foreground">Please select a workspace first.</div>;

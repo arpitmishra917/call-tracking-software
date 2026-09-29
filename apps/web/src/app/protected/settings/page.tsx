@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 
 type WorkspaceInfo = {
   id: string;
@@ -19,32 +18,40 @@ type WorkspaceInfo = {
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const workspaceId = searchParams.get('workspace');
-
+  
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null);
+  const [nameInput, setNameInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-
-  const [nameInput, setNameInput] = useState('');
+  
   const [isSaving, setIsSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  const [statusSaving, setStatusSaving] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<'SUSPEND' | 'ARCHIVE' | null>(null);
-  const [confirmName, setConfirmName] = useState('');
 
   const fetchWorkspace = useCallback(async () => {
     if (!workspaceId) return;
     try {
-      const workspaces = await apiFetch('/workspaces');
-      const ws = workspaces.find((w: { id: string; role: string }) => w.id === workspaceId);
-      setUserRole(ws?.role || null);
-
+      setLoading(true);
+      setError(null);
       const data = await apiFetch(`/workspaces/${workspaceId}`);
       setWorkspaceInfo(data);
-      setNameInput(data.name || '');
-      setError(null);
+      setNameInput(data.name);
+      
+      const sessionRes = await fetch('/api/auth/session');
+      if (sessionRes.ok) {
+        const sessionData = await sessionRes.json();
+        const userId = sessionData?.user?.id;
+        
+        if (userId) {
+          const membersData = await apiFetch(`/workspaces/${workspaceId}/members`);
+          const currentMember = membersData.find((m: { user_id: string; role: string }) => m.user_id === userId);
+          if (currentMember) {
+            setUserRole(currentMember.role);
+          }
+        }
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load workspace settings');
     } finally {
@@ -56,14 +63,13 @@ export default function SettingsPage() {
     let ignore = false;
     async function init() {
       await Promise.resolve();
-      if (!ignore) {
-        setLoading(true);
+      if (!ignore && workspaceId) {
         fetchWorkspace();
       }
     }
     init();
     return () => { ignore = true; };
-  }, [fetchWorkspace]);
+  }, [workspaceId, fetchWorkspace]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,31 +85,15 @@ export default function SettingsPage() {
       });
       setWorkspaceInfo(data);
       setSuccessMsg('Workspace settings updated successfully.');
+      
+      // Force next.js to refetch server components (layout.tsx)
+      // which will re-run the workspace fetch and update the layout state
+      router.refresh();
+      
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update settings');
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleStatusChange = async (newStatus: 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED') => {
-    if (!workspaceId) return;
-    try {
-      setStatusSaving(true);
-      setError(null);
-      setSuccessMsg(null);
-      const data = await apiFetch(`/workspaces/${workspaceId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: newStatus }),
-      });
-      setWorkspaceInfo(data);
-      setConfirmAction(null);
-      setConfirmName('');
-      setSuccessMsg(`Workspace status updated to ${newStatus}.`);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to update workspace status');
-    } finally {
-      setStatusSaving(false);
     }
   };
 
@@ -176,89 +166,6 @@ export default function SettingsPage() {
                   </Button>
                 )}
               </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Read-Only Metadata</CardTitle>
-              <CardDescription>Internal details about this workspace.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 text-sm">
-                <div className="space-y-1">
-                  <dt className="font-medium text-foreground">Workspace ID</dt>
-                  <dd className="font-mono text-muted-foreground text-xs">{workspaceInfo.id}</dd>
-                </div>
-                <div className="space-y-1">
-                  <dt className="font-medium text-foreground">Slug</dt>
-                  <dd className="font-mono text-muted-foreground text-xs">{workspaceInfo.slug}</dd>
-                </div>
-                <div className="space-y-1">
-                  <dt className="font-medium text-foreground">Status</dt>
-                  <dd>
-                    <Badge variant={workspaceInfo.status === 'ACTIVE' ? 'success' : 'warning'}>
-                      {workspaceInfo.status}
-                    </Badge>
-                  </dd>
-                </div>
-                <div className="space-y-1">
-                  <dt className="font-medium text-foreground">Created At</dt>
-                  <dd className="text-muted-foreground">{new Date(workspaceInfo.created_at).toLocaleString()}</dd>
-                </div>
-              </dl>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Workspace Status</CardTitle>
-              <CardDescription>Manage the lifecycle of your workspace.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {workspaceInfo.status === 'ACTIVE' ? (
-                <div className="flex gap-4">
-                  <Button variant="outline" onClick={() => setConfirmAction('SUSPEND')} disabled={!isOwnerOrAdmin || statusSaving}>
-                    Suspend
-                  </Button>
-                  <Button variant="destructive" onClick={() => setConfirmAction('ARCHIVE')} disabled={!isOwnerOrAdmin || statusSaving}>
-                    Archive
-                  </Button>
-                </div>
-              ) : (
-                <Button onClick={() => handleStatusChange('ACTIVE')} disabled={!isOwnerOrAdmin || statusSaving}>
-                  Restore
-                </Button>
-              )}
-
-              {confirmAction && (
-                <div className="mt-4 p-4 border rounded-md border-destructive/50 bg-destructive/5">
-                  <h4 className="font-medium text-destructive mb-2">
-                    Confirm {confirmAction === 'SUSPEND' ? 'Suspension' : 'Archival'}
-                  </h4>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Type <strong>{workspaceInfo.name}</strong> to confirm you want to {confirmAction.toLowerCase()} this workspace.
-                  </p>
-                  <div className="flex gap-2 max-w-sm">
-                    <Input 
-                      value={confirmName} 
-                      onChange={(e) => setConfirmName(e.target.value)} 
-                      placeholder={workspaceInfo.name}
-                      disabled={statusSaving}
-                    />
-                    <Button 
-                      variant="destructive" 
-                      onClick={() => handleStatusChange(confirmAction === 'SUSPEND' ? 'SUSPENDED' : 'ARCHIVED')}
-                      disabled={confirmName !== workspaceInfo.name || statusSaving}
-                    >
-                      {statusSaving ? 'Saving...' : 'Confirm'}
-                    </Button>
-                    <Button variant="outline" onClick={() => { setConfirmAction(null); setConfirmName(''); }} disabled={statusSaving}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>

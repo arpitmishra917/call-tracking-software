@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Menu, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import Sidebar from '@/components/sidebar';
 import Header from '@/components/header';
 import { cn } from '@/utils/cn';

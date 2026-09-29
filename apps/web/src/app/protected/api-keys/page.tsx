@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Key, Copy, AlertTriangle, KeyRound } from 'lucide-react';
+import { Copy, AlertTriangle, KeyRound } from 'lucide-react';
 
 interface ApiKey {
   id: string;
