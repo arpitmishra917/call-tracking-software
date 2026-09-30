@@ -52,10 +52,8 @@ export default function PhoneNumbersPage() {
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
 
-  // Edit Modal State
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
+  const [searchPrefix, setSearchPrefix] = useState('');
+  const [searchType, setSearchType] = useState('local');
 
   useEffect(() => {
     async function loadAll() {
@@ -94,7 +92,13 @@ export default function PhoneNumbersPage() {
     setError(null);
     setSuccess(null);
     try {
-      const data = await apiFetch(`/workspaces/${workspaceId}/phone-numbers/search?countryCode=US&limit=5`);
+      const url = new URL(`/workspaces/${workspaceId}/phone-numbers/search`, window.location.origin);
+      url.searchParams.set('countryCode', 'US');
+      url.searchParams.set('limit', '5');
+      url.searchParams.set('numberType', searchType);
+      if (searchPrefix) url.searchParams.set('prefix', searchPrefix);
+
+      const data = await apiFetch(url.pathname + url.search);
       setAvailableNumbers(data);
     } catch (e: unknown) {
       setError('Failed to search numbers: ' + (e instanceof Error ? e.message : String(e)));
@@ -154,35 +158,7 @@ export default function PhoneNumbersPage() {
     setAssignModalOpen(true);
   }
 
-  function openEditModal(phone: PhoneNumber) {
-    setSelectedPhone(phone);
-    setEditName(phone.name || '');
-    setEditModalOpen(true);
-  }
 
-  async function handleEditSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!workspaceId || !selectedPhone) return;
-    setIsEditing(true);
-    setError(null);
-    setSuccess(null);
-    
-    try {
-      await apiFetch(`/workspaces/${workspaceId}/phone-numbers/${selectedPhone.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ name: editName }),
-      });
-      
-      setSuccess('Phone number updated.');
-      setEditModalOpen(false);
-      setSelectedPhone(null);
-      await loadPhoneNumbers(workspaceId);
-    } catch (e: unknown) {
-      setError('Failed to update phone number: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setIsEditing(false);
-    }
-  }
 
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
   const [isReleasing, setIsReleasing] = useState(false);
@@ -249,17 +225,23 @@ export default function PhoneNumbersPage() {
                 <TableHeader>
                   <TableRow className="bg-muted/30">
                     <TableHead className="min-w-[150px]">Number</TableHead>
+                    <TableHead className="min-w-[100px]">Type</TableHead>
                     <TableHead className="min-w-[150px]">Campaign</TableHead>
                     <TableHead className="min-w-[100px]">Status</TableHead>
                     <TableHead className="text-right min-w-[100px]">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {numbers.map((num) => (
+                  {numbers.map((num) => {
+                    const isTollFree = /^\+1(800|888|877|866|855|844|833)/.test(num.phone_number);
+                    return (
                     <TableRow key={num.id}>
                       <TableCell>
                         <div className="font-mono font-medium text-foreground">{num.phone_number}</div>
                         {num.name && <div className="text-sm text-muted-foreground">{num.name}</div>}
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm text-muted-foreground">{isTollFree ? 'Toll-Free' : 'Local'}</span>
                       </TableCell>
                       <TableCell>
                         {num.campaign ? (
@@ -279,13 +261,6 @@ export default function PhoneNumbersPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => openEditModal(num)}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
                               onClick={() => openAssignModal(num)}
                             >
                               {num.campaign ? 'Change' : 'Assign'}
@@ -301,7 +276,8 @@ export default function PhoneNumbersPage() {
                         )}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -315,13 +291,33 @@ export default function PhoneNumbersPage() {
           <CardDescription>Search for available US numbers to add to your workspace.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div>
+          <div className="flex flex-col sm:flex-row gap-4 items-end">
+            <div className="space-y-1.5 flex-1">
+              <Label>Number Type</Label>
+              <select
+                value={searchType}
+                onChange={(e) => setSearchType(e.target.value)}
+                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                <option value="local">Local</option>
+                <option value="toll_free">Toll-Free</option>
+              </select>
+            </div>
+            <div className="space-y-1.5 flex-1">
+              <Label>Prefix (Optional)</Label>
+              <Input
+                value={searchPrefix}
+                onChange={(e) => setSearchPrefix(e.target.value)}
+                placeholder={searchType === 'toll_free' ? 'e.g. 888' : 'e.g. 415'}
+              />
+            </div>
             <Button
               onClick={handleSearch}
               isLoading={isSearching}
               variant="secondary"
+              className="w-full sm:w-auto"
             >
-              Search US Numbers
+              Search Available Numbers
             </Button>
           </div>
 
@@ -435,48 +431,6 @@ export default function PhoneNumbersPage() {
                 Release
               </Button>
             </CardFooter>
-          </Card>
-        </div>
-      )}
-      {editModalOpen && selectedPhone && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md shadow-lg">
-            <CardHeader>
-              <CardTitle>Edit Phone Number</CardTitle>
-            </CardHeader>
-            <form onSubmit={handleEditSubmit}>
-              <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label>Phone Number</Label>
-                  <div className="font-mono bg-muted/30 p-2.5 rounded-md border border-border text-sm">
-                    {selectedPhone.phone_number}
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Name</Label>
-                  <Input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    placeholder="e.g. Support Line"
-                  />
-                </div>
-              </CardContent>
-              <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => setEditModalOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  isLoading={isEditing}
-                >
-                  Save
-                </Button>
-              </CardFooter>
-            </form>
           </Card>
         </div>
       )}

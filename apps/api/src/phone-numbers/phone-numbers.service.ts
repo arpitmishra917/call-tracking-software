@@ -33,6 +33,11 @@ export class PhoneNumbersService {
     const [items, total] = await Promise.all([
       this.prisma.phoneNumber.findMany({
         where,
+        include: {
+          campaign: {
+            select: { id: true, name: true }
+          }
+        },
         orderBy: { created_at: 'desc' },
         skip: params.offset || 0,
         take: params.limit || 50,
@@ -42,8 +47,8 @@ export class PhoneNumbersService {
     return { items, total };
   }
 
-  async searchAvailableNumbers(countryCode: string = 'US', limit: number = 5) {
-    return this.telnyxProvisioning.searchNumbers(countryCode, limit);
+  async searchAvailableNumbers(countryCode: string = 'US', limit: number = 5, numberType?: string, prefix?: string) {
+    return this.telnyxProvisioning.searchNumbers(countryCode, limit, numberType, prefix);
   }
 
   async provisionNumber(

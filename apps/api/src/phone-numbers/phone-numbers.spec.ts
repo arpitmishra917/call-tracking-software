@@ -60,16 +60,37 @@ describe('PhoneNumbersService', () => {
     expect(result.total).toBe(1);
     expect(prismaMock.phoneNumber.findMany).toHaveBeenCalledWith({
       where: { workspace_id: 'ws-1', status: { not: PhoneNumberStatus.RELEASED } },
+      include: {
+        campaign: {
+          select: { id: true, name: true }
+        }
+      },
       orderBy: { created_at: 'desc' },
       skip: 0,
       take: 50,
     });
   });
 
+  it('should return campaign for assigned number', async () => {
+    prismaMock.phoneNumber.findMany.mockResolvedValue([
+      { id: 'num-1', phone_number: '+1555', campaign: { id: 'camp-1', name: 'Summer Campaign' } },
+    ]);
+    const result = await service.listWorkspaceNumbers('ws-1');
+    expect(result.items[0].campaign.name).toBe('Summer Campaign');
+  });
+
+  it('should return null campaign for unassigned number', async () => {
+    prismaMock.phoneNumber.findMany.mockResolvedValue([
+      { id: 'num-1', phone_number: '+1555', campaign: null },
+    ]);
+    const result = await service.listWorkspaceNumbers('ws-1');
+    expect(result.items[0].campaign).toBeNull();
+  });
+
   it('should search available numbers', async () => {
     const result = await service.searchAvailableNumbers('US', 2);
     expect(result).toHaveLength(1);
-    expect(telnyxMock.searchNumbers).toHaveBeenCalledWith('US', 2);
+    expect(telnyxMock.searchNumbers).toHaveBeenCalledWith('US', 2, undefined, undefined);
   });
 
   it('should provision a new number', async () => {

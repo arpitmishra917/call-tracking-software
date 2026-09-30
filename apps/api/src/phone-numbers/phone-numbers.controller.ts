@@ -46,11 +46,15 @@ export class PhoneNumbersController {
     @Param('workspaceId') workspaceId: string,
     @Query('countryCode') countryCode?: string,
     @Query('limit') limit?: string,
+    @Query('numberType') numberType?: string,
+    @Query('prefix') prefix?: string,
   ) {
     const limitNum = limit ? parseInt(limit, 10) : 5;
     return this.phoneNumbersService.searchAvailableNumbers(
       countryCode || 'US',
       limitNum,
+      numberType,
+      prefix,
     );
   }
 

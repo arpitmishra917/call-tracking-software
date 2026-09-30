@@ -26,25 +26,36 @@ export class TelnyxProvisioningService {
   async searchNumbers(
     countryCode: string = 'US',
     limit: number = 5,
+    numberType?: string,
+    prefix?: string,
   ): Promise<any[]> {
     if (!this.telnyxClient) {
       // Return mock numbers
       return Array.from({ length: limit }).map((_, i) => ({
-        phone_number: `+1555000${1000 + i}`,
-        national_destination_code: '555',
+        phone_number: `+1${prefix || '555'}000${1000 + i}`,
+        national_destination_code: prefix || '555',
         locality: 'Mock City',
         administrative_area: 'NY',
+        phone_number_type: numberType === 'toll_free' ? 'toll_free' : 'local',
       }));
     }
 
     try {
-      const response = await this.telnyxClient.availablePhoneNumbers.list({
-        filter: {
-          country_code: countryCode,
-          limit,
-          features: ['voice'],
-        },
-      });
+      const filter: any = {
+        country_code: countryCode,
+        limit,
+        features: ['voice'],
+      };
+      
+      if (numberType) {
+        filter.phone_number_type = numberType;
+      }
+      
+      if (prefix) {
+        filter.phone_number = { starts_with: prefix };
+      }
+
+      const response = await this.telnyxClient.availablePhoneNumbers.list({ filter });
       return response.data;
     } catch (error: any) {
       this.logger.error('Error searching Telnyx numbers', error);
