@@ -25,11 +25,11 @@ export class BillingService {
   async getBalance(workspaceId: string) {
     const ws = await this.prisma.workspace.findUnique({ where: { id: workspaceId } });
     if (!ws) throw new NotFoundException('Workspace not found');
-    let balance = await this.prisma.workspaceBalance.findUnique({
+    const balance = await this.prisma.workspaceBalance.findUnique({
       where: { workspace_id: workspaceId }
     });
     if (!balance) {
-      balance = { workspace_id: workspaceId, balance_minor: 0, currency: 'USD' } as any;
+      return { balance: { amountMinor: 0, currency: 'USD' } };
     }
     return { balance: { amountMinor: balance.balance_minor, currency: balance.currency } };
   }
