@@ -20,6 +20,10 @@ export default async function ProtectedLayout({
     return redirect('/login');
   }
   const user = session.user;
+  console.log('[ProtectedLayout] DIAGNOSTICS - Frontend session user:', {
+    id: user.id,
+    email: user.email
+  });
 
   // Fetch workspaces for this user from the API
   let workspaces: { id: string; name: string; role: string }[] = [];
@@ -33,6 +37,7 @@ export default async function ProtectedLayout({
     });
     if (res.ok) {
       workspaces = await res.json();
+      console.log('[ProtectedLayout] DIAGNOSTICS - API /workspaces response:', workspaces);
     } else {
       console.error('Failed to fetch workspaces', await res.text());
     }

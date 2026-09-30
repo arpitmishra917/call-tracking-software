@@ -17,7 +17,7 @@ export class PhoneNumbersService {
   ) {}
 
   async listWorkspaceNumbers(workspaceId: string, params: any = {}) {
-    const where = { workspace_id: workspaceId };
+    const where = { workspace_id: workspaceId, status: { not: PhoneNumberStatus.RELEASED } };
     
     // Opportunistically reconcile any numbers stuck in PROVISIONING
     const pendingNumbers = await this.prisma.phoneNumber.findMany({
@@ -184,6 +184,10 @@ export class PhoneNumbersService {
 
     if (!number || number.workspace_id !== workspaceId) {
       throw new NotFoundException('Phone number not found');
+    }
+
+    if (number.status === PhoneNumberStatus.RELEASED) {
+      return number;
     }
 
     if (number.provider_number_id) {

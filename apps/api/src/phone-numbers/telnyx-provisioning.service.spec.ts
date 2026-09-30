@@ -111,4 +111,22 @@ describe('TelnyxProvisioningService', () => {
       status: 'pending',
     });
   });
+  it('should call delete on phoneNumbers resource to release number', async () => {
+    process.env.TELNYX_CALL_CONTROL_APP_ID = 'test_app_id';
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [TelnyxProvisioningService],
+    }).compile();
+    service = module.get<TelnyxProvisioningService>(TelnyxProvisioningService);
+
+    const deleteMock = vi.fn().mockResolvedValue({});
+
+    (service as any).telnyxClient = {
+      phoneNumbers: { delete: deleteMock },
+    };
+
+    await service.releaseNumber('num_123');
+    
+    expect(deleteMock).toHaveBeenCalledWith('num_123');
+  });
 });

@@ -28,7 +28,11 @@ export default function Sidebar({
 }) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const currentWorkspaceId = searchParams.get('workspace') || workspaces[0]?.id;
+  
+  const urlWorkspaceId = searchParams.get('workspace');
+  const isValidWorkspace = urlWorkspaceId ? workspaces.some(w => w.id === urlWorkspaceId) : false;
+  const currentWorkspaceId = isValidWorkspace ? urlWorkspaceId : workspaces[0]?.id;
+  
   const currentWorkspace = workspaces.find((w) => w.id === currentWorkspaceId) || workspaces[0];
   const role = currentWorkspace?.role;
 

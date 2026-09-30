@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import { X } from 'lucide-react';
 import Sidebar from '@/components/sidebar';
 import Header from '@/components/header';
+import WorkspaceValidator from '@/components/workspace-validator';
 import { cn } from '@/utils/cn';
 
 interface ShellProps {
@@ -19,7 +20,9 @@ export default function Shell({ workspaces, user, children }: ShellProps) {
     <div className="flex h-screen bg-background overflow-hidden">
       {/* Desktop Sidebar */}
       <div className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 z-10 border-r border-border bg-surface">
-        <Sidebar workspaces={workspaces} />
+        <Suspense fallback={null}>
+          <Sidebar workspaces={workspaces} />
+        </Suspense>
       </div>
 
       {/* Mobile Sidebar Overlay */}
@@ -34,7 +37,9 @@ export default function Shell({ workspaces, user, children }: ShellProps) {
                   <X className="h-6 w-6 text-white" aria-hidden="true" />
                 </button>
               </div>
-              <Sidebar workspaces={workspaces} onNavClick={() => setIsMobileMenuOpen(false)} />
+              <Suspense fallback={null}>
+                <Sidebar workspaces={workspaces} onNavClick={() => setIsMobileMenuOpen(false)} />
+              </Suspense>
             </div>
           </div>
         </div>
@@ -42,14 +47,20 @@ export default function Shell({ workspaces, user, children }: ShellProps) {
 
       {/* Main Content */}
       <div className="flex flex-1 flex-col md:pl-64">
-        <Header 
-          workspaces={workspaces} 
-          user={user} 
-          onMenuClick={() => setIsMobileMenuOpen(true)} 
-        />
+        <Suspense fallback={<div className="h-16 border-b border-border bg-surface" />}>
+          <Header 
+            workspaces={workspaces} 
+            user={user} 
+            onMenuClick={() => setIsMobileMenuOpen(true)} 
+          />
+        </Suspense>
         <main className="flex-1 overflow-auto bg-background p-4 md:p-6 lg:p-8">
           <div className="mx-auto max-w-7xl">
-            {children}
+            <Suspense fallback={<div>Loading workspace...</div>}>
+              <WorkspaceValidator workspaces={workspaces}>
+                {children}
+              </WorkspaceValidator>
+            </Suspense>
           </div>
         </main>
       </div>

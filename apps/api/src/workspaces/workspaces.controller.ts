@@ -27,6 +27,10 @@ export class WorkspacesController {
 
   @Get()
   async getUserWorkspaces(@Request() req: any) {
+    console.log('[WorkspacesController] DIAGNOSTICS - req.user:', {
+      userId: req.user.userId,
+      email: req.user.email
+    });
     return this.workspacesService.getUserWorkspaces(req.user.userId);
   }
 

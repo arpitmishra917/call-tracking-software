@@ -11,44 +11,84 @@ export class WorkspacesService {
       throw new BadRequestException('Workspace name is required');
     }
 
+    // Check if user already owns a workspace
+    const existingOwnerMembership = await this.prisma.workspaceMember.findFirst({
+      where: { user_id: userId, role: 'OWNER' },
+      include: { workspace: true }
+    });
+
+    if (existingOwnerMembership) {
+      return existingOwnerMembership.workspace;
+    }
+
     const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'workspace';
     const slug = `${baseSlug}-${Math.floor(Math.random() * 10000)}`;
 
-    return this.prisma.$transaction(async (tx) => {
-      // 1. Ensure Profile exists
-      await tx.profile.upsert({
-        where: { id: userId },
-        update: {},
-        create: { id: userId },
-      });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // 1. Ensure Profile exists
+        await tx.profile.upsert({
+          where: { id: userId },
+          update: {},
+          create: { id: userId },
+        });
 
-      // 2. Create Workspace
-      const workspace = await tx.workspace.create({
-        data: {
-          name: name.trim(),
-          slug,
-          status: 'ACTIVE',
-        },
-      });
+        // 2. Double check inside transaction for race conditions
+        const racedMembership = await tx.workspaceMember.findFirst({
+          where: { user_id: userId, role: 'OWNER' },
+          include: { workspace: true }
+        });
+        
+        if (racedMembership) {
+          return racedMembership.workspace;
+        }
 
-      // 3. Create WorkspaceMember as OWNER
-      await tx.workspaceMember.create({
-        data: {
-          workspace_id: workspace.id,
-          user_id: userId,
-          role: 'OWNER',
-        },
-      });
+        // 3. Create Workspace
+        const workspace = await tx.workspace.create({
+          data: {
+            name: name.trim(),
+            slug,
+            status: 'ACTIVE',
+          },
+        });
 
-      return workspace;
-    });
+        // 4. Create WorkspaceMember as OWNER
+        await tx.workspaceMember.create({
+          data: {
+            workspace_id: workspace.id,
+            user_id: userId,
+            role: 'OWNER',
+          },
+        });
+
+        return workspace;
+      });
+    } catch (error: any) {
+      if (error.code === 'P2002' || error.code === 'P2010') { // Prisma unique constraint or raw sql error
+        const existing = await this.prisma.workspaceMember.findFirst({
+          where: { user_id: userId, role: 'OWNER' },
+          include: { workspace: true }
+        });
+        if (existing) return existing.workspace;
+      }
+      throw error;
+    }
   }
 
   async getUserWorkspaces(userId: string) {
+    console.log('[WorkspacesService] DIAGNOSTICS - getUserWorkspaces called');
+    console.log('[WorkspacesService] DIAGNOSTICS - req.user.userId:', userId);
+    
     const memberships = await this.prisma.workspaceMember.findMany({
       where: { user_id: userId },
       include: { workspace: true },
     });
+    
+    console.log('[WorkspacesService] DIAGNOSTICS - memberships count:', memberships.length);
+    memberships.forEach(m => {
+      console.log(`[WorkspacesService] DIAGNOSTICS - Workspace ID: ${m.workspace.id}, Name: ${m.workspace.name}, Role: ${m.role}`);
+    });
+
     return memberships.map((m) => ({
       ...m.workspace,
       role: m.role,
@@ -272,6 +312,17 @@ export class WorkspacesService {
         data: { status: 'ACCEPTED' as any },
       });
 
+      // If invitation is for OWNER, ensure they don't already own a workspace
+      let finalRole = invitation.role;
+      if (finalRole === 'OWNER') {
+        const existingOwner = await tx.workspaceMember.findFirst({
+          where: { user_id: userId, role: 'OWNER' }
+        });
+        if (existingOwner) {
+          finalRole = 'ADMIN' as any;
+        }
+      }
+
       // Create member
       const member = await tx.workspaceMember.upsert({
         where: {
@@ -281,12 +332,12 @@ export class WorkspacesService {
           },
         },
         update: {
-          role: invitation.role,
+          role: finalRole,
         },
         create: {
           workspace_id: invitation.workspace_id,
           user_id: userId,
-          role: invitation.role,
+          role: finalRole,
         },
       });
 

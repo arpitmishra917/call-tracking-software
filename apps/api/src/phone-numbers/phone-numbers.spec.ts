@@ -59,7 +59,7 @@ describe('PhoneNumbersService', () => {
     expect(result.items).toHaveLength(1);
     expect(result.total).toBe(1);
     expect(prismaMock.phoneNumber.findMany).toHaveBeenCalledWith({
-      where: { workspace_id: 'ws-1' },
+      where: { workspace_id: 'ws-1', status: { not: PhoneNumberStatus.RELEASED } },
       orderBy: { created_at: 'desc' },
       skip: 0,
       take: 50,
@@ -126,5 +126,39 @@ describe('PhoneNumbersService', () => {
         campaign_id: null
       },
     });
+  });
+  it('should not update DB and throw if provider release fails', async () => {
+    prismaMock.phoneNumber.findUnique.mockResolvedValue({
+      id: 'new-uuid',
+      workspace_id: 'ws-1',
+      status: PhoneNumberStatus.ACTIVE,
+      provider_number_id: 'provider_123',
+    });
+    
+    telnyxMock.releaseNumber = vi.fn().mockRejectedValue(new Error('Provider error'));
+    prismaMock.phoneNumber.update.mockClear();
+
+    await expect(service.releaseNumber('ws-1', 'new-uuid')).rejects.toThrow('Provider error');
+    
+    expect(telnyxMock.releaseNumber).toHaveBeenCalledWith('provider_123');
+    expect(prismaMock.phoneNumber.update).not.toHaveBeenCalled();
+  });
+
+  it('should be idempotent and not call provider if already RELEASED', async () => {
+    prismaMock.phoneNumber.findUnique.mockResolvedValue({
+      id: 'new-uuid',
+      workspace_id: 'ws-1',
+      status: PhoneNumberStatus.RELEASED,
+      provider_number_id: 'provider_123',
+    });
+
+    telnyxMock.releaseNumber = vi.fn();
+    prismaMock.phoneNumber.update.mockClear();
+
+    const result = await service.releaseNumber('ws-1', 'new-uuid');
+    
+    expect(result.status).toBe(PhoneNumberStatus.RELEASED);
+    expect(telnyxMock.releaseNumber).not.toHaveBeenCalled();
+    expect(prismaMock.phoneNumber.update).not.toHaveBeenCalled();
   });
 });

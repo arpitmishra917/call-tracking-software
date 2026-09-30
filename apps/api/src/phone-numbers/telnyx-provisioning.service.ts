@@ -149,7 +149,7 @@ export class TelnyxProvisioningService {
     }
 
     try {
-      await this.telnyxClient.phoneNumbers.del(phoneNumberId);
+      await this.telnyxClient.phoneNumbers.delete(phoneNumberId);
       this.logger.log(`Released number from Telnyx: ${phoneNumberId}`);
     } catch (error: any) {
       this.logger.error(`Error releasing number ${phoneNumberId} from Telnyx`, error);

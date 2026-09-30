@@ -45,6 +45,11 @@ async function run() {
       console.log(`Target Workspace: ${targetWorkspaceId}`);
       console.log(`Provider Status:  ${orphan.status}`);
       
+      if (!orphan.connection_id) {
+        console.log(`[SKIPPED] ${orphan.phone_number} - Reason: connection_id is missing or empty`);
+        continue;
+      }
+      
       if (isDryRun) {
         console.log(`[DRY-RUN] Would create local record:`);
         console.log({
