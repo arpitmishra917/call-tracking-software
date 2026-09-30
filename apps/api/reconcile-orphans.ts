@@ -1,16 +1,42 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, PhoneNumberStatus } from '@prisma/client';
 import Telnyx from 'telnyx';
 
 const prisma = new PrismaClient();
 
 async function run() {
-  const isDryRun = process.argv.includes('--dry-run');
-  const targetWorkspaceId = '772c13a6-1d75-424c-9363-2f226d5b73b7';
-  console.log(`Starting Reconciliation... Dry Run: ${isDryRun}`);
+  const args = process.argv.slice(2);
+  const isDryRun = args.includes('--dry-run');
+  
+  const wsIndex = args.indexOf('--workspace-id');
+  const targetWorkspaceId = wsIndex !== -1 ? args[wsIndex + 1] : null;
+
+  const numIndex = args.indexOf('--numbers');
+  const rawNumbers = numIndex !== -1 ? args[numIndex + 1] : null;
+
+  if (!targetWorkspaceId) {
+    console.error('Missing required argument: --workspace-id <uuid>');
+    process.exit(1);
+  }
+
+  if (!rawNumbers) {
+    console.error('Missing required argument: --numbers <comma-separated-E164-numbers>');
+    process.exit(1);
+  }
+
+  const allowedNumbers = rawNumbers.split(',').map(n => n.trim());
+  
+  console.log(`Starting Parameterized Reconciliation... Dry Run: ${isDryRun}`);
+
+  // Validate Target Workspace
+  const ws = await prisma.workspace.findUnique({ where: { id: targetWorkspaceId } });
+  if (!ws || ws.status !== 'ACTIVE') {
+    console.error(`STOP. Target workspace ${targetWorkspaceId} does not exist or is not ACTIVE.`);
+    process.exit(1);
+  }
 
   const apiKey = process.env.TELNYX_API_KEY;
   if (!apiKey) {
-    console.error('TELNYX_API_KEY is not set. Cannot verify real Telnyx account.');
+    console.error('TELNYX_API_KEY is not set.');
     process.exit(1);
   }
   
@@ -18,64 +44,57 @@ async function run() {
   const telnyxClient = new telnyxFactory(apiKey);
 
   try {
-    // 1. Fetch all numbers in Telnyx
     console.log('Fetching phone numbers from Telnyx...');
     const response = await telnyxClient.phoneNumbers.list({ filter: { size: 100 } });
     const telnyxNumbers = response.data || [];
     
-    // 2. Fetch all numbers in DB
-    const dbNumbers = await prisma.phoneNumber.findMany();
-    const dbNumberSet = new Set(dbNumbers.map(n => n.phone_number));
-
-    // 3. Find orphans
-    const orphans = telnyxNumbers.filter((tn: any) => !dbNumberSet.has(tn.phone_number));
-    
-    if (orphans.length === 0) {
-      console.log('No orphaned numbers found in Telnyx account.');
-      return;
-    }
-
-    console.log(`Found ${orphans.length} orphaned number(s) in Telnyx.`);
-
-    for (const orphan of orphans) {
-      console.log('--------------------------------------------------');
-      console.log(`Number:           ${orphan.phone_number}`);
-      console.log(`Telnyx ID:        ${orphan.id}`);
-      console.log(`Connection ID:    ${orphan.connection_id || 'None'}`);
-      console.log(`Target Workspace: ${targetWorkspaceId}`);
-      console.log(`Provider Status:  ${orphan.status}`);
-      
-      if (!orphan.connection_id) {
-        console.log(`[SKIPPED] ${orphan.phone_number} - Reason: connection_id is missing or empty`);
+    for (const num of allowedNumbers) {
+      if (num === '+17207159445') {
+        console.log(`[SKIPPED] ${num} - EXPLICITLY SKIPPED`);
         continue;
       }
-      
+
+      const tn = telnyxNumbers.find((t: any) => t.phone_number === num);
+      if (!tn) {
+        console.log(`[ERROR] ${num} - Not found on Telnyx. Skipping.`);
+        continue;
+      }
+
+      // Local duplicate check
+      const localNum = await prisma.phoneNumber.findFirst({ where: { phone_number: num } });
+      if (localNum) {
+        if (localNum.workspace_id === targetWorkspaceId) {
+          console.log(`[EXISTS] ${num} already exists in target workspace.`);
+        } else {
+          console.error(`[CONFLICT] ${num} already exists in a DIFFERENT workspace (${localNum.workspace_id}). STOPPING assignment.`);
+        }
+        continue;
+      }
+
       if (isDryRun) {
-        console.log(`[DRY-RUN] Would create local record:`);
-        console.log({
-          workspace_id: targetWorkspaceId,
-          phone_number: orphan.phone_number,
-          provider: 'telnyx',
-          provider_number_id: orphan.id,
-          connection_id: orphan.connection_id,
-          status: 'ACTIVE',
-        });
+        console.log(`\nWOULD CREATE:\n${num}`);
       } else {
-        console.log(`[LIVE] Creating local record...`);
+        console.log(`[LIVE] Creating local record for ${num}...`);
         await prisma.phoneNumber.create({
           data: {
             workspace_id: targetWorkspaceId,
-            phone_number: orphan.phone_number,
-            name: orphan.phone_number,
+            phone_number: tn.phone_number,
+            name: tn.phone_number,
             provider: 'telnyx',
-            provider_number_id: orphan.id,
-            connection_id: orphan.connection_id,
-            status: 'ACTIVE',
+            provider_number_id: tn.id,
+            connection_id: tn.connection_id,
+            number_type: tn.phone_number_type,
+            status: PhoneNumberStatus.ACTIVE,
           },
         });
-        console.log(`[LIVE] Record created successfully for ${orphan.phone_number}`);
+        console.log(`[LIVE] Record created successfully for ${num}`);
       }
     }
+
+    if (isDryRun && allowedNumbers.includes('+17207159445')) {
+      console.log(`\nWOULD NOT IMPORT:\n+17207159445`);
+    }
+
   } catch (error) {
     console.error('Error during reconciliation:', error);
   } finally {
