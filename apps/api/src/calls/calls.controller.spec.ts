@@ -3,8 +3,8 @@ import { CallsController } from './calls.controller.js';
 import { CallsService } from './calls.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { CallState } from '@prisma/client';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 describe('CallsController', () => {
   let controller: CallsController;
@@ -50,6 +50,10 @@ describe('CallsController', () => {
       '+123',
       '2026-01-01',
       '2026-01-31',
+      undefined, // trackingNumber
+      undefined, // durationType
+      undefined, // min
+      undefined, // max
       '10',
       '0',
     );
@@ -61,6 +65,10 @@ describe('CallsController', () => {
       callerNumber: '+123',
       startDate: '2026-01-01',
       endDate: '2026-01-31',
+      trackingNumber: undefined,
+      durationType: undefined,
+      minDurationSecs: undefined,
+      maxDurationSecs: undefined,
       limit: 10,
       offset: 0,
     });
@@ -75,15 +83,8 @@ describe('CallsController', () => {
 
   it('should get metrics', async () => {
     service.getMetrics.mockResolvedValue({ total: 5 });
-    const result = await controller.getMetrics(
-      'ws-1',
-      '2026-01-01',
-      '2026-01-31',
-    );
+    const result = await controller.getMetrics('ws-1', '2026-01-01', '2026-01-31');
     expect(result).toEqual({ total: 5 });
-    expect(service.getMetrics).toHaveBeenCalledWith('ws-1', {
-      startDate: '2026-01-01',
-      endDate: '2026-01-31',
-    });
+    expect(service.getMetrics).toHaveBeenCalledWith('ws-1', { startDate: '2026-01-01', endDate: '2026-01-31' });
   });
 });

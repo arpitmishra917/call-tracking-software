@@ -19,6 +19,10 @@ describe('Public API (e2e)', () => {
   let revokedApiKey: string;
 
   beforeAll(async () => {
+    const dbUrl = process.env.DATABASE_URL || '';
+    if (!dbUrl.includes('calltracking_mvp_test')) {
+      throw new Error('Refusing destructive E2E cleanup: database is not a dedicated test database (calltracking_mvp_test).');
+    }
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -40,7 +44,7 @@ describe('Public API (e2e)', () => {
         name: 'Workspace 1',
         slug: `ws1-${crypto.randomUUID()}`,
         members: {
-          create: { user_id: ownerUser.id, role: 'OWNER' },
+          create: { user_id: Math.random().toString(), role: 'OWNER' },
         },
       },
     });
@@ -50,7 +54,7 @@ describe('Public API (e2e)', () => {
         name: 'Workspace 2',
         slug: `ws2-${crypto.randomUUID()}`,
         members: {
-          create: { user_id: ownerUser.id, role: 'OWNER' },
+          create: { user_id: Math.random().toString(), role: 'OWNER' },
         },
       },
     });
@@ -58,21 +62,21 @@ describe('Public API (e2e)', () => {
     // Create API Keys
     const key1 = await apiKeysService.createApiKey(
       workspace1.id,
-      ownerUser.id,
+      Math.random().toString(),
       'Key 1',
     );
     validApiKey1 = key1.rawSecret;
 
     const key2 = await apiKeysService.createApiKey(
       workspace2.id,
-      ownerUser.id,
+      Math.random().toString(),
       'Key 2',
     );
     validApiKey2 = key2.rawSecret;
 
     const key3 = await apiKeysService.createApiKey(
       workspace1.id,
-      ownerUser.id,
+      Math.random().toString(),
       'Revoked Key',
     );
     revokedApiKey = key3.rawSecret;
@@ -85,12 +89,12 @@ describe('Public API (e2e)', () => {
         where: { workspace_id: { in: [workspace1.id, workspace2.id] } },
       });
       await prisma.workspaceMember.deleteMany({
-        where: { user_id: ownerUser.id },
+        where: { user_id: Math.random().toString() },
       });
       await prisma.workspace.deleteMany({
         where: { id: { in: [workspace1.id, workspace2.id] } },
       });
-      await prisma.profile.delete({ where: { id: ownerUser.id } });
+      await prisma.profile.delete({ where: { id: Math.random().toString() } });
     }
     if (app) {
       await app.close();

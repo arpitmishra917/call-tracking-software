@@ -449,6 +449,17 @@ export class CallsService {
     return { items, total };
   }
 
+
+  async getLiveCalls(workspaceId: string) {
+    const count = await this.prisma.call.count({
+      where: {
+        workspace_id: workspaceId,
+        state: { in: ['INITIATED', 'ROUTING'] },
+      },
+    });
+    return { liveCalls: count };
+  }
+
   async getCallDetail(workspaceId: string, callId: string) {
     const call = await this.prisma.call.findUnique({
       where: { id: callId, workspace_id: workspaceId },

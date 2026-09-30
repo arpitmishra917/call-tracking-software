@@ -1,16 +1,89 @@
 'use client';
 
-import React from 'react';
-import { Menu } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Menu, PhoneCall, Wallet } from 'lucide-react';
 import WorkspaceSelector from '@/components/workspace-selector';
 import { Button } from '@/components/ui/button';
 import { createClient } from '@/utils/supabase/client';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { apiFetch } from '@/lib/api';
 
 interface HeaderProps {
   workspaces: { id: string; name: string; role: string }[];
   user: { email?: string };
   onMenuClick: () => void;
+}
+
+function HeaderMetrics() {
+  const searchParams = useSearchParams();
+  const workspaceId = searchParams.get('workspace');
+  
+  const [liveCalls, setLiveCalls] = useState<number | null>(null);
+  const [balance, setBalance] = useState<{ amountMinor: number; currency: string } | null>(null);
+
+  const fetchMetrics = useCallback(async (isPolling = false) => {
+    if (!workspaceId) return;
+
+    try {
+      const [liveRes, balRes] = await Promise.all([
+        apiFetch(`/workspaces/${workspaceId}/calls/live-calls`),
+        apiFetch(`/workspaces/${workspaceId}/billing/balance`)
+      ]);
+      setLiveCalls(liveRes.liveCalls);
+      setBalance(balRes.balance);
+    } catch (err) {
+      // Retain last known value on temporary polling failure
+      if (!isPolling) {
+        setLiveCalls(null);
+        setBalance(null);
+      }
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    // Reset state on workspace switch
+    setLiveCalls(null);
+    setBalance(null);
+
+    // Initial fetch
+    fetchMetrics();
+
+    // Polling interval
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchMetrics(true);
+      }
+    }, 10000); // 10 seconds
+
+    return () => clearInterval(interval);
+  }, [fetchMetrics]);
+
+  const formatBalance = (amountMinor: number, currency: string) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency,
+    }).format(amountMinor / 100);
+  };
+
+  if (!workspaceId) return null;
+
+  return (
+    <div className="flex items-center gap-x-6 mr-4 bg-muted/50 rounded-lg px-4 py-1.5 border border-border/50">
+      <div className="flex items-center gap-x-2 text-sm">
+        <PhoneCall className={`h-4 w-4 ${liveCalls && liveCalls > 0 ? 'text-emerald-500 animate-pulse' : 'text-muted-foreground'}`} />
+        <span className="font-medium text-foreground">
+          {liveCalls !== null ? `${liveCalls} Live` : '—'}
+        </span>
+      </div>
+      <div className="h-4 w-px bg-border" aria-hidden="true" />
+      <div className="flex items-center gap-x-2 text-sm">
+        <Wallet className="h-4 w-4 text-muted-foreground" />
+        <span className="font-medium text-foreground">
+          {balance ? formatBalance(balance.amountMinor, balance.currency) : '—'}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export default function Header({ workspaces, user, onMenuClick }: HeaderProps) {
@@ -45,6 +118,9 @@ export default function Header({ workspaces, user, onMenuClick }: HeaderProps) {
         </div>
         
         <div className="flex items-center gap-x-4 lg:gap-x-6">
+          <React.Suspense fallback={<div className="w-32 h-8 bg-muted rounded animate-pulse" />}>
+            <HeaderMetrics />
+          </React.Suspense>
           <div className="hidden sm:block text-sm font-medium text-foreground">
             {user.email}
           </div>

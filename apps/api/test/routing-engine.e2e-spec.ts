@@ -43,6 +43,10 @@ describe('Sequential Buyer Routing Engine (Stage 14)', () => {
   });
 
   beforeEach(async () => {
+    const dbUrl = process.env.DATABASE_URL || '';
+    if (!dbUrl.includes('calltracking_mvp_test')) {
+      throw new Error('Refusing destructive E2E cleanup: database is not a dedicated test database (calltracking_mvp_test).');
+    }
     // Clean DB
     await prisma.call.deleteMany({});
     await prisma.campaignBuyer.deleteMany({});

@@ -28,6 +28,7 @@ describe('BillingService', () => {
               findUnique: vi.fn(),
             },
             usageRecord: { groupBy: vi.fn() },
+            workspaceBalance: { findUnique: vi.fn() },
             webhookEvent: {
               findUnique: vi.fn(),
               create: vi.fn(),
@@ -63,6 +64,41 @@ describe('BillingService', () => {
         }),
       },
     };
+  });
+
+  
+  describe('getBalance', () => {
+    it('1. new workspace balance = 0', async () => {
+      vi.spyOn(prisma.workspace, 'findUnique').mockResolvedValue({ id: 'ws-1' } as any);
+      vi.spyOn(prisma.workspaceBalance, 'findUnique').mockResolvedValue(null);
+      const res = await service.getBalance('ws-1');
+      expect(res.balance.amountMinor).toBe(0);
+      expect(res.balance.currency).toBe('USD');
+    });
+
+    it('2. balance retrieval', async () => {
+      vi.spyOn(prisma.workspace, 'findUnique').mockResolvedValue({ id: 'ws-1' } as any);
+      vi.spyOn(prisma.workspaceBalance, 'findUnique').mockResolvedValue({
+        workspace_id: 'ws-1',
+        balance_minor: 5000,
+        currency: 'USD'
+      } as any);
+      const res = await service.getBalance('ws-1');
+      expect(res.balance.amountMinor).toBe(5000);
+      expect(res.balance.currency).toBe('USD');
+    });
+
+    it('3. workspace isolation', async () => {
+      vi.spyOn(prisma.workspace, 'findUnique').mockResolvedValue({ id: 'ws-2' } as any);
+      const spy = vi.spyOn(prisma.workspaceBalance, 'findUnique').mockResolvedValue(null);
+      await service.getBalance('ws-2');
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ where: { workspace_id: 'ws-2' } }));
+    });
+
+    it('4. unauthorized workspace access / workspace not found', async () => {
+      vi.spyOn(prisma.workspace, 'findUnique').mockResolvedValue(null);
+      await expect(service.getBalance('ws-invalid')).rejects.toThrow('Workspace not found');
+    });
   });
 
   describe('getBillingState', () => {

@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Param,
   Body,
   Req,
   UseGuards,
@@ -29,6 +30,13 @@ export class BillingController {
   )
   getBillingState(@Req() req: any) {
     return this.billingService.getBillingState(req.params.workspaceId);
+  }
+
+  @Get('workspaces/:workspaceId/billing/balance')
+  @UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
+  // No strict role requirement explicitly, let it follow whatever getBilling uses, or just require auth
+  async getBalance(@Param('workspaceId') workspaceId: string) {
+    return this.billingService.getBalance(workspaceId);
   }
 
   @Post('workspaces/:workspaceId/billing/checkout')
