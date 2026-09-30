@@ -30,8 +30,17 @@ interface PhoneNumber {
 
 interface AvailableNumber {
   phone_number: string;
-  locality?: string;
-  administrative_area?: string;
+  phone_number_type?: string;
+  region_information?: Array<{
+    region_type: string;
+    region_name: string;
+  }>;
+}
+
+export function getPhoneTypeDisplay(num: AvailableNumber): string {
+  if (num.phone_number_type === 'local') return 'Local';
+  if (num.phone_number_type === 'toll_free') return 'Toll-Free';
+  return 'Unknown';
 }
 
 export default function PhoneNumbersPage() {
@@ -341,7 +350,7 @@ export default function PhoneNumbersPage() {
                         {num.phone_number}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
-                        {num.locality && num.administrative_area ? `${num.locality}, ${num.administrative_area}` : 'Toll-free / Unknown'}
+                        {getPhoneTypeDisplay(num)}
                       </div>
                     </div>
                     <Button
