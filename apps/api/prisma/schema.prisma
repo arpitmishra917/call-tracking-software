@@ -129,6 +129,7 @@ model PhoneNumber {
   connection_id      String?
   status             PhoneNumberStatus @default(ACTIVE)
   campaign_id        String?
+  number_type        String?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

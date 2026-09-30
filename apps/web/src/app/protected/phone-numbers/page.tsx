@@ -25,6 +25,7 @@ interface PhoneNumber {
   provider: string;
   campaign?: Campaign | null;
   campaign_id?: string | null;
+  number_type?: string | null;
 }
 
 interface AvailableNumber {
@@ -233,7 +234,15 @@ export default function PhoneNumbersPage() {
                 </TableHeader>
                 <TableBody>
                   {numbers.map((num) => {
-                    const isTollFree = /^\+1(800|888|877|866|855|844|833)/.test(num.phone_number);
+                    const typeLabels: Record<string, string> = {
+                      local: 'Local',
+                      toll_free: 'Toll-Free',
+                      mobile: 'Mobile',
+                      national: 'National',
+                      shared_cost: 'Shared Cost'
+                    };
+                    const displayType = num.number_type ? (typeLabels[num.number_type] || num.number_type) : 'Unknown';
+                    
                     return (
                     <TableRow key={num.id}>
                       <TableCell>
@@ -241,7 +250,7 @@ export default function PhoneNumbersPage() {
                         {num.name && <div className="text-sm text-muted-foreground">{num.name}</div>}
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm text-muted-foreground">{isTollFree ? 'Toll-Free' : 'Local'}</span>
+                        <span className="text-sm text-muted-foreground">{displayType}</span>
                       </TableCell>
                       <TableCell>
                         {num.campaign ? (

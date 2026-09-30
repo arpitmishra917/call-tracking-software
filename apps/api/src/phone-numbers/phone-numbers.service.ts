@@ -106,6 +106,7 @@ export class PhoneNumbersService {
             status: PhoneNumberStatus.ACTIVE,
             provider_number_id: check.id,
             connection_id: check.connection_id,
+            number_type: check.phone_number_type || null,
           },
         });
 
@@ -146,6 +147,7 @@ export class PhoneNumbersService {
           status: PhoneNumberStatus.ACTIVE,
           provider_number_id: check.id,
           connection_id: check.connection_id,
+          number_type: check.phone_number_type || null,
         },
       });
 
@@ -206,5 +208,36 @@ export class PhoneNumbersService {
         campaign_id: null 
       },
     });
+  }
+
+  async backfillNumberTypes(dryRun: boolean = true) {
+    const numbers = await this.prisma.phoneNumber.findMany({
+      where: {
+        provider: 'telnyx',
+        number_type: null,
+        status: { in: [PhoneNumberStatus.ACTIVE, PhoneNumberStatus.PROVISIONING] },
+      }
+    });
+
+    const results = { total: numbers.length, updated: 0, failed: 0, skipped: 0 };
+    for (const num of numbers) {
+      try {
+        const check = await this.telnyxProvisioning.checkOrderStatus(num.provider_number_id || '', num.phone_number);
+        if (check.phone_number_type) {
+          if (!dryRun) {
+            await this.prisma.phoneNumber.update({
+              where: { id: num.id },
+              data: { number_type: check.phone_number_type }
+            });
+          }
+          results.updated++;
+        } else {
+          results.skipped++;
+        }
+      } catch (err) {
+        results.failed++;
+      }
+    }
+    return results;
   }
 }

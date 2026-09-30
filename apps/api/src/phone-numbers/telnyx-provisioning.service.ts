@@ -116,6 +116,7 @@ export class TelnyxProvisioningService {
     id?: string;
     phone_number?: string;
     connection_id?: string | null;
+    phone_number_type?: string;
   }> {
     if (!this.telnyxClient) {
       this.logger.debug(`[MOCK] Checking order status for ${orderId}`);
@@ -125,6 +126,7 @@ export class TelnyxProvisioningService {
         id: `mock_telnyx_id_${orderId}`,
         phone_number: phoneNumber,
         connection_id: process.env.TELNYX_CALL_CONTROL_APP_ID,
+        phone_number_type: 'local', // Mock default
       };
     }
 
@@ -142,6 +144,7 @@ export class TelnyxProvisioningService {
           id: numberData.id,
           phone_number: numberData.phone_number,
           connection_id: numberData.connection_id,
+          phone_number_type: numberData.phone_number_type,
         };
       }
       

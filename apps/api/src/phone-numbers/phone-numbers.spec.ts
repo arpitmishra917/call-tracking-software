@@ -116,6 +116,7 @@ describe('PhoneNumbersService', () => {
       status: 'completed',
       id: 'mock_telnyx_id',
       connection_id: 'mock_conn_id',
+      phone_number_type: 'toll_free'
     });
 
     const result = await service.provisionNumber('ws-1', '+15550001000');
@@ -124,6 +125,29 @@ describe('PhoneNumbersService', () => {
     expect(telnyxMock.placeNumberOrder).toHaveBeenCalledWith('+15550001000');
     expect(prismaMock.phoneNumber.create).toHaveBeenCalled();
     expect(prismaMock.phoneNumber.update).toHaveBeenCalledTimes(2);
+    expect(prismaMock.phoneNumber.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          number_type: 'toll_free',
+        })
+      })
+    );
+  });
+
+  it('should backfill number types', async () => {
+    prismaMock.phoneNumber.findMany.mockResolvedValue([
+      { id: '1', phone_number: '+123', provider_number_id: 'pn1' } as any,
+    ]);
+    telnyxMock.checkOrderStatus = vi.fn().mockResolvedValue({ status: 'completed', phone_number_type: 'local' });
+    
+    const res = await service.backfillNumberTypes(false);
+    expect(res.updated).toBe(1);
+    expect(prismaMock.phoneNumber.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: '1' },
+        data: { number_type: 'local' }
+      })
+    );
   });
 
   it('should release a number (soft delete)', async () => {
