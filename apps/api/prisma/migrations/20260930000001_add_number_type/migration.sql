@@ -1,2 +1,2 @@
 -- AlterTable
-ALTER TABLE "PhoneNumber" ADD COLUMN "number_type" TEXT;
+ALTER TABLE "phone_numbers" ADD COLUMN "number_type" TEXT;
