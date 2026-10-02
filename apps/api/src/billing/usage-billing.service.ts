@@ -29,6 +29,19 @@ export class UsageBillingService {
   /**
    * Attempts to bill a connected Call.
    */
+  calculateInitialReservation(numberType: string | null | undefined): bigint {
+    let ratePerMin: bigint;
+    if (numberType === 'local') {
+      ratePerMin = PRICING.LOCAL_INBOUND_MICRO_PER_MIN;
+    } else if (numberType === 'toll_free') {
+      ratePerMin = PRICING.TOLL_FREE_INBOUND_MICRO_PER_MIN;
+    } else {
+      ratePerMin = PRICING.LOCAL_INBOUND_MICRO_PER_MIN;
+    }
+    const recordingRate = PRICING.RECORDING_MICRO_PER_MIN;
+    return (ratePerMin + recordingRate) * 10n; // 10 minute block
+  }
+
   async billCallUsage(
     workspaceId: string, 
     callId: string, 
@@ -36,7 +49,13 @@ export class UsageBillingService {
     talkDurationSeconds: number
   ) {
     if (talkDurationSeconds <= 0) {
-      return { billed: false, reason: 'Zero talk duration' };
+      try {
+        await this.walletService.releaseReservation(workspaceId, callId);
+        return { billed: false, reason: 'Zero talk duration, reservation released' };
+      } catch (e: any) {
+         this.logger.error(`Failed to release reservation ${callId}: ${e.message}`);
+         return { billed: false, reason: e.message };
+      }
     }
 
     let ratePerMin: bigint;
@@ -46,30 +65,26 @@ export class UsageBillingService {
       ratePerMin = PRICING.TOLL_FREE_INBOUND_MICRO_PER_MIN;
     } else {
       this.logger.warn(`Call ${callId} lacks billable number_type (${numberType})`);
-      return { billed: false, reason: 'Unknown number type' };
+      ratePerMin = PRICING.LOCAL_INBOUND_MICRO_PER_MIN;
     }
 
     const billableMinutes = this.calculateBillableMinutes(talkDurationSeconds);
     const costMicro = billableMinutes * ratePerMin;
 
     if (costMicro <= 0n) {
-      return { billed: false, reason: 'Zero computed cost' };
+      try {
+        await this.walletService.releaseReservation(workspaceId, callId);
+        return { billed: false, reason: 'Zero computed cost, reservation released' };
+      } catch (e: any) {
+         return { billed: false, reason: e.message };
+      }
     }
 
-    const idempotencyKey = `call:\${callId}:talk-usage`;
-
     try {
-      await this.walletService.debitWallet({
-        workspaceId,
-        amountMicro: costMicro,
-        referenceType: 'CALL_MINUTE',
-        referenceId: callId,
-        idempotencyKey,
-        description: `Call usage: \${billableMinutes} min (\${numberType})`
-      });
+      await this.walletService.settleReservation(workspaceId, callId, costMicro);
       return { billed: true, costMicro };
     } catch (e: any) {
-      this.logger.error(`Failed to bill call \${callId}: \${e.message}`);
+      this.logger.error(`Failed to settle call ${callId}: ${e.message}`);
       return { billed: false, reason: e.message };
     }
   }

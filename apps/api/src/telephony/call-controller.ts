@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CallsService } from '../calls/calls.service.js';
 import { UsageService } from '../usage/usage.service.js';
 import { UsageBillingService } from '../billing/usage-billing.service.js';
+import { WalletService } from '../billing/wallet.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 import { CallState, CallAttemptState } from '@prisma/client';
 
@@ -22,6 +23,7 @@ export class CallController {
     private readonly usageService: UsageService,
     private readonly usageBillingService: UsageBillingService,
     private readonly webhooksService: WebhooksService,
+    private readonly walletService: WalletService,
   ) {}
 
   async handleEvent(event: NormalizedCallEvent): Promise<void> {
@@ -70,8 +72,13 @@ export class CallController {
         return;
       }
 
-      if (trackingNumber.workspace.status !== 'ACTIVE' || (trackingNumber.campaign && trackingNumber.campaign.status !== 'ACTIVE')) {
-        this.logger.warn(`Call to ${to} rejected because workspace ${trackingNumber.workspace_id} is ${trackingNumber.workspace.status}`);
+      if (
+        trackingNumber.workspace.status !== 'ACTIVE' ||
+        (trackingNumber.campaign && trackingNumber.campaign.status !== 'ACTIVE')
+      ) {
+        this.logger.warn(
+          `Call to ${to} rejected because workspace ${trackingNumber.workspace_id} is ${trackingNumber.workspace.status}`,
+        );
         await this.prisma.call.create({
           data: {
             workspace_id: trackingNumber.workspace_id,
@@ -122,6 +129,30 @@ export class CallController {
         to_number: to!,
       });
 
+      // --- PHASE 3D RESERVATION ---
+      const initialAmountMicro =
+        this.usageBillingService.calculateInitialReservation(
+          trackingNumber.number_type,
+        );
+      try {
+        await this.walletService.reserveForCall(
+          call.workspace_id,
+          call.id,
+          initialAmountMicro,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `Insufficient balance for call ${call.id}. Rejecting: ${err.message}`,
+        );
+        await this.prisma.call.update({
+          where: { id: call.id },
+          data: { state: CallState.FAILED },
+        });
+        await this.provider.hangupCall(callId);
+        return;
+      }
+      // ----------------------------
+
       await this.provider.answerCall(callId);
       return;
     }
@@ -149,10 +180,7 @@ export class CallController {
       try {
         await this.provider.startRecording(call.provider_call_id);
       } catch (err) {
-        this.logger.error(
-          `Failed to start recording for call ${callId}`,
-          err,
-        );
+        this.logger.error(`Failed to start recording for call ${callId}`, err);
       }
       await this.dialNextBuyer(call, connectionId);
       return;
@@ -195,14 +223,15 @@ export class CallController {
           });
           this.logger.log(`Saved recording metadata for call ${call.id}`);
 
-          const dMs = call.ended_at && call.answered_at ? call.ended_at.getTime() - call.answered_at.getTime() : 0;
+          const dMs =
+            call.ended_at && call.answered_at
+              ? call.ended_at.getTime() - call.answered_at.getTime()
+              : 0;
           const dSec = Math.max(0, Math.ceil(dMs / 1000));
           if (dSec > 0) {
-            await this.usageBillingService.billRecordingUsage(
-              call.workspace_id,
-              rec.id,
-              dSec
-            ).catch(err => this.logger.error(`Error: ${err.message}`));
+            await this.usageBillingService
+              .billRecordingUsage(call.workspace_id, rec.id, dSec)
+              .catch((err) => this.logger.error(`Error: ${err.message}`));
           }
 
           // Fire webhook
@@ -219,6 +248,28 @@ export class CallController {
     if (type === CallEventType.CALL_HANGUP) {
       if (call.provider_call_id === callId) {
         const updatedCall = await this.callsService.handleCallerHangup(callId);
+
+        const nowMs = updatedCall.ended_at ? updatedCall.ended_at.getTime() : Date.now();
+        const dMs = updatedCall.answered_at ? nowMs - updatedCall.answered_at.getTime() : 0;
+        const talkDurationSecs = Math.max(0, Math.ceil(dMs / 1000));
+
+        const trackingNumInfo = await this.prisma.phoneNumber.findFirst({
+          where: {
+            phone_number: updatedCall.to_number,
+            workspace_id: updatedCall.workspace_id,
+          },
+        });
+
+        const rrr = await this.usageBillingService.billCallUsage(
+            updatedCall.workspace_id,
+            updatedCall.id,
+            trackingNumInfo?.number_type,
+            talkDurationSecs
+        ).catch((err) => {
+            this.logger.error(`Failed to settle/release reservation for call ${updatedCall.id}: ${err.message}`);
+        });
+        console.log('BILL_USAGE_RESULT:', rrr, 'DUR:', talkDurationSecs);
+        // ---------------------------
         const activeAttempts =
           updatedCall.attempts?.filter(
             (a: any) =>

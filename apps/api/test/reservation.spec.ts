@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { WalletService } from '../src/billing/wallet.service';
-import { PrismaService } from '../src/prisma/prisma.service';
+import { WalletService } from '../src/billing/wallet.service.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 import { ReservationStatus, CallState } from '@prisma/client';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 
@@ -31,7 +31,7 @@ describe('Phase 3C: Wallet Reservation Engine (Real DB)', () => {
 
   beforeEach(async () => {
     // Clean up
-    await prisma.workspace.deleteMany({ where: { id: wsId } });
+    await prisma.workspace.deleteMany({ where: { id: { in: [wsId, 'ws-brand-new', 'ws-a', 'ws-b'] } } });
 
     // Seed Workspace
     await prisma.workspace.create({
@@ -409,7 +409,7 @@ describe('Phase 3C: Wallet Reservation Engine (Real DB)', () => {
     expect(bal?.reserved_micro).toBeLessThanOrEqual(bal?.balance_micro || 0n);
     
     const activeRes = await prisma.callReservation.findMany({ where: { workspace_id: wsId, status: 'ACTIVE' } });
-    const sum = activeRes.reduce((acc, r) => acc + r.total_reserved_micro, 0n);
+    const sum = activeRes.reduce((acc: bigint, r: any) => acc + r.total_reserved_micro, 0n);
     expect(bal?.reserved_micro).toBe(sum);
   });
 });
