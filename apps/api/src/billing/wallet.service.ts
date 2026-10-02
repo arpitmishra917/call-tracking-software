@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { TransactionType } from '@prisma/client';
 
@@ -25,19 +25,26 @@ export class WalletService {
         where: { idempotency_key: params.idempotencyKey },
       });
       if (existingTx) {
+        if (
+          existingTx.amount_minor !== params.amountMinor ||
+          existingTx.workspace_id !== params.workspaceId ||
+          existingTx.type !== TransactionType.CREDIT
+        ) {
+          throw new ConflictException('Idempotency key reuse detected with materially different parameters.');
+        }
         return existingTx;
       }
 
+      // Ensure balance row exists to prevent race conditions on INSERT
+      await tx.workspaceBalance.upsert({
+        where: { workspace_id: params.workspaceId },
+        create: { workspace_id: params.workspaceId, balance_minor: 0 },
+        update: {},
+      });
+
+      // Strongly serialize the wallet state across concurrent requests
       const balanceRecords = await tx.$queryRaw<any[]>`SELECT balance_minor FROM "workspace_balances" WHERE workspace_id = \${params.workspaceId} FOR UPDATE`;
-      
-      let currentBalance = 0;
-      if (balanceRecords.length > 0) {
-        currentBalance = balanceRecords[0].balance_minor;
-      } else {
-        await tx.workspaceBalance.create({
-          data: { workspace_id: params.workspaceId, balance_minor: 0 },
-        });
-      }
+      const currentBalance = balanceRecords[0].balance_minor;
 
       const newBalance = currentBalance + params.amountMinor;
 
@@ -73,15 +80,24 @@ export class WalletService {
         where: { idempotency_key: params.idempotencyKey },
       });
       if (existingTx) {
+        if (
+          existingTx.amount_minor !== params.amountMinor ||
+          existingTx.workspace_id !== params.workspaceId ||
+          existingTx.type !== TransactionType.DEBIT
+        ) {
+          throw new ConflictException('Idempotency key reuse detected with materially different parameters.');
+        }
         return existingTx;
       }
 
+      await tx.workspaceBalance.upsert({
+        where: { workspace_id: params.workspaceId },
+        create: { workspace_id: params.workspaceId, balance_minor: 0 },
+        update: {},
+      });
+
       const balanceRecords = await tx.$queryRaw<any[]>`SELECT balance_minor FROM "workspace_balances" WHERE workspace_id = \${params.workspaceId} FOR UPDATE`;
-      
-      let currentBalance = 0;
-      if (balanceRecords.length > 0) {
-        currentBalance = balanceRecords[0].balance_minor;
-      }
+      const currentBalance = balanceRecords[0].balance_minor;
 
       if (currentBalance < params.amountMinor) {
         throw new BadRequestException('Insufficient funds.');

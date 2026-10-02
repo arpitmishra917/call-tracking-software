@@ -8,23 +8,22 @@ import {
   UseGuards,
   Headers,
   RawBodyRequest,
-  BadRequestException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { BillingService } from './billing.service.js';
 import { WalletService } from './wallet.service.js';
+import { MockPaymentProvider } from './mock-payment.provider.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 import type { Request } from 'express';
-import { randomUUID } from 'crypto';
 
 @Controller()
 export class BillingController {
   constructor(
     private readonly billingService: BillingService,
     private readonly walletService: WalletService,
+    private readonly mockPaymentProvider: MockPaymentProvider,
   ) {}
 
   @Get('workspaces/:workspaceId/billing')
@@ -61,26 +60,11 @@ export class BillingController {
   @UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async mockTopUp(@Param('workspaceId') workspaceId: string, @Body() body: any) {
-    if (
-      process.env.NODE_ENV === 'production' ||
-      process.env.WALLET_MOCK_PAYMENTS_ENABLED !== 'true'
-    ) {
-      throw new ForbiddenException('Mock payments are only allowed in development.');
-    }
-
-    const amountMinor = parseInt(body.amountMinor, 10);
-    if (isNaN(amountMinor) || amountMinor < 2500) {
-      throw new BadRequestException('Minimum mock top-up is $25.00 (2500 minor units).');
-    }
-
-    return this.walletService.creditWallet({
+    return this.mockPaymentProvider.createWalletTopUp(
       workspaceId,
-      amountMinor,
-      referenceType: 'MOCK_PAYMENT',
-      referenceId: randomUUID(),
-      idempotencyKey: body.idempotencyKey || randomUUID(),
-      description: 'Mock development payment top-up',
-    });
+      parseInt(body.amountMinor, 10),
+      body.returnUrl || '',
+    );
   }
 
   @Post('workspaces/:workspaceId/billing/checkout')

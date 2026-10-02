@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WalletService } from './wallet.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { TransactionType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -25,6 +25,7 @@ describe('WalletService', () => {
               findMany: vi.fn(),
             },
             workspaceBalance: {
+              upsert: vi.fn(),
               create: vi.fn(),
               update: vi.fn(),
             },
@@ -46,6 +47,7 @@ describe('WalletService', () => {
 
     it('2. credit positive amount & 3. balance updated & 4. ledger created & 5. balance_after correct & 6. workspace isolation', async () => {
       vi.spyOn(prisma.walletTransaction, 'findUnique').mockResolvedValue(null);
+      vi.spyOn(prisma.workspaceBalance, 'upsert').mockResolvedValue({} as any);
       vi.spyOn(prisma, '$queryRaw').mockResolvedValue([{ balance_minor: 1000 }]);
       vi.spyOn(prisma.walletTransaction, 'create').mockResolvedValue({ balance_after: 1500 } as any);
 
@@ -53,6 +55,7 @@ describe('WalletService', () => {
         workspaceId: 'ws-1', amountMinor: 500, referenceType: 'MOCK', referenceId: 'r1', idempotencyKey: 'k1'
       });
 
+      expect(prisma.workspaceBalance.upsert).toHaveBeenCalled();
       expect(prisma.$queryRaw).toHaveBeenCalled();
       expect(prisma.walletTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({
@@ -69,8 +72,8 @@ describe('WalletService', () => {
       }));
     });
 
-    it('7. duplicate idempotency key & 8. concurrent duplicate credit', async () => {
-      const existing = { id: 'tx-1' } as any;
+    it('7. duplicate idempotency key exact match returns existing', async () => {
+      const existing = { id: 'tx-1', amount_minor: 500, workspace_id: 'ws-1', type: TransactionType.CREDIT } as any;
       vi.spyOn(prisma.walletTransaction, 'findUnique').mockResolvedValue(existing);
       
       const res = await service.creditWallet({
@@ -79,6 +82,15 @@ describe('WalletService', () => {
 
       expect(res).toBe(existing);
       expect(prisma.walletTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('idempotency key mismatch throws ConflictException', async () => {
+      const existing = { id: 'tx-1', amount_minor: 2500, workspace_id: 'ws-1', type: TransactionType.CREDIT } as any;
+      vi.spyOn(prisma.walletTransaction, 'findUnique').mockResolvedValue(existing);
+      
+      await expect(service.creditWallet({
+        workspaceId: 'ws-1', amountMinor: 10000, referenceType: 'MOCK', referenceId: 'r1', idempotencyKey: 'k1'
+      })).rejects.toThrow(ConflictException);
     });
   });
 
@@ -91,6 +103,7 @@ describe('WalletService', () => {
 
     it('10. successful debit & 13. ledger created & 14. balance_after correct', async () => {
       vi.spyOn(prisma.walletTransaction, 'findUnique').mockResolvedValue(null);
+      vi.spyOn(prisma.workspaceBalance, 'upsert').mockResolvedValue({} as any);
       vi.spyOn(prisma, '$queryRaw').mockResolvedValue([{ balance_minor: 5000 }]);
       
       await service.debitWallet({
@@ -110,8 +123,9 @@ describe('WalletService', () => {
       }));
     });
 
-    it('11. insufficient balance rejected & 12. balance unchanged on failed debit & 16. concurrent debit cannot overspend wallet', async () => {
+    it('11. insufficient balance rejected', async () => {
       vi.spyOn(prisma.walletTransaction, 'findUnique').mockResolvedValue(null);
+      vi.spyOn(prisma.workspaceBalance, 'upsert').mockResolvedValue({} as any);
       vi.spyOn(prisma, '$queryRaw').mockResolvedValue([{ balance_minor: 500 }]);
       
       await expect(service.debitWallet({
@@ -122,8 +136,8 @@ describe('WalletService', () => {
       expect(prisma.workspaceBalance.update).not.toHaveBeenCalled();
     });
 
-    it('15. duplicate idempotency key', async () => {
-      vi.spyOn(prisma.walletTransaction, 'findUnique').mockResolvedValue({ id: 'tx-2' } as any);
+    it('15. duplicate idempotency key exact match', async () => {
+      vi.spyOn(prisma.walletTransaction, 'findUnique').mockResolvedValue({ id: 'tx-2', amount_minor: 1000, workspace_id: 'ws-1', type: TransactionType.DEBIT } as any);
       await service.debitWallet({
         workspaceId: 'ws-1', amountMinor: 1000, referenceType: 'CALL', referenceId: 'c1', idempotencyKey: 'k4'
       });
@@ -132,7 +146,7 @@ describe('WalletService', () => {
   });
 
   describe('TRANSACTION HISTORY', () => {
-    it('23. correct workspace data & 24. no cross-workspace leakage', async () => {
+    it('23. correct workspace data', async () => {
       await service.getTransactions('ws-1');
       expect(prisma.walletTransaction.findMany).toHaveBeenCalledWith(expect.objectContaining({
         where: { workspace_id: 'ws-1' }
