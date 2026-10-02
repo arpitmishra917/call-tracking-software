@@ -494,9 +494,11 @@ model WalletTransaction {
   id              String          @id @default(uuid())
   workspace_id    String
   amount_minor    Int
+  amount_micro    BigInt
   currency        String          @default("USD")
   type            TransactionType @default(CREDIT)
   balance_after   Int
+  balance_after_micro BigInt
   reference_type  String
   reference_id    String
   idempotency_key String          @unique

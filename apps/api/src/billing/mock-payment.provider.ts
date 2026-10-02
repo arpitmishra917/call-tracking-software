@@ -23,9 +23,12 @@ export class MockPaymentProvider implements PaymentProvider {
     const idempotencyKey = randomUUID();
 
     // Directly credit the wallet as this is a mock implementation
+    // External API boundaries remain in cents (amountMinor). Internal is BigInt (amountMicro)
+    const amountMicro = BigInt(amountMinor) * 10000n;
+
     await this.walletService.creditWallet({
       workspaceId,
-      amountMinor,
+      amountMicro,
       referenceType: 'MOCK_PAYMENT',
       referenceId,
       idempotencyKey,

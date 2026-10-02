@@ -2,9 +2,9 @@ import { Injectable, BadRequestException, ConflictException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service.js';
 import { TransactionType } from '@prisma/client';
 
-export interface WalletTransactionDto {
+export interface WalletTransactionMicroDto {
   workspaceId: string;
-  amountMinor: number;
+  amountMicro: bigint;
   referenceType: string;
   referenceId: string;
   idempotencyKey: string;
@@ -15,8 +15,8 @@ export interface WalletTransactionDto {
 export class WalletService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async creditWallet(params: WalletTransactionDto) {
-    if (params.amountMinor <= 0) {
+  async creditWallet(params: WalletTransactionMicroDto) {
+    if (params.amountMicro <= 0n) {
       throw new BadRequestException('Credit amount must be greater than zero.');
     }
 
@@ -26,7 +26,7 @@ export class WalletService {
       });
       if (existingTx) {
         if (
-          existingTx.amount_minor !== params.amountMinor ||
+          existingTx.amount_micro !== params.amountMicro ||
           existingTx.workspace_id !== params.workspaceId ||
           existingTx.type !== TransactionType.CREDIT
         ) {
@@ -35,25 +35,30 @@ export class WalletService {
         return existingTx;
       }
 
-      // Ensure balance row exists to prevent race conditions on INSERT
       await tx.workspaceBalance.upsert({
         where: { workspace_id: params.workspaceId },
-        create: { workspace_id: params.workspaceId, balance_minor: 0 },
+        create: { 
+          workspace_id: params.workspaceId, 
+          balance_minor: 0, 
+          balance_micro: 0n 
+        },
         update: {},
       });
 
-      // Strongly serialize the wallet state across concurrent requests
-      const balanceRecords = await tx.$queryRaw<any[]>`SELECT balance_minor FROM "workspace_balances" WHERE workspace_id = \${params.workspaceId} FOR UPDATE`;
-      const currentBalance = balanceRecords[0].balance_minor;
+      const balanceRecords = await tx.$queryRaw<any[]>`SELECT balance_micro FROM "workspace_balances" WHERE workspace_id = \${params.workspaceId} FOR UPDATE`;
+      const currentBalanceMicro = BigInt(balanceRecords[0].balance_micro);
 
-      const newBalance = currentBalance + params.amountMinor;
+      const newBalanceMicro = currentBalanceMicro + params.amountMicro;
+      const newBalanceMinor = Number(newBalanceMicro / 10000n);
 
       const transaction = await tx.walletTransaction.create({
         data: {
           workspace_id: params.workspaceId,
-          amount_minor: params.amountMinor,
+          amount_minor: Number(params.amountMicro / 10000n), // Keep legacy populated safely
+          amount_micro: params.amountMicro,
           type: TransactionType.CREDIT,
-          balance_after: newBalance,
+          balance_after: newBalanceMinor,
+          balance_after_micro: newBalanceMicro,
           reference_type: params.referenceType,
           reference_id: params.referenceId,
           idempotency_key: params.idempotencyKey,
@@ -63,15 +68,18 @@ export class WalletService {
 
       await tx.workspaceBalance.update({
         where: { workspace_id: params.workspaceId },
-        data: { balance_minor: newBalance },
+        data: { 
+          balance_minor: newBalanceMinor,
+          balance_micro: newBalanceMicro
+        },
       });
 
       return transaction;
     });
   }
 
-  async debitWallet(params: WalletTransactionDto) {
-    if (params.amountMinor <= 0) {
+  async debitWallet(params: WalletTransactionMicroDto) {
+    if (params.amountMicro <= 0n) {
       throw new BadRequestException('Debit amount must be greater than zero.');
     }
 
@@ -81,7 +89,7 @@ export class WalletService {
       });
       if (existingTx) {
         if (
-          existingTx.amount_minor !== params.amountMinor ||
+          existingTx.amount_micro !== params.amountMicro ||
           existingTx.workspace_id !== params.workspaceId ||
           existingTx.type !== TransactionType.DEBIT
         ) {
@@ -92,25 +100,32 @@ export class WalletService {
 
       await tx.workspaceBalance.upsert({
         where: { workspace_id: params.workspaceId },
-        create: { workspace_id: params.workspaceId, balance_minor: 0 },
+        create: { 
+          workspace_id: params.workspaceId, 
+          balance_minor: 0, 
+          balance_micro: 0n 
+        },
         update: {},
       });
 
-      const balanceRecords = await tx.$queryRaw<any[]>`SELECT balance_minor FROM "workspace_balances" WHERE workspace_id = \${params.workspaceId} FOR UPDATE`;
-      const currentBalance = balanceRecords[0].balance_minor;
+      const balanceRecords = await tx.$queryRaw<any[]>`SELECT balance_micro FROM "workspace_balances" WHERE workspace_id = \${params.workspaceId} FOR UPDATE`;
+      const currentBalanceMicro = BigInt(balanceRecords[0].balance_micro);
 
-      if (currentBalance < params.amountMinor) {
+      if (currentBalanceMicro < params.amountMicro) {
         throw new BadRequestException('Insufficient funds.');
       }
 
-      const newBalance = currentBalance - params.amountMinor;
+      const newBalanceMicro = currentBalanceMicro - params.amountMicro;
+      const newBalanceMinor = Number(newBalanceMicro / 10000n);
 
       const transaction = await tx.walletTransaction.create({
         data: {
           workspace_id: params.workspaceId,
-          amount_minor: params.amountMinor,
+          amount_minor: Number(params.amountMicro / 10000n),
+          amount_micro: params.amountMicro,
           type: TransactionType.DEBIT,
-          balance_after: newBalance,
+          balance_after: newBalanceMinor,
+          balance_after_micro: newBalanceMicro,
           reference_type: params.referenceType,
           reference_id: params.referenceId,
           idempotency_key: params.idempotencyKey,
@@ -120,7 +135,10 @@ export class WalletService {
 
       await tx.workspaceBalance.update({
         where: { workspace_id: params.workspaceId },
-        data: { balance_minor: newBalance },
+        data: { 
+          balance_minor: newBalanceMinor,
+          balance_micro: newBalanceMicro 
+        },
       });
 
       return transaction;
@@ -128,11 +146,16 @@ export class WalletService {
   }
 
   async getTransactions(workspaceId: string, limit = 50, offset = 0) {
-    return this.prisma.walletTransaction.findMany({
+    const txs = await this.prisma.walletTransaction.findMany({
       where: { workspace_id: workspaceId },
       orderBy: { created_at: 'desc' },
       take: limit,
       skip: offset,
     });
+    return txs.map(tx => ({
+      ...tx,
+      amount_micro: tx.amount_micro ? tx.amount_micro.toString() : '0',
+      balance_after_micro: tx.balance_after_micro ? tx.balance_after_micro.toString() : '0'
+    }));
   }
 }
