@@ -62,6 +62,10 @@ export default function PhoneNumbersPage() {
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
 
+  // Unassign Modal State
+  const [unassignModalOpen, setUnassignModalOpen] = useState(false);
+  const [isUnassigning, setIsUnassigning] = useState(false);
+
   const [searchPrefix, setSearchPrefix] = useState('');
   const [searchType, setSearchType] = useState('local');
 
@@ -166,6 +170,30 @@ export default function PhoneNumbersPage() {
     setSelectedPhone(phone);
     setSelectedCampaignId(phone.campaign_id || '');
     setAssignModalOpen(true);
+  }
+
+  function openUnassignModal(phone: PhoneNumber) {
+    setSelectedPhone(phone);
+    setUnassignModalOpen(true);
+  }
+
+  async function handleUnassign() {
+    if (!workspaceId || !selectedPhone || !selectedPhone.campaign_id) return;
+    setIsUnassigning(true);
+    setError(null);
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/campaigns/${selectedPhone.campaign_id}/phone-numbers/${selectedPhone.id}`, {
+        method: 'DELETE',
+      });
+      setSuccess('Phone number unassigned successfully.');
+      setUnassignModalOpen(false);
+      setSelectedPhone(null);
+      await loadPhoneNumbers(workspaceId);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsUnassigning(false);
+    }
   }
 
 
@@ -282,7 +310,16 @@ export default function PhoneNumbersPage() {
                               onClick={() => openAssignModal(num)}
                             >
                               {num.campaign ? 'Change' : 'Assign'}
-                            </Button>
+                              </Button>
+                              {num.campaign && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openUnassignModal(num)}
+                                >
+                                  Unassign
+                                </Button>
+                              )}
                             <Button
                               variant="destructive"
                               size="sm"
@@ -418,6 +455,39 @@ export default function PhoneNumbersPage() {
                 </Button>
               </CardFooter>
             </form>
+          </Card>
+        </div>
+      )}
+      {unassignModalOpen && selectedPhone && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md shadow-lg">
+            <CardHeader>
+              <CardTitle>Unassign Phone Number</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Are you sure you want to unassign <strong>{selectedPhone.phone_number}</strong>? 
+                It will no longer route inbound calls to the campaign&apos;s buyers.
+                <br /><br />
+                The number will remain provisioned in your workspace and historical call data will be preserved.
+              </p>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setUnassignModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleUnassign}
+                isLoading={isUnassigning}
+              >
+                Unassign
+              </Button>
+            </CardFooter>
           </Card>
         </div>
       )}

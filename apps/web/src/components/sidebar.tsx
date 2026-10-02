@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useSearchParams, usePathname } from 'next/navigation';
 import { cn } from '@/utils/cn';
 import {
-  LayoutDashboard,
   PhoneCall,
   BarChart,
   Megaphone,
@@ -53,7 +52,6 @@ export default function Sidebar({
       
       <nav className="flex-1 px-4 py-6">
         <NavGroup title="Overview">
-          <NavItem href="/protected" icon={LayoutDashboard} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Dashboard</NavItem>
           <NavItem href="/protected/calls" icon={PhoneCall} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Calls</NavItem>
           <NavItem href="/protected/reporting" icon={BarChart} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Reporting</NavItem>
         </NavGroup>
