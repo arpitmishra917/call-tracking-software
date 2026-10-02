@@ -349,10 +349,10 @@ export class CallController {
 
     if (type === CallEventType.CALL_HANGUP) {
       // --- PHASE 3E: Clear Timer ---
-      const timer = this.activeCallTimers.get(callId);
+      const timer = this.activeCallTimers.get(call.id);
       if (timer) {
         clearTimeout(timer);
-        this.activeCallTimers.delete(callId);
+        this.activeCallTimers.delete(call.id);
       }
       // -----------------------------
       if (call.provider_call_id === callId) {

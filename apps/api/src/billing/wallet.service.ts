@@ -190,7 +190,9 @@ export class WalletService {
 
     return this.prisma.$transaction(async (tx) => {
       // 1. Verify Call belongs to Workspace
-      const call = await tx.call.findUnique({ where: { id: callId } });
+      const ws = await tx.workspace.findUnique({ where: { id: workspaceId } });
+        if (!ws || ws.status !== 'ACTIVE') throw new BadRequestException('Workspace must be ACTIVE.');
+        const call = await tx.call.findUnique({ where: { id: callId } });
       if (!call) throw new BadRequestException('Call not found.');
       if (call.workspace_id !== workspaceId)
         throw new BadRequestException('Cross-workspace access denied.');
@@ -306,6 +308,8 @@ export class WalletService {
 
     return this.prisma.$transaction(async (tx) => {
       // 1. Verify Call belongs to Workspace
+      const ws = await tx.workspace.findUnique({ where: { id: workspaceId } });
+      if (!ws || ws.status !== 'ACTIVE') throw new BadRequestException('Workspace must be ACTIVE.');
       const call = await tx.call.findUnique({ where: { id: callId } });
       if (!call) {
         throw new BadRequestException('Call not found.');
