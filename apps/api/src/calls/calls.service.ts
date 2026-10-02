@@ -350,6 +350,15 @@ export class CallsService {
 
       if (!call || !attempt) return { action: 'NONE' };
 
+      if (
+        attempt.state === CallAttemptState.COMPLETED ||
+        attempt.state === CallAttemptState.NO_ANSWER ||
+        attempt.state === CallAttemptState.FAILED ||
+        attempt.state === CallAttemptState.CANCELED
+      ) {
+        return { action: 'NONE' };
+      }
+
       if (call.state === CallState.COMPLETED && attempt.state === CallAttemptState.ANSWERED) {
         await tx.callAttempt.update({
           where: { id: attemptId },
@@ -767,9 +776,10 @@ export class CallsService {
       });
 
       if (!campaign || campaign.status !== 'ACTIVE' || campaign.buyers.length === 0) {
+        const hasAttempts = call.attempts && call.attempts.length > 0;
         const updatedCall = await tx.call.update({
           where: { id: callId },
-          data: { state: CallState.FAILED },
+          data: { state: hasAttempts ? CallState.NO_ANSWER : CallState.FAILED },
         });
         return { action: 'HANGUP', call: updatedCall };
       }

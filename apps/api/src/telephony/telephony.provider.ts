@@ -1,3 +1,5 @@
+export type ProviderCallStatus = 'ACTIVE' | 'TERMINAL' | 'NOT_FOUND' | 'UNKNOWN';
+
 export interface TelephonyProvider {
   /**
    * Answer an incoming call.
@@ -34,4 +36,9 @@ export interface TelephonyProvider {
    * Get a temporary authorized download URL for a recording.
    */
   getRecordingUrl(recordingId: string): Promise<string>;
+
+  /**
+   * Get the current live status of a call from the provider.
+   */
+  getCallStatus(callId: string): Promise<ProviderCallStatus>;
 }

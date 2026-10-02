@@ -63,6 +63,17 @@ export class FakeTelephonyProvider implements TelephonyProvider {
     return `https://fake.recording.url/${recordingId}.mp3`;
   }
 
+  // --- Fake Provider specific methods for testing ---
+  private mockedStatuses = new Map<string, 'ACTIVE' | 'TERMINAL' | 'NOT_FOUND' | 'UNKNOWN'>();
+  
+  mockCallStatus(callId: string, status: 'ACTIVE' | 'TERMINAL' | 'NOT_FOUND' | 'UNKNOWN') {
+    this.mockedStatuses.set(callId, status);
+  }
+
+  async getCallStatus(callId: string): Promise<'ACTIVE' | 'TERMINAL' | 'NOT_FOUND' | 'UNKNOWN'> {
+    return this.mockedStatuses.get(callId) || 'UNKNOWN';
+  }
+
   getActions(): FakeProviderAction[] {
     return this.actions;
   }
@@ -70,5 +81,6 @@ export class FakeTelephonyProvider implements TelephonyProvider {
   clearActions(): void {
     this.actions = [];
     this.nextBuyerCallId = 1;
+    this.mockedStatuses.clear();
   }
 }

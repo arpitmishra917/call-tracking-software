@@ -135,6 +135,52 @@ describe('Telnyx Adapter', () => {
     });
   });
 
+  describe('getCallStatus', () => {
+    let activeProvider: TelnyxProvider;
+    let mockRetrieveStatus: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      process.env.TELNYX_API_KEY = 'fake-api-key';
+      activeProvider = new TelnyxProvider();
+      mockRetrieveStatus = vi.fn();
+      (activeProvider as any).telnyxClient = {
+        calls: {
+          retrieveStatus: mockRetrieveStatus,
+        },
+      };
+    });
+
+    it('A. should map active states to ProviderCallStatus.ACTIVE', async () => {
+      mockRetrieveStatus.mockResolvedValue({
+        data: { call_state: 'active' },
+      });
+      const status = await activeProvider.getCallStatus('call-123');
+      expect(status).toBe('ACTIVE');
+    });
+
+    it('B. should map terminal states to ProviderCallStatus.TERMINAL', async () => {
+      mockRetrieveStatus.mockResolvedValue({
+        data: { call_state: 'hangup' },
+      });
+      const status = await activeProvider.getCallStatus('call-123');
+      expect(status).toBe('TERMINAL');
+    });
+
+    it('C. should map 404 to ProviderCallStatus.NOT_FOUND', async () => {
+      mockRetrieveStatus.mockRejectedValue({
+        raw: { status: 404 },
+      });
+      const status = await activeProvider.getCallStatus('call-123');
+      expect(status).toBe('NOT_FOUND');
+    });
+
+    it('D. should map other SDK/network errors to ProviderCallStatus.UNKNOWN', async () => {
+      mockRetrieveStatus.mockRejectedValue(new Error('Network error'));
+      const status = await activeProvider.getCallStatus('call-123');
+      expect(status).toBe('UNKNOWN');
+    });
+  });
+
   describe('TelnyxWebhookController', () => {
     it('should reject missing headers', async () => {
       const mockReq = {

@@ -2,7 +2,8 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, forwardRef }
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WalletService } from '../billing/wallet.service.js';
 import { UsageBillingService } from '../billing/usage-billing.service.js';
-import { TelephonyProvider, ProviderCallStatus } from './telephony.provider.js';
+import type { TelephonyProvider } from './telephony.provider.js';
+import { ProviderCallStatus } from './telephony.provider.js';
 import { TELEPHONY_PROVIDER } from './call-controller.js';
 
 @Injectable()

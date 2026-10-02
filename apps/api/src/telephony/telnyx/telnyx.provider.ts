@@ -143,4 +143,34 @@ export class TelnyxProvider implements TelephonyProvider {
       throw new Error(`Telnyx getRecordingUrl failed: ${error.message}`);
     }
   }
+
+  async getCallStatus(callId: string): Promise<'ACTIVE' | 'TERMINAL' | 'NOT_FOUND' | 'UNKNOWN'> {
+    if (!this.telnyxClient) {
+      return 'UNKNOWN'; // Mock mode defaults to unknown to force reconciliation retry
+    }
+    try {
+      // Telnyx `Call Control` API to retrieve call state
+      const call = (await this.telnyxClient.calls.retrieveStatus(callId)) as any;
+      const status = call?.data?.call_state;
+      if (!status) return 'UNKNOWN';
+
+      const activeStates = ['bridged', 'active', 'ringing', 'answering', 'answered', 'initializing', 'dialing'];
+      if (activeStates.includes(status)) {
+        return 'ACTIVE';
+      }
+      
+      const terminalStates = ['hangup', 'completed', 'done'];
+      if (terminalStates.includes(status)) {
+        return 'TERMINAL';
+      }
+
+      return 'UNKNOWN';
+    } catch (error: any) {
+      if (error?.raw?.status === 404 || error?.message?.includes('404')) {
+        return 'NOT_FOUND';
+      }
+      this.logger.error(`Failed to get status for call ${callId}: ${error.message}`);
+      return 'UNKNOWN';
+    }
+  }
 }

@@ -153,4 +153,29 @@ export class TwilioProvider implements TelephonyProvider {
     // Or we can just throw not implemented for now since this MVP is Telnyx
     throw new Error('Twilio getRecordingUrl not fully implemented in MVP1');
   }
+
+  async getCallStatus(callId: string): Promise<'ACTIVE' | 'TERMINAL' | 'NOT_FOUND' | 'UNKNOWN'> {
+    if (!this.client) {
+      return 'UNKNOWN';
+    }
+    try {
+      const call = await this.client.calls(callId).fetch();
+      const status = call.status;
+      if (!status) return 'UNKNOWN';
+
+      const activeStates = ['queued', 'ringing', 'in-progress'];
+      if (activeStates.includes(status)) return 'ACTIVE';
+
+      const terminalStates = ['completed', 'busy', 'failed', 'no-answer', 'canceled'];
+      if (terminalStates.includes(status)) return 'TERMINAL';
+
+      return 'UNKNOWN';
+    } catch (error: any) {
+      if (error?.status === 404) {
+        return 'NOT_FOUND';
+      }
+      this.logger.error(`Failed to get status for Twilio call ${callId}: ${error.message}`);
+      return 'UNKNOWN';
+    }
+  }
 }

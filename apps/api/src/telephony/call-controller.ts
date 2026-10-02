@@ -160,7 +160,8 @@ export class CallController {
 
       if (
         trackingNumber.workspace.status !== 'ACTIVE' ||
-        (trackingNumber.campaign && trackingNumber.campaign.status !== 'ACTIVE')
+        !trackingNumber.campaign ||
+        trackingNumber.campaign.status !== 'ACTIVE'
       ) {
         this.logger.warn(
           `Call to ${to} rejected because workspace ${trackingNumber.workspace_id} is ${trackingNumber.workspace.status}`,
