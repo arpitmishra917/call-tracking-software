@@ -8,6 +8,7 @@ import { TwilioWebhookController } from './twilio/twilio.webhook.controller.js';
 import { WebhookIdempotencyService } from './webhook-idempotency.service.js';
 import { CallsModule } from '../calls/calls.module.js';
 import { RecordingsController } from './recordings.controller.js';
+import { ReservationRecoveryService } from './reservation-recovery.service.js';
 
 import { AuthModule } from '../auth/auth.module.js';
 import { AuthorizationModule } from '../authorization/authorization.module.js';
@@ -42,6 +43,7 @@ import { BillingModule } from '../billing/billing.module.js';
       inject: [TelnyxProvider, TwilioProvider],
     },
     CallController,
+    ReservationRecoveryService,
   ],
   controllers: [
     TelnyxWebhookController,
