@@ -19,12 +19,12 @@ model Profile {
 }
 
 model Workspace {
-  id                String            @id @default(uuid())
+  id                String                @id @default(uuid())
   name              String
-  slug              String            @unique
-  status            String            @default("ACTIVE")
-  created_at        DateTime          @default(now())
-  updated_at        DateTime          @updatedAt
+  slug              String                @unique
+  status            String                @default("ACTIVE")
+  created_at        DateTime              @default(now())
+  updated_at        DateTime              @updatedAt
   members           WorkspaceMember[]
   phone_numbers     PhoneNumber[]
   campaigns         Campaign[]
@@ -40,10 +40,11 @@ model Workspace {
   api_keys          ApiKey[]
   outbound_webhooks OutboundWebhook[]
   invitations       WorkspaceInvitation[]
-
-  @@map("workspaces")
   balance           WorkspaceBalance?
   wallet_txs        WalletTransaction[]
+  callReservations  CallReservation[]
+
+  @@map("workspaces")
 }
 
 enum InvitationStatus {
@@ -63,9 +64,9 @@ model WorkspaceInvitation {
   expires_at   DateTime
   created_at   DateTime         @default(now())
   updated_at   DateTime         @updatedAt
-  created_by   String?          // The user_id who created the invitation
+  created_by   String? // The user_id who created the invitation
 
-  workspace    Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
 
   @@index([workspace_id])
   @@index([email])
@@ -248,10 +249,11 @@ model Call {
   created_at       DateTime  @default(now())
   updated_at       DateTime  @updatedAt
 
-  workspace  Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  campaign   Campaign?     @relation(fields: [campaign_id], references: [id], onDelete: SetNull)
-  attempts   CallAttempt[]
-  recordings Recording[]
+  workspace       Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  campaign        Campaign?        @relation(fields: [campaign_id], references: [id], onDelete: SetNull)
+  attempts        CallAttempt[]
+  recordings      Recording[]
+  callReservation CallReservation?
 
   @@index([workspace_id])
   @@index([campaign_id])
@@ -471,43 +473,69 @@ model WebhookDelivery {
   updated_at          DateTime        @updatedAt
   outbound_webhook    OutboundWebhook @relation(fields: [outbound_webhook_id], references: [id], onDelete: Cascade)
 
+  @@unique([outbound_webhook_id, event_id])
   @@index([outbound_webhook_id])
   @@index([status, next_attempt_at])
-  @@unique([outbound_webhook_id, event_id])
   @@map("webhook_deliveries")
 }
 
-
 model WorkspaceBalance {
-  workspace_id    String   @id
-  balance_minor   Int      @default(0)
-  balance_micro   BigInt   @default(0)
-  currency        String   @default("USD")
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  workspace_id   String   @id
+  balance_minor  Int      @default(0)
+  balance_micro  BigInt   @default(0)
+  reserved_micro BigInt   @default(0)
+  currency       String   @default("USD")
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
 
-  workspace       Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
 
   @@map("workspace_balances")
 }
 
 model WalletTransaction {
-  id              String          @id @default(uuid())
-  workspace_id    String
-  amount_minor    Int
-  amount_micro    BigInt
-  currency        String          @default("USD")
-  type            TransactionType @default(CREDIT)
-  balance_after   Int
+  id                  String          @id @default(uuid())
+  workspace_id        String
+  amount_minor        Int
+  amount_micro        BigInt
+  currency            String          @default("USD")
+  type                TransactionType @default(CREDIT)
+  balance_after       Int
   balance_after_micro BigInt
-  reference_type  String
-  reference_id    String
-  idempotency_key String          @unique
-  description     String?
-  created_at      DateTime        @default(now())
+  reference_type      String
+  reference_id        String
+  idempotency_key     String          @unique
+  description         String?
+  created_at          DateTime        @default(now())
 
-  workspace       Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
 
   @@index([workspace_id])
   @@map("wallet_transactions")
+}
+
+enum ReservationStatus {
+  ACTIVE
+  SETTLED
+  RELEASED
+  EXPIRED
+}
+
+model CallReservation {
+  id                      String            @id @default(uuid())
+  call_id                 String            @unique
+  workspace_id            String
+  status                  ReservationStatus @default(ACTIVE)
+  original_reserved_micro BigInt
+  total_reserved_micro    BigInt
+  expires_at              DateTime?
+  created_at              DateTime          @default(now())
+  updated_at              DateTime          @updatedAt
+
+  call      Call      @relation(fields: [call_id], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id, status])
+  @@index([status, expires_at])
+  @@map("call_reservations")
 }
