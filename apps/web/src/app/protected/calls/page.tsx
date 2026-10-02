@@ -259,7 +259,7 @@ export default function CallsPage() {
                 <option value="COMPLETED">Completed</option>
                 <option value="NO_ANSWER">No Answer</option>
                 <option value="FAILED">Failed</option>
-                <option value="BLOCKED">Blocked</option>
+                
               </select>
             </div>
             

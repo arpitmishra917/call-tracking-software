@@ -451,6 +451,9 @@ export class CallsService {
       };
     }
     if (filters.status) {
+      if (!Object.values(CallState).includes(filters.status as CallState)) {
+        throw new BadRequestException(`Invalid status: ${filters.status}`);
+      }
       where.state = filters.status;
     }
     if (filters.callerNumber) {
