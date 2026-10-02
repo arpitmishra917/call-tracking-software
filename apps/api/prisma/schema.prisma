@@ -19,30 +19,31 @@ model Profile {
 }
 
 model Workspace {
-  id                String                @id @default(uuid())
-  name              String
-  slug              String                @unique
-  status            String                @default("ACTIVE")
-  created_at        DateTime              @default(now())
-  updated_at        DateTime              @updatedAt
-  members           WorkspaceMember[]
-  phone_numbers     PhoneNumber[]
-  campaigns         Campaign[]
-  buyers            Buyer[]
-  campaign_buyers   CampaignBuyer[]
-  blocked_callers   BlockedCaller[]
-  calls             Call[]
-  recordings        Recording[]
-  usage_records     UsageRecord[]
-  billing_customer  BillingCustomer?
-  subscription      Subscription?
-  invoices          Invoice[]
-  api_keys          ApiKey[]
-  outbound_webhooks OutboundWebhook[]
-  invitations       WorkspaceInvitation[]
-  balance           WorkspaceBalance?
-  wallet_txs        WalletTransaction[]
-  callReservations  CallReservation[]
+  id                        String                     @id @default(uuid())
+  name                      String
+  slug                      String                     @unique
+  status                    String                     @default("ACTIVE")
+  created_at                DateTime                   @default(now())
+  updated_at                DateTime                   @updatedAt
+  members                   WorkspaceMember[]
+  phone_numbers             PhoneNumber[]
+  campaigns                 Campaign[]
+  buyers                    Buyer[]
+  campaign_buyers           CampaignBuyer[]
+  blocked_callers           BlockedCaller[]
+  calls                     Call[]
+  recordings                Recording[]
+  usage_records             UsageRecord[]
+  billing_customer          BillingCustomer?
+  subscription              Subscription?
+  invoices                  Invoice[]
+  api_keys                  ApiKey[]
+  outbound_webhooks         OutboundWebhook[]
+  invitations               WorkspaceInvitation[]
+  balance                   WorkspaceBalance?
+  wallet_txs                WalletTransaction[]
+  callReservations          CallReservation[]
+  callReservationExtensions CallReservationExtension[]
 
   @@map("workspaces")
 }
@@ -249,11 +250,12 @@ model Call {
   created_at       DateTime  @default(now())
   updated_at       DateTime  @updatedAt
 
-  workspace       Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  campaign        Campaign?        @relation(fields: [campaign_id], references: [id], onDelete: SetNull)
-  attempts        CallAttempt[]
-  recordings      Recording[]
-  callReservation CallReservation?
+  workspace                 Workspace                  @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  campaign                  Campaign?                  @relation(fields: [campaign_id], references: [id], onDelete: SetNull)
+  attempts                  CallAttempt[]
+  recordings                Recording[]
+  callReservation           CallReservation?
+  callReservationExtensions CallReservationExtension[]
 
   @@index([workspace_id])
   @@index([campaign_id])
@@ -532,10 +534,30 @@ model CallReservation {
   created_at              DateTime          @default(now())
   updated_at              DateTime          @updatedAt
 
-  call      Call      @relation(fields: [call_id], references: [id], onDelete: Cascade)
-  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  call                      Call                       @relation(fields: [call_id], references: [id], onDelete: Cascade)
+  workspace                 Workspace                  @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  callReservationExtensions CallReservationExtension[]
 
   @@index([workspace_id, status])
   @@index([status, expires_at])
   @@map("call_reservations")
+}
+
+model CallReservationExtension {
+  id              String   @id @default(uuid())
+  reservation_id  String
+  call_id         String
+  workspace_id    String
+  extension_index Int
+  idempotency_key String   @unique
+  amount_micro    BigInt
+  created_at      DateTime @default(now())
+
+  reservation CallReservation @relation(fields: [reservation_id], references: [id], onDelete: Cascade)
+  call        Call            @relation(fields: [call_id], references: [id], onDelete: Cascade)
+  workspace   Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@index([reservation_id])
+  @@index([call_id])
+  @@map("call_reservation_extensions")
 }
