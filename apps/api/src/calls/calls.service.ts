@@ -558,150 +558,200 @@ export class CallsService {
 
   async getMetrics(
     workspaceId: string,
-    filters: { startDate?: string; endDate?: string },
+    filters: { 
+      startDate?: string; 
+      endDate?: string;
+      campaignId?: string;
+      buyerId?: string;
+      trackingNumber?: string;
+      callerNumber?: string;
+      status?: string;
+      minDuration?: string;
+      maxDuration?: string;
+      bucket?: string;
+    },
   ) {
-    const where: any = { workspace_id: workspaceId };
-    if (filters.startDate || filters.endDate) {
-      where.created_at = {};
-      if (filters.startDate) where.created_at.gte = new Date(filters.startDate);
-      if (filters.endDate) where.created_at.lte = new Date(filters.endDate);
+    const conditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
+    if (filters.startDate) conditions.push(Prisma.sql`c.created_at >= ${new Date(filters.startDate)}`);
+    if (filters.endDate) conditions.push(Prisma.sql`c.created_at <= ${new Date(filters.endDate)}`);
+    if (filters.campaignId) conditions.push(Prisma.sql`c.campaign_id = ${filters.campaignId}`);
+    if (filters.trackingNumber) conditions.push(Prisma.sql`c.to_number = ${filters.trackingNumber}`);
+    if (filters.callerNumber) conditions.push(Prisma.sql`c.from_number = ${filters.callerNumber}`);
+    if (filters.status) conditions.push(Prisma.sql`c.state = ${filters.status}::"CallState"`);
+    if (filters.minDuration) conditions.push(Prisma.sql`c.duration_secs >= ${Number(filters.minDuration)}`);
+    if (filters.maxDuration) conditions.push(Prisma.sql`c.duration_secs <= ${Number(filters.maxDuration)}`);
+    
+    if (filters.buyerId) {
+      conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_attempts ca WHERE ca.call_id = c.id AND ca.buyer_id = ${filters.buyerId})`);
     }
 
-    const calls = await this.prisma.call.findMany({
-      where,
-      select: {
-        state: true,
-        duration_secs: true,
-        campaign_id: true,
-        started_at: true,
-        ended_at: true,
-      },
-    });
+    const whereClause = Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`;
 
-    const attempts = await this.prisma.callAttempt.findMany({
-      where: {
-        call: { workspace_id: workspaceId, ...where },
-      },
-      select: {
-        state: true,
-        buyer_id: true,
-        started_at: true,
-        ended_at: true,
-      },
-    });
+    const mainQuery = Prisma.sql`
+      SELECT 
+        COUNT(*)::int as total,
+        SUM(CASE WHEN c.state = 'COMPLETED' THEN 1 ELSE 0 END)::int as answered,
+        SUM(CASE WHEN c.state IN ('NO_ANSWER', 'CANCELED') THEN 1 ELSE 0 END)::int as missed,
+        SUM(CASE WHEN c.state = 'FAILED' THEN 1 ELSE 0 END)::int as failed,
+        SUM(CASE WHEN c.state = 'FAILED' THEN 1 ELSE 0 END)::int as blocked,
+        SUM(c.duration_secs)::int as total_duration,
+        SUM(CASE WHEN c.answered_at IS NOT NULL AND c.ended_at IS NOT NULL 
+                 THEN EXTRACT(EPOCH FROM (c.ended_at - c.answered_at)) ELSE 0 END)::int as talk_duration,
+        SUM(CASE WHEN c.ended_at IS NOT NULL AND c.started_at IS NOT NULL 
+                 THEN EXTRACT(EPOCH FROM (c.ended_at - c.started_at)) ELSE 0 END)::int as tcl_secs,
+        SUM(CASE WHEN c.state = 'COMPLETED' AND c.ended_at IS NOT NULL AND c.started_at IS NOT NULL THEN 1 ELSE 0 END)::int as eligible_calls,
+        SUM(CASE WHEN c.state = 'COMPLETED' THEN c.duration_secs ELSE 0 END)::int as answered_duration
+      FROM calls c
+      ${whereClause}
+    `;
 
-    type MetricBreakdown = {
-      total: number;
-      answered: number;
-      aclSecs: number | null;
-      tclSecs: number | null;
-      _tcl: number;
-      _eligible: number;
+    const campaignQuery = Prisma.sql`
+      SELECT 
+        c.campaign_id,
+        camp.name as campaign_name,
+        COUNT(*)::int as total,
+        SUM(CASE WHEN c.state = 'COMPLETED' THEN 1 ELSE 0 END)::int as answered,
+        SUM(CASE WHEN c.ended_at IS NOT NULL AND c.started_at IS NOT NULL 
+                 THEN EXTRACT(EPOCH FROM (c.ended_at - c.started_at)) ELSE 0 END)::int as tcl_secs,
+        SUM(CASE WHEN c.state = 'COMPLETED' AND c.ended_at IS NOT NULL AND c.started_at IS NOT NULL THEN 1 ELSE 0 END)::int as eligible_calls
+      FROM calls c
+      LEFT JOIN campaigns camp ON camp.id = c.campaign_id
+      ${whereClause} AND c.campaign_id IS NOT NULL
+      GROUP BY c.campaign_id, camp.name
+    `;
+
+    const trackingQuery = Prisma.sql`
+      SELECT 
+        c.to_number as phone_number,
+        pn.id as tracking_number_id,
+        pn.name as tracking_number_name,
+        pn.number_type,
+        COUNT(*)::int as total,
+        SUM(CASE WHEN c.state = 'COMPLETED' THEN 1 ELSE 0 END)::int as answered
+      FROM calls c
+      LEFT JOIN phone_numbers pn ON pn.phone_number = c.to_number AND pn.workspace_id = c.workspace_id
+      ${whereClause}
+      GROUP BY c.to_number, pn.id, pn.name, pn.number_type
+    `;
+
+    const buyerConditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
+    if (filters.startDate) buyerConditions.push(Prisma.sql`c.created_at >= ${new Date(filters.startDate)}`);
+    if (filters.endDate) buyerConditions.push(Prisma.sql`c.created_at <= ${new Date(filters.endDate)}`);
+    if (filters.campaignId) buyerConditions.push(Prisma.sql`c.campaign_id = ${filters.campaignId}`);
+    if (filters.trackingNumber) buyerConditions.push(Prisma.sql`c.to_number = ${filters.trackingNumber}`);
+    if (filters.callerNumber) buyerConditions.push(Prisma.sql`c.from_number = ${filters.callerNumber}`);
+    if (filters.status) buyerConditions.push(Prisma.sql`c.state = ${filters.status}::"CallState"`);
+    if (filters.minDuration) buyerConditions.push(Prisma.sql`c.duration_secs >= ${Number(filters.minDuration)}`);
+    if (filters.maxDuration) buyerConditions.push(Prisma.sql`c.duration_secs <= ${Number(filters.maxDuration)}`);
+    if (filters.buyerId) buyerConditions.push(Prisma.sql`a.buyer_id = ${filters.buyerId}`);
+
+    const buyerWhere = Prisma.sql`WHERE ${Prisma.join(buyerConditions, ' AND ')} AND a.buyer_id IS NOT NULL`;
+
+    const buyerQuery = Prisma.sql`
+      SELECT 
+        a.buyer_id,
+        b.name as buyer_name,
+        COUNT(*)::int as total,
+        SUM(CASE WHEN a.state IN ('ANSWERED', 'COMPLETED') THEN 1 ELSE 0 END)::int as answered,
+        SUM(CASE WHEN a.ended_at IS NOT NULL AND a.started_at IS NOT NULL 
+                 THEN EXTRACT(EPOCH FROM (a.ended_at - a.started_at)) ELSE 0 END)::int as tcl_secs,
+        SUM(CASE WHEN a.ended_at IS NOT NULL AND a.started_at IS NOT NULL THEN 1 ELSE 0 END)::int as eligible_attempts
+      FROM call_attempts a
+      JOIN calls c ON c.id = a.call_id
+      LEFT JOIN buyers b ON b.id = a.buyer_id
+      ${buyerWhere}
+      GROUP BY a.buyer_id, b.name
+    `;
+
+    const [mainRes, campRes, buyerRes, trackingRes] = await Promise.all([
+      this.prisma.$queryRaw(mainQuery) as any,
+      this.prisma.$queryRaw(campaignQuery) as any,
+      this.prisma.$queryRaw(buyerQuery) as any,
+      this.prisma.$queryRaw(trackingQuery) as any,
+    ]);
+
+    const main = mainRes[0] || {
+      total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, 
+      total_duration: 0, talk_duration: 0, tcl_secs: 0, eligible_calls: 0, answered_duration: 0
     };
+
+    let buckets: any[] = [];
+    if (filters.bucket) {
+      const allowedBuckets = ['hour', 'day', 'week'];
+      const trunc = allowedBuckets.includes(filters.bucket) ? filters.bucket : 'day';
+      const tsQuery = Prisma.sql`
+        SELECT 
+          date_trunc(${trunc}, c.created_at) as bucket_time,
+          COUNT(*)::int as total,
+          SUM(CASE WHEN c.state = 'COMPLETED' THEN 1 ELSE 0 END)::int as answered,
+          SUM(CASE WHEN c.state IN ('NO_ANSWER', 'CANCELED') THEN 1 ELSE 0 END)::int as missed,
+          SUM(CASE WHEN c.state = 'FAILED' THEN 1 ELSE 0 END)::int as failed
+        FROM calls c
+        ${whereClause}
+        GROUP BY bucket_time
+        ORDER BY bucket_time ASC
+      `;
+      buckets = await this.prisma.$queryRaw(tsQuery) as any;
+    }
+
+    const campaigns: Record<string, any> = {};
+    for (const row of campRes) {
+      campaigns[row.campaign_id] = {
+        id: row.campaign_id,
+        name: row.campaign_name,
+        total: row.total || 0,
+        answered: row.answered || 0,
+        tclSecs: row.tcl_secs || 0,
+        aclSecs: row.eligible_calls > 0 ? Math.round(row.tcl_secs / row.eligible_calls) : null,
+      };
+    }
+
+    const buyers: Record<string, any> = {};
+    for (const row of buyerRes) {
+      buyers[row.buyer_id] = {
+        id: row.buyer_id,
+        name: row.buyer_name,
+        total: row.total || 0,
+        answered: row.answered || 0,
+        tclSecs: row.tcl_secs || 0,
+        aclSecs: row.eligible_attempts > 0 ? Math.round(row.tcl_secs / row.eligible_attempts) : null,
+      };
+    }
+    
+    const trackingNumbers: Record<string, any> = {};
+    for (const row of trackingRes) {
+      trackingNumbers[row.phone_number] = {
+        id: row.tracking_number_id,
+        phone_number: row.phone_number,
+        name: row.tracking_number_name,
+        number_type: row.number_type,
+        total: row.total || 0,
+        answered: row.answered || 0,
+      };
+    }
 
     const metrics = {
-      total: calls.length,
-      answered: calls.filter((c) => c.state === CallState.COMPLETED).length,
-      missed: calls.filter(
-        (c) =>
-          c.state === CallState.NO_ANSWER ||
-          c.state === CallState.FAILED ||
-          c.state === CallState.CANCELED,
-      ).length,
-      blocked: calls.filter((c) => c.state === CallState.FAILED).length,
-      avgDuration: 0,
-      tclSecs: null as number | null,
-      aclSecs: null as number | null,
-      campaigns: {} as Record<string, MetricBreakdown>,
-      buyers: {} as Record<string, MetricBreakdown>,
+      total: main.total || 0,
+      answered: main.answered || 0,
+      missed: main.missed || 0,
+      failed: main.failed || 0,
+      blocked: main.blocked || 0,
+      avgDuration: main.answered > 0 ? Math.round((main.answered_duration || 0) / main.answered) : 0,
+      talkDuration: main.talk_duration || 0,
+      totalDuration: main.total_duration || 0,
+      tclSecs: main.tcl_secs || 0,
+      aclSecs: main.eligible_calls > 0 ? Math.round((main.tcl_secs || 0) / main.eligible_calls) : null,
+      campaigns,
+      buyers,
+      trackingNumbers,
+      buckets: buckets.map(b => ({
+        time: b.bucket_time,
+        total: b.total || 0,
+        answered: b.answered || 0,
+        missed: b.missed || 0,
+        failed: b.failed || 0
+      }))
     };
-
-    let totalDuration = 0;
-    let durationCount = 0;
-    
-    let overallTCL = 0;
-    let overallEligible = 0;
-
-    calls.forEach((c) => {
-      if (c.duration_secs) {
-        totalDuration += c.duration_secs;
-        durationCount++;
-      }
-      
-      let eligibleDuration: number | null = null;
-      if (c.started_at && c.ended_at && c.ended_at.getTime() >= c.started_at.getTime()) {
-        eligibleDuration = Math.floor((c.ended_at.getTime() - c.started_at.getTime()) / 1000);
-        overallTCL += eligibleDuration;
-        overallEligible++;
-      }
-
-      if (c.campaign_id) {
-        if (!metrics.campaigns[c.campaign_id]) {
-          metrics.campaigns[c.campaign_id] = { total: 0, answered: 0, aclSecs: null, tclSecs: null, _tcl: 0, _eligible: 0 };
-        }
-        metrics.campaigns[c.campaign_id].total++;
-        if (c.state === CallState.COMPLETED) {
-          metrics.campaigns[c.campaign_id].answered++;
-        }
-        if (eligibleDuration !== null) {
-          metrics.campaigns[c.campaign_id]._tcl += eligibleDuration;
-          metrics.campaigns[c.campaign_id]._eligible++;
-        }
-      }
-    });
-
-    if (durationCount > 0) {
-      metrics.avgDuration = Math.round(totalDuration / durationCount);
-    }
-    
-    if (overallEligible > 0) {
-      metrics.tclSecs = overallTCL;
-      metrics.aclSecs = Math.round(overallTCL / overallEligible);
-    }
-
-    attempts.forEach((a) => {
-      let eligibleDuration: number | null = null;
-      if (a.started_at && a.ended_at && a.ended_at.getTime() >= a.started_at.getTime()) {
-        eligibleDuration = Math.floor((a.ended_at.getTime() - a.started_at.getTime()) / 1000);
-      }
-
-      if (a.buyer_id) {
-        if (!metrics.buyers[a.buyer_id]) {
-          metrics.buyers[a.buyer_id] = { total: 0, answered: 0, aclSecs: null, tclSecs: null, _tcl: 0, _eligible: 0 };
-        }
-        metrics.buyers[a.buyer_id].total++;
-        if (
-          a.state === CallAttemptState.ANSWERED ||
-          a.state === CallAttemptState.COMPLETED
-        ) {
-          metrics.buyers[a.buyer_id].answered++;
-        }
-        if (eligibleDuration !== null) {
-          metrics.buyers[a.buyer_id]._tcl += eligibleDuration;
-          metrics.buyers[a.buyer_id]._eligible++;
-        }
-      }
-    });
-    
-    for (const key of Object.keys(metrics.campaigns)) {
-      const camp = metrics.campaigns[key];
-      if (camp._eligible > 0) {
-        camp.tclSecs = camp._tcl;
-        camp.aclSecs = Math.round(camp._tcl / camp._eligible);
-      }
-      delete (camp as any)._tcl;
-      delete (camp as any)._eligible;
-    }
-    
-    for (const key of Object.keys(metrics.buyers)) {
-      const buyer = metrics.buyers[key];
-      if (buyer._eligible > 0) {
-        buyer.tclSecs = buyer._tcl;
-        buyer.aclSecs = Math.round(buyer._tcl / buyer._eligible);
-      }
-      delete (buyer as any)._tcl;
-      delete (buyer as any)._eligible;
-    }
 
     return metrics;
   }

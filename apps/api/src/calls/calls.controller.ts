@@ -78,8 +78,18 @@ export class CallsController {
     @Param('workspaceId') workspaceId: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('campaignId') campaignId?: string,
+    @Query('buyerId') buyerId?: string,
+    @Query('trackingNumber') trackingNumber?: string,
+    @Query('callerNumber') callerNumber?: string,
+    @Query('status') status?: string,
+    @Query('minDuration') minDuration?: string,
+    @Query('maxDuration') maxDuration?: string,
+    @Query('bucket') bucket?: string,
   ) {
-    return this.callsService.getMetrics(workspaceId, { startDate, endDate });
+    return this.callsService.getMetrics(workspaceId, {
+      startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration, bucket
+    });
   }
 
 
