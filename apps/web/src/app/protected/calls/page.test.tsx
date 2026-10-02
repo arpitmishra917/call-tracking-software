@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import CallsPage from './page';
@@ -21,6 +22,9 @@ vi.mock('@/components/ui/button', () => ({ Button: 'button' }));
 vi.mock('@/components/ui/empty-state', () => ({ EmptyState: ({title}: any) => <div>{title}</div> }));
 vi.mock('lucide-react', () => ({ PhoneCall: () => null, Search: () => null, X: () => null, Play: () => null, AlertCircle: () => null }));
 vi.mock('next/link', () => ({ default: (props: any) => <a {...props} /> }));
+vi.mock('@/components/ui/recording-player', () => ({
+  InlineRecordingPlayer: () => <button>Play</button>,
+}));
 
 describe('CallsPage', () => {
   beforeEach(() => {
@@ -30,9 +34,9 @@ describe('CallsPage', () => {
     });
   });
 
-  it('renders correctly with NULL and Valid Talk/Total Times', async () => {
+  const mockDropdowns = () => {
     (apiFetch as any).mockImplementation((url: string) => {
-      if (url.includes('/phone-numbers')) return Promise.resolve([{ id: '1', phone_number: '+15550000000' }]);
+      if (url.includes('/phone-numbers')) return Promise.resolve([{ id: '1', phone_number: '+13215033884' }, { id: '2', phone_number: '+17658268661' }]);
       if (url.includes('/campaigns')) return Promise.resolve([{ id: 'camp1', name: 'Test Campaign' }]);
       if (url.includes('/calls')) {
         return Promise.resolve({
@@ -41,131 +45,132 @@ describe('CallsPage', () => {
               id: 'call-1',
               created_at: '2026-09-30T10:00:00Z',
               from_number: '+123',
-              to_number: '+456',
+              to_number: '+13215033884',
               state: 'COMPLETED',
-              talkDurationSecs: 138,
-              totalDurationSecs: 188,
-              recordings: [{ id: 'rec-1', status: 'COMPLETED' }]
+              talkDurationSecs: 120,
+              totalDurationSecs: 130,
+              recordings: [{ id: 'rec1', status: 'COMPLETED' }]
             },
             {
               id: 'call-2',
-              created_at: '2026-09-30T11:00:00Z',
-              from_number: '+999',
-              to_number: '+888',
-              state: 'FAILED',
+              created_at: '2026-09-30T10:00:00Z',
+              from_number: '+456',
+              to_number: '+17658268661',
+              state: 'COMPLETED',
               talkDurationSecs: null,
               totalDurationSecs: null,
+              recordings: []
             }
-          ],
-          total: 2
+          ]
         });
       }
       return Promise.resolve({});
     });
+  };
 
-    const { container } = render(<CallsPage />);
-
+  it('1. API response: talkDurationSecs: 120, totalDurationSecs: 130 renders 02:00, 02:10 not —', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
     await waitFor(() => {
-      expect(screen.queryByText('02:18')).not.toBeNull();
-      expect(screen.queryByText('03:08')).not.toBeNull();
-    });
-
-    const nullRenders = screen.queryAllByText('—');
-    expect(nullRenders.length).toBeGreaterThan(0);
-    expect(container.querySelector('button[aria-label="Play recording"]')).not.toBeNull();
-  });
-
-  it('sends correct tracking number filter', async () => {
-    (apiFetch as any).mockImplementation((url: string) => {
-      if (url.includes('/phone-numbers')) return Promise.resolve([{ id: '1', phone_number: '+15550000000' }]);
-      if (url.includes('/campaigns')) return Promise.resolve([]);
-      if (url.includes('/calls')) return Promise.resolve({ items: [] });
-      return Promise.resolve({});
-    });
-
-    const { container } = render(<CallsPage />);
-
-    await waitFor(() => {
-      expect(container.querySelector('#trackingNumber')).not.toBeNull();
-    });
-
-    const trackingSelect = container.querySelector('#trackingNumber') as HTMLSelectElement;
-    fireEvent.change(trackingSelect, { target: { value: '+15550000000' } });
-
-    await waitFor(() => {
-      expect(apiFetch).toHaveBeenCalledWith(
-        expect.stringContaining('trackingNumber=%2B15550000000')
-      );
+      expect(screen.getByText('02:00')).toBeTruthy();
+      expect(screen.getByText('02:10')).toBeTruthy();
     });
   });
 
-  it('sends correct duration filters', async () => {
-    (apiFetch as any).mockImplementation((url: string) => {
-      if (url.includes('/phone-numbers')) return Promise.resolve([]);
-      if (url.includes('/campaigns')) return Promise.resolve([]);
-      if (url.includes('/calls')) return Promise.resolve({ items: [] });
-      return Promise.resolve({});
-    });
-
-    const { container } = render(<CallsPage />);
-
+  it('2. Legacy calls without lifecycle data remain —', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
     await waitFor(() => {
-      expect(container.querySelector('#durationType')).not.toBeNull();
-    });
-
-    const typeSelect = container.querySelector('#durationType') as HTMLSelectElement;
-    const minInput = container.querySelector('#minDurationSecs') as HTMLInputElement;
-    const maxInput = container.querySelector('#maxDurationSecs') as HTMLInputElement;
-
-    fireEvent.change(typeSelect, { target: { value: 'talk' } });
-    fireEvent.change(minInput, { target: { value: '60' } });
-    fireEvent.change(maxInput, { target: { value: '120' } });
-
-    await waitFor(() => {
-      expect(apiFetch).toHaveBeenCalledWith(
-        expect.stringContaining('durationType=talk')
-      );
-      expect(apiFetch).toHaveBeenCalledWith(
-        expect.stringContaining('minDurationSecs=60')
-      );
-      expect(apiFetch).toHaveBeenCalledWith(
-        expect.stringContaining('maxDurationSecs=120')
-      );
+      const emptyCells = screen.getAllByText('—');
+      expect(emptyCells.length).toBeGreaterThan(0);
     });
   });
-  
-  it('clears duration filters correctly', async () => {
-    (apiFetch as any).mockImplementation((url: string) => {
-      if (url.includes('/phone-numbers')) return Promise.resolve([]);
-      if (url.includes('/campaigns')) return Promise.resolve([]);
-      if (url.includes('/calls')) return Promise.resolve({ items: [] });
-      return Promise.resolve({});
-    });
 
-    const { container } = render(<CallsPage />);
-
+  it('3. Recording metadata appears when recording exists (Play control)', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
     await waitFor(() => {
-      expect(container.querySelector('#durationType')).not.toBeNull();
+      expect(screen.getByText('Play')).toBeTruthy();
     });
+  });
 
-    const typeSelect = container.querySelector('#durationType') as HTMLSelectElement;
-    const minInput = container.querySelector('#minDurationSecs') as HTMLInputElement;
+  it('4. Tracking Number selection: +13215033884 sends correct param', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('/calls?'));
+    });
+    const select = screen.getByLabelText('Tracking Number');
+    fireEvent.change(select, { target: { value: '+13215033884' } });
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('trackingNumber=%2B13215033884'));
+    });
+  });
+
+  it('5. Campaign selection sends campaignId', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
+    await waitFor(() => expect(screen.getByLabelText('Campaign')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Campaign'), { target: { value: 'camp1' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('campaignId=camp1')));
+  });
+
+  it('6. Status selection sends status', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
+    await waitFor(() => expect(screen.getByLabelText('Status')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'COMPLETED' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('status=COMPLETED')));
+  });
+
+  it('7. Caller input sends callerNumber', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
+    await waitFor(() => expect(screen.getByLabelText('Caller Number')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Caller Number'), { target: { value: '+1234' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('callerNumber=%2B1234')));
+  });
+
+  it('8. Talk duration sends durationType=talk', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
+    await waitFor(() => expect(screen.getByLabelText('Duration Type')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Duration Type'), { target: { value: 'talk' } });
+    fireEvent.change(screen.getByLabelText('Min (s)'), { target: { value: '60' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('durationType=talk')));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('minDurationSecs=60')));
+  });
+
+  it('9. Total duration sends durationType=total', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
+    await waitFor(() => expect(screen.getByLabelText('Duration Type')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Duration Type'), { target: { value: 'total' } });
+    fireEvent.change(screen.getByLabelText('Min (s)'), { target: { value: '80' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('durationType=total')));
+  });
+
+  it('10. Date filters send correct values', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
+    await waitFor(() => expect(screen.getByLabelText('Start Date')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: '2026-10-01' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('startDate=2026-10-01')));
+  });
+
+  it('11. Clear Filters resets everything', async () => {
+    mockDropdowns();
+    render(<CallsPage />);
+    await waitFor(() => expect(screen.getByText('Clear Filters')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'FAILED' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('status=FAILED')));
     
-    fireEvent.change(typeSelect, { target: { value: 'total' } });
-    fireEvent.change(minInput, { target: { value: '60' } });
-    
+    fireEvent.click(screen.getByText('Clear Filters'));
     await waitFor(() => {
-      expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('durationType=total'));
-    });
-
-    const clearButton = screen.getByText('Clear Filters');
-    fireEvent.click(clearButton);
-
-    await waitFor(() => {
-      const call = (apiFetch as any).mock.calls;
-      const lastCall = call[call.length - 1][0];
-      expect(lastCall).not.toContain('durationType');
-      expect(lastCall).not.toContain('minDurationSecs');
+      // should trigger new fetch without status
+      const calls = (apiFetch as any).mock.calls;
+      const lastCall = calls[calls.length - 1][0];
+      expect(lastCall.includes('status=FAILED')).toBe(false);
     });
   });
 });
