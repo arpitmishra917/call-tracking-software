@@ -48,6 +48,9 @@ function HeaderMetrics() {
     // Initial fetch
     fetchMetrics();
 
+    const handleWalletUpdate = () => fetchMetrics(true);
+    window.addEventListener('wallet-topup', handleWalletUpdate);
+
     // Polling interval
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
@@ -55,7 +58,10 @@ function HeaderMetrics() {
       }
     }, 10000); // 10 seconds
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('wallet-topup', handleWalletUpdate);
+    };
   }, [fetchMetrics]);
 
   const formatBalance = (amountMinor: number, currency: string) => {
