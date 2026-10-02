@@ -3,6 +3,7 @@ import { CallController, TELEPHONY_PROVIDER } from './call-controller.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CallsService } from '../calls/calls.service.js';
 import { UsageService } from '../usage/usage.service.js';
+import { UsageBillingService } from '../billing/usage-billing.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 import { CallEventType } from './telephony.events.js';
 import { CallState, CallAttemptState } from '@prisma/client';
@@ -14,6 +15,7 @@ describe('Routing Concurrency Tests', () => {
   let prisma: any;
   let callsService: any;
   let usageService: any;
+  let usageBillingService: any;
   let webhooksService: any;
 
   beforeEach(async () => {
@@ -65,6 +67,11 @@ describe('Routing Concurrency Tests', () => {
       recordUsage: vi.fn(),
     };
 
+    usageBillingService = {
+      billCallUsage: vi.fn(),
+      billRecordingUsage: vi.fn(),
+    };
+
     webhooksService = {
       queueEvent: vi.fn().mockResolvedValue(undefined),
     };
@@ -76,6 +83,7 @@ describe('Routing Concurrency Tests', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: CallsService, useValue: callsService },
         { provide: UsageService, useValue: usageService },
+        { provide: UsageBillingService, useValue: usageBillingService },
         { provide: WebhooksService, useValue: webhooksService },
       ],
     }).compile();

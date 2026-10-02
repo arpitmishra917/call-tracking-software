@@ -3,6 +3,8 @@ import { BillingController } from './billing.controller.js';
 import { BillingService } from './billing.service.js';
 import { WalletService } from './wallet.service.js';
 import { MockPaymentProvider } from './mock-payment.provider.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 describe('BillingController', () => {
@@ -27,9 +29,10 @@ describe('BillingController', () => {
         { provide: WalletService, useValue: {} },
         { provide: MockPaymentProvider, useValue: {} },
       ],
-    }).overrideGuard(require('../auth/jwt-auth.guard.js').JwtAuthGuard)
+    })
+      .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
-      .overrideGuard(require('../authorization/workspace-roles.guard.js').WorkspaceRolesGuard)
+      .overrideGuard(WorkspaceRolesGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

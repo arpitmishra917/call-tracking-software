@@ -4,6 +4,7 @@ import { CallEventType, NormalizedCallEvent } from './telephony.events.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CallsService } from '../calls/calls.service.js';
 import { UsageService } from '../usage/usage.service.js';
+import { UsageBillingService } from '../billing/usage-billing.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 import { CallState, CallAttemptState } from '@prisma/client';
 
@@ -19,6 +20,7 @@ export class CallController {
     private readonly prisma: PrismaService,
     private readonly callsService: CallsService,
     private readonly usageService: UsageService,
+    private readonly usageBillingService: UsageBillingService,
     private readonly webhooksService: WebhooksService,
   ) {}
 
@@ -193,13 +195,15 @@ export class CallController {
           });
           this.logger.log(`Saved recording metadata for call ${call.id}`);
 
-          await this.usageService.recordUsage(
-            call.workspace_id,
-            'RECORDING_STORAGE' as any,
-            1,
-            rec.id,
-            `REC_${rec.id}`,
-          );
+          const dMs = call.ended_at && call.answered_at ? call.ended_at.getTime() - call.answered_at.getTime() : 0;
+          const dSec = Math.max(0, Math.ceil(dMs / 1000));
+          if (dSec > 0) {
+            await this.usageBillingService.billRecordingUsage(
+              call.workspace_id,
+              rec.id,
+              dSec
+            ).catch(err => this.logger.error(`Error: ${err.message}`));
+          }
 
           // Fire webhook
           this.webhooksService

@@ -14,6 +14,7 @@ import { AuthorizationModule } from '../authorization/authorization.module.js';
 import { RoutingModule } from '../routing/routing.module.js';
 import { UsageModule } from '../usage/usage.module.js';
 import { WebhooksModule } from '../webhooks/webhooks.module.js';
+import { BillingModule } from '../billing/billing.module.js';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { WebhooksModule } from '../webhooks/webhooks.module.js';
     AuthorizationModule,
     UsageModule,
     WebhooksModule,
+    BillingModule,
   ],
   providers: [
     WebhookIdempotencyService,

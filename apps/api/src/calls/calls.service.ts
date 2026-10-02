@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { UsageService } from '../usage/usage.service.js';
+import { UsageBillingService } from '../billing/usage-billing.service.js';
 import {
   CallState,
   CallAttemptState,

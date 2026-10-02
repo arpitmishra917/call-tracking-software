@@ -481,6 +481,7 @@ model WebhookDelivery {
 model WorkspaceBalance {
   workspace_id    String   @id
   balance_minor   Int      @default(0)
+  balance_micro   BigInt   @default(0)
   currency        String   @default("USD")
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt

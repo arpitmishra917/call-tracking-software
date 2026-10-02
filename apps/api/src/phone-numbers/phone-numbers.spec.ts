@@ -76,7 +76,7 @@ describe('PhoneNumbersService', () => {
       { id: 'num-1', phone_number: '+1555', campaign: { id: 'camp-1', name: 'Summer Campaign' } },
     ]);
     const result = await service.listWorkspaceNumbers('ws-1');
-    expect(result.items[0].campaign.name).toBe('Summer Campaign');
+    expect(result.items[0].campaign?.name).toBe('Summer Campaign');
   });
 
   it('should return null campaign for unassigned number', async () => {
@@ -120,8 +120,8 @@ describe('PhoneNumbersService', () => {
     });
 
     const result = await service.provisionNumber('ws-1', '+15550001000');
-    expect(result.id).toBe('new-uuid');
-    expect(result.status).toBe(PhoneNumberStatus.ACTIVE);
+    expect(result!.id).toBe('new-uuid');
+    expect(result!.status).toBe(PhoneNumberStatus.ACTIVE);
     expect(telnyxMock.placeNumberOrder).toHaveBeenCalledWith('+15550001000');
     expect(prismaMock.phoneNumber.create).toHaveBeenCalled();
     expect(prismaMock.phoneNumber.update).toHaveBeenCalledTimes(2);
