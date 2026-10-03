@@ -16,7 +16,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart, Pie, Cell 
 } from 'recharts';
 import { 
-  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X
+  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown
 } from 'lucide-react';
 
 function formatDurationHms(seconds: number | null | undefined): string {
@@ -27,6 +27,31 @@ function formatDurationHms(seconds: number | null | undefined): string {
   if (h > 0) return `${h}h ${m}m ${s}s`;
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
+
+
+type ColumnId = 'time' | 'caller' | 'trackingNumber' | 'campaign' | 'finalDestination' | 'status' | 'talkDuration' | 'totalDuration' | 'attempts' | 'recording' | 'actions';
+
+interface ColumnDef {
+  id: ColumnId;
+  label: string;
+  visible: boolean;
+  order: number;
+  locked?: boolean;
+}
+
+const DEFAULT_COLUMNS: ColumnDef[] = [
+  { id: 'time', label: 'Date / Time', visible: true, order: 0 },
+  { id: 'caller', label: 'Caller', visible: true, order: 1 },
+  { id: 'trackingNumber', label: 'Tracking Number', visible: true, order: 2 },
+  { id: 'campaign', label: 'Campaign', visible: true, order: 3 },
+  { id: 'finalDestination', label: 'Final Destination', visible: true, order: 4 },
+  { id: 'status', label: 'Status', visible: true, order: 5 },
+  { id: 'talkDuration', label: 'Talk Duration', visible: true, order: 6 },
+  { id: 'totalDuration', label: 'Total Duration', visible: true, order: 7 },
+  { id: 'attempts', label: 'Attempts', visible: true, order: 8 },
+  { id: 'recording', label: 'Recording', visible: true, order: 9 },
+  { id: 'actions', label: 'Actions', visible: true, order: 10, locked: true },
+];
 
 export default function ReportingDashboard({ params }: { params: { workspaceId: string } }) {
   const router = useRouter();
@@ -64,7 +89,76 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
-  const limit = 20;
+  
+  const [columns, setColumns] = useState<ColumnDef[]>([...DEFAULT_COLUMNS]);
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+
+  useEffect(() => {
+    if (!params.workspaceId) return;
+    const key = `callflow.reporting.columns.${params.workspaceId}`;
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const validIds = new Set(DEFAULT_COLUMNS.map(c => c.id));
+        const filtered = parsed.filter((p: any) => validIds.has(p.id));
+        
+        const newCols = DEFAULT_COLUMNS.map(def => {
+          const found = filtered.find((p: any) => p.id === def.id);
+          if (found) {
+            return { ...def, visible: def.locked ? true : found.visible, order: found.order };
+          }
+          return def;
+        }).sort((a, b) => a.order - b.order);
+        
+        newCols.forEach((c, i) => c.order = i);
+        setColumns(newCols);
+      }
+    } catch (e) {
+      console.error("Malformed localStorage columns", e);
+    }
+  }, [params.workspaceId]);
+
+  const saveColumns = (newCols: ColumnDef[]) => {
+    setColumns(newCols);
+    if (!params.workspaceId) return;
+    const key = `callflow.reporting.columns.${params.workspaceId}`;
+    localStorage.setItem(key, JSON.stringify(newCols.map(c => ({ id: c.id, visible: c.visible, order: c.order }))));
+  };
+
+  const resetColumns = () => saveColumns([...DEFAULT_COLUMNS]);
+
+  const moveColumn = (index: number, direction: -1 | 1) => {
+    if (index + direction < 0 || index + direction >= columns.length) return;
+    const newCols = [...columns];
+    const temp = newCols[index];
+    newCols[index] = newCols[index + direction];
+    newCols[index + direction] = temp;
+    newCols.forEach((c, i) => c.order = i);
+    saveColumns(newCols);
+  };
+
+  const toggleColumn = (index: number) => {
+    const newCols = [...columns];
+    if (newCols[index].locked) return;
+    newCols[index].visible = !newCols[index].visible;
+    saveColumns(newCols);
+  };
+
+  const visibleColumns = columns.filter(c => c.visible);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const closeMenu = (e: MouseEvent) => {
+      if (showColumnMenu && !(e.target as Element).closest('.columns-dropdown-container')) {
+        setShowColumnMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', closeMenu);
+    return () => document.removeEventListener('mousedown', closeMenu);
+  }, [showColumnMenu]);
+
+const limit = 20;
 
   const fetchReporting = useCallback(async () => {
     setLoading(true);
@@ -460,17 +554,14 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
                 <Table>
                   <TableHeader className="bg-muted/50 whitespace-nowrap">
                     <TableRow>
-                      <TableHead>Date / Time</TableHead>
-                      <TableHead>Caller</TableHead>
-                      <TableHead>Tracking Number</TableHead>
-                      <TableHead>Campaign</TableHead>
-                      <TableHead>Final Destination</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Talk Duration</TableHead>
-                      <TableHead className="text-right">Total Duration</TableHead>
-                      <TableHead className="text-right">Attempts</TableHead>
-                      <TableHead className="text-center">Recording</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      {visibleColumns.map(col => (
+                        <TableHead 
+                          key={col.id} 
+                          className={col.id === 'actions' || col.id === 'talkDuration' || col.id === 'totalDuration' || col.id === 'attempts' ? 'text-right' : col.id === 'recording' ? 'text-center' : ''}
+                        >
+                          {col.label}
+                        </TableHead>
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -601,8 +692,56 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
           </Card>
 
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-base font-semibold">Detailed Calls</CardTitle>
+              <div className="relative columns-dropdown-container">
+                <Button variant="outline" size="sm" onClick={() => setShowColumnMenu(!showColumnMenu)}>
+                  <Settings2 className="w-4 h-4 mr-2" />
+                  Columns
+                </Button>
+                {showColumnMenu && (
+                  <div className="absolute right-0 mt-2 w-64 bg-surface border border-border rounded-md shadow-lg z-50 p-2">
+                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+                      <span className="text-sm font-semibold">Customize Columns</span>
+                      <Button variant="ghost" size="sm" onClick={resetColumns} className="h-6 px-2 text-xs">Reset</Button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto space-y-1">
+                      {columns.map((col, index) => (
+                        <div key={col.id} className="flex items-center justify-between py-1 px-2 hover:bg-muted/50 rounded-sm">
+                          <label className="flex items-center gap-2 cursor-pointer flex-1">
+                            <input 
+                              type="checkbox" 
+                              checked={col.visible} 
+                              disabled={col.locked}
+                              onChange={() => toggleColumn(index)} 
+                              className="rounded border-border text-primary focus:ring-primary"
+                            />
+                            <span className={`text-sm ${col.locked ? 'text-muted-foreground' : ''}`}>{col.label}</span>
+                          </label>
+                          <div className="flex flex-col gap-0.5 ml-2">
+                            <button 
+                              disabled={index === 0} 
+                              onClick={() => moveColumn(index, -1)}
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed h-4 w-4 flex items-center justify-center"
+                              aria-label={`Move ${col.label} up`}
+                            >
+                              <ChevronUp className="w-3 h-3" />
+                            </button>
+                            <button 
+                              disabled={index === columns.length - 1} 
+                              onClick={() => moveColumn(index, 1)}
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed h-4 w-4 flex items-center justify-center"
+                              aria-label={`Move ${col.label} down`}
+                            >
+                              <ChevronDown className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
               {calls.length === 0 ? (
