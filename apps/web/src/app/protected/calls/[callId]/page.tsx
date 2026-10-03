@@ -15,6 +15,9 @@ interface Attempt {
   buyer_id: string;
   state: string;
   duration_secs?: number | null;
+  started_at?: string | null;
+  answered_at?: string | null;
+  ended_at?: string | null;
   buyer?: { name: string } | null;
 }
 
@@ -25,6 +28,9 @@ interface CallDetail {
   to_number: string;
   state: string;
   duration_secs?: number | null;
+  started_at?: string | null;
+  answered_at?: string | null;
+  ended_at?: string | null;
   created_at: string;
   campaign?: { name: string } | null;
   buyer?: { name: string } | null;
@@ -37,6 +43,14 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
   const callId = unwrappedParams.callId;
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const returnTo = searchParams.get('returnTo');
+  
+  let backUrl = `/protected/calls?workspace=${workspaceId}`;
+  if (returnTo === 'reporting') {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.delete('returnTo');
+    backUrl = `/protected/reporting?${sp.toString()}`;
+  }
   
   const [call, setCall] = useState<CallDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -130,7 +144,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
           <p>{error || 'Call not found.'}</p>
         </div>
         <Link 
-          href={`/protected/calls?workspace=${workspaceId}`}
+          href={backUrl}
           className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors border border-border bg-surface hover:bg-muted hover:text-foreground h-10 px-4 py-2"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
@@ -150,7 +164,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
         <div className="space-y-1">
           <div className="flex items-center gap-3 mb-2">
             <Link 
-              href={`/protected/calls?workspace=${workspaceId}`}
+              href={backUrl}
               className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-muted h-10 w-10 -ml-2 text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -202,25 +216,46 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                     <MapPin className="w-3.5 h-3.5" /> Final Buyer
                   </span>
-                  <p className="font-medium text-base">{finalBuyer}</p>
+                  <p className="font-medium text-base">{finalBuyer || 'No successful destination'}</p>
                 </div>
                 <div className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5" /> Date & Time
+                    <Calendar className="w-3.5 h-3.5" /> Started At
                   </span>
                   <p className="font-medium text-base">
-                    {new Date(call.created_at).toLocaleString(undefined, {
-                      dateStyle: 'medium',
-                      timeStyle: 'medium'
-                    })}
+                    {call.started_at ? new Date(call.started_at).toLocaleString() : '—'}
                   </p>
                 </div>
                 <div className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5" /> Duration
+                    <Calendar className="w-3.5 h-3.5" /> Answered At
                   </span>
                   <p className="font-medium text-base">
-                    {call.duration_secs != null ? `${call.duration_secs} seconds` : '-'}
+                    {call.answered_at ? new Date(call.answered_at).toLocaleString() : '—'}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5" /> Ended At
+                  </span>
+                  <p className="font-medium text-base">
+                    {call.ended_at ? new Date(call.ended_at).toLocaleString() : '—'}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Talk Duration
+                  </span>
+                  <p className="font-medium text-base">
+                    {call.ended_at && call.answered_at ? `${Math.floor((new Date(call.ended_at).getTime() - new Date(call.answered_at).getTime()) / 1000)} seconds` : '—'}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Total Duration
+                  </span>
+                  <p className="font-medium text-base">
+                    {call.ended_at && call.started_at ? `${Math.floor((new Date(call.ended_at).getTime() - new Date(call.started_at).getTime()) / 1000)} seconds` : '—'}
                   </p>
                 </div>
               </div>
@@ -311,8 +346,8 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
               ) : (
                 <div className="relative border-l-2 border-border ml-3 space-y-8 pb-4">
                   {call.attempts.map((attempt, index) => {
-                    const isLast = index === call.attempts.length - 1;
                     const variant = getStatusBadgeVariant(attempt.state);
+                    const talkDuration = (attempt.ended_at && attempt.answered_at) ? Math.floor((new Date(attempt.ended_at).getTime() - new Date(attempt.answered_at).getTime()) / 1000) : null;
                     
                     return (
                       <div key={attempt.id} className="relative pl-6">
@@ -325,25 +360,36 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                         <div className="flex flex-col gap-1.5">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-sm font-semibold text-foreground">
-                              {attempt.buyer?.name || 'Unknown Buyer'}
+                              {index + 1}. {attempt.buyer?.name || 'Unknown Buyer'}
                             </span>
                             <Badge variant={variant} className="text-[10px] h-5 px-1.5">
                               {attempt.state}
                             </Badge>
                           </div>
                           
-                          <div className="flex items-center text-xs text-muted-foreground gap-3">
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {attempt.duration_secs != null ? `${attempt.duration_secs}s` : '0s'}
-                            </span>
-                            <span>
-                              {new Date(attempt.created_at).toLocaleTimeString(undefined, { 
-                                hour: '2-digit', 
-                                minute: '2-digit',
-                                second: '2-digit'
-                              })}
-                            </span>
+                          <div className="flex flex-col text-xs text-muted-foreground mt-1">
+                            {attempt.started_at && (
+                              <div className="flex items-center justify-between">
+                                <span>Started:</span>
+                                <span>{new Date(attempt.started_at).toLocaleTimeString()}</span>
+                              </div>
+                            )}
+                            {attempt.answered_at && (
+                              <div className="flex items-center justify-between">
+                                <span>Answered:</span>
+                                <span>{new Date(attempt.answered_at).toLocaleTimeString()}</span>
+                              </div>
+                            )}
+                            {attempt.ended_at && (
+                              <div className="flex items-center justify-between">
+                                <span>Ended:</span>
+                                <span>{new Date(attempt.ended_at).toLocaleTimeString()}</span>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between mt-1 pt-1 border-t">
+                              <span className="font-medium text-foreground">Talk Duration:</span>
+                              <span className="font-mono">{talkDuration != null ? `${talkDuration}s` : '—'}</span>
+                            </div>
                           </div>
                         </div>
                       </div>

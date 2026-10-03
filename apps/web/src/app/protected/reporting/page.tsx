@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -87,8 +88,8 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
       const callsRes = await apiFetch(`/workspaces/${params.workspaceId}/calls?${callsQ.toString()}`);
       if (!callsRes.ok) throw new Error('Failed to load detailed calls');
       const callsData = await callsRes.json();
-      setCalls(callsData.data || []);
-      setCallsTotal(callsData.meta?.total || 0);
+      setCalls(callsData.items || []);
+      setCallsTotal(callsData.total || 0);
       
     } catch (err: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Unable to load reporting data');
@@ -459,27 +460,57 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
                 <Table>
                   <TableHeader className="bg-muted/50 whitespace-nowrap">
                     <TableRow>
+                      <TableHead>Date / Time</TableHead>
+                      <TableHead>Caller</TableHead>
+                      <TableHead>Tracking Number</TableHead>
                       <TableHead>Campaign</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-right">Answered</TableHead>
-                      <TableHead className="text-right">Missed</TableHead>
-                      <TableHead className="text-right">Failed</TableHead>
-                      <TableHead className="text-right">ACL</TableHead>
-                      <TableHead className="text-right">TCL</TableHead>
+                      <TableHead>Final Destination</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Talk Duration</TableHead>
+                      <TableHead className="text-right">Total Duration</TableHead>
+                      <TableHead className="text-right">Attempts</TableHead>
+                      <TableHead className="text-center">Recording</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {Object.values(metrics.campaigns as Record<string, any>).map((stats: any) => (
-                      <TableRow key={stats.id}>
-                        <TableCell className="font-medium whitespace-nowrap">{stats.name || 'Unknown'}</TableCell>
-                        <TableCell className="text-right">{stats.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">{stats.missed.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">{stats.failed.toLocaleString()}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
-                      </TableRow>
-                    ))}
+                    {calls.map((call: any) => {
+                      const answeredAttempt = call.attempts?.find((a: any) => a.state === 'COMPLETED' || a.state === 'ANSWERED' || a.state === 'CONNECTED');
+                      const finalDestination = call.buyer?.name || answeredAttempt?.buyer?.name || 'No successful destination';
+                      const recordingAvailable = call.recordings && call.recordings.length > 0;
+                      
+                      return (
+                        <TableRow key={call.id}>
+                          <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                            {new Date(call.created_at).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{call.from_number}</TableCell>
+                          <TableCell className="font-mono text-xs">{call.to_number}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">{call.campaign?.name || '—'}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">{finalDestination}</TableCell>
+                          <TableCell>
+                            <Badge variant={call.state === "COMPLETED" ? "success" : "warning"} className="text-[10px]">
+                              {call.state}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs">
+                            {call.talkDurationSecs != null ? formatDurationHms(call.talkDurationSecs) : '—'}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs">
+                            {call.totalDurationSecs != null ? formatDurationHms(call.totalDurationSecs) : '—'}
+                          </TableCell>
+                          <TableCell className="text-right text-xs">
+                            {call.attempts?.length || 0} attempts
+                          </TableCell>
+                          <TableCell className="text-center text-xs">
+                            {recordingAvailable ? 'Available' : '—'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Link href={`/protected/calls/${call.id}?workspace=${params.workspaceId}&returnTo=reporting&${searchParams.toString()}`}><Button variant="outline" size="sm">View</Button></Link>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               ))}
