@@ -32,6 +32,9 @@ type WorkspaceInvitation = {
   id: string;
   email: string;
   role: string;
+  participant_type?: string;
+  vendor_id?: string;
+  buyer_id?: string;
   created_at: string;
 };
 
@@ -50,6 +53,11 @@ export default function MembersPage() {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('MEMBER');
+  const [participantType, setParticipantType] = useState('INTERNAL');
+  const [vendorId, setVendorId] = useState('');
+  const [buyerId, setBuyerId] = useState('');
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [buyers, setBuyers] = useState<any[]>([]);
   const [isInviting, setIsInviting] = useState(false);
   
   // Success Modal State
@@ -85,6 +93,16 @@ export default function MembersPage() {
         try {
           const invData = await apiFetch(`/workspaces/${workspaceId}/invitations`);
           setInvitations(Array.isArray(invData) ? invData : []);
+          
+          try {
+            const v = await apiFetch(`/workspaces/${workspaceId}/vendors`);
+            setVendors(Array.isArray(v) ? v : []);
+          } catch(e) {}
+          
+          try {
+            const b = await apiFetch(`/workspaces/${workspaceId}/buyers`);
+            setBuyers(Array.isArray(b) ? b : []);
+          } catch(e) {}
         } catch (e) {
           console.error("Failed to fetch invitations", e);
         }
@@ -166,7 +184,7 @@ export default function MembersPage() {
       setError(null);
       const res = await apiFetch(`/workspaces/${workspaceId}/invitations`, {
         method: 'POST',
-        body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+        body: JSON.stringify({ email: inviteEmail, role: inviteRole, participant_type: participantType, vendor_id: participantType === 'VENDOR' ? vendorId : undefined, buyer_id: participantType === 'BUYER' ? buyerId : undefined }),
       });
       if (res && res.token) {
         setInviteToken(res.token);
@@ -174,6 +192,9 @@ export default function MembersPage() {
       setIsInviteModalOpen(false);
       setInviteEmail('');
       setInviteRole('MEMBER');
+      setParticipantType('INTERNAL');
+      setVendorId('');
+      setBuyerId('');
       await fetchMembersAndInvitations();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to invite member');
@@ -241,7 +262,7 @@ export default function MembersPage() {
                     </TableCell>
                     
                       <TableCell>
-                        <Badge variant="outline">INTERNAL</Badge>
+                        <Badge variant="outline">{inv.participant_type || 'INTERNAL'}</Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
                         {new Date(inv.created_at).toLocaleDateString()}

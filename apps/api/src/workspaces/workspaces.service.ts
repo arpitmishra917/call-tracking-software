@@ -208,7 +208,22 @@ export class WorkspacesService {
     });
   }
 
-  async createInvitation(workspaceId: string, email: string, role: string, createdByUserId: string) {
+  async createInvitation(workspaceId: string, email: string, role: string, createdByUserId: string, participant_type = 'INTERNAL', vendor_id?: string, buyer_id?: string) {
+    if (participant_type === 'VENDOR') {
+      if (!vendor_id) throw new BadRequestException('vendor_id required for VENDOR');
+      if (buyer_id) throw new BadRequestException('buyer_id not allowed for VENDOR');
+      const v = await this.prisma.vendor.findFirst({ where: { id: vendor_id, workspace_id: workspaceId } });
+      if (!v) throw new BadRequestException('Vendor not found in workspace');
+    } else if (participant_type === 'BUYER') {
+      if (!buyer_id) throw new BadRequestException('buyer_id required for BUYER');
+      if (vendor_id) throw new BadRequestException('vendor_id not allowed for BUYER');
+      const b = await this.prisma.buyer.findFirst({ where: { id: buyer_id, workspace_id: workspaceId } });
+      if (!b) throw new BadRequestException('Buyer not found in workspace');
+    } else if (participant_type === 'INTERNAL') {
+      if (vendor_id || buyer_id) throw new BadRequestException('vendor_id/buyer_id not allowed for INTERNAL');
+    } else {
+      throw new BadRequestException('Invalid participant_type');
+    }
     const token = crypto.randomBytes(32).toString('hex');
     const token_hash = crypto.createHash('sha256').update(token).digest('hex');
 
@@ -220,7 +235,10 @@ export class WorkspacesService {
         token_hash: token_hash,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         status: 'PENDING' as any,
-        created_by: createdByUserId
+        created_by: createdByUserId,
+          participant_type: participant_type as any,
+          vendor_id,
+          buyer_id
       }
     });
 
@@ -324,6 +342,21 @@ export class WorkspacesService {
       }
 
       // Create member
+      const existing = await tx.workspaceMember.findUnique({
+        where: {
+          workspace_id_user_id: {
+            workspace_id: invitation.workspace_id,
+            user_id: userId,
+          },
+        },
+      });
+      
+      if (existing) {
+        if (existing.participant_type !== invitation.participant_type || (existing.vendor_id && existing.vendor_id !== invitation.vendor_id) || (existing.buyer_id && existing.buyer_id !== invitation.buyer_id)) {
+           throw new BadRequestException('Participant identity mismatch. Cannot overwrite existing participant identity via invitation.');
+        }
+      }
+
       const member = await tx.workspaceMember.upsert({
         where: {
           workspace_id_user_id: {
@@ -338,6 +371,9 @@ export class WorkspacesService {
           workspace_id: invitation.workspace_id,
           user_id: userId,
           role: finalRole,
+          participant_type: invitation.participant_type,
+          vendor_id: invitation.vendor_id,
+          buyer_id: invitation.buyer_id
         },
       });
 

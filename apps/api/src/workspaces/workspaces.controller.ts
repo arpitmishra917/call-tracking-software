@@ -113,10 +113,18 @@ export class WorkspacesController {
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async createInvitation(
     @Param('workspaceId') workspaceId: string,
-    @Body() data: { email: string; role: WorkspaceRole },
+    @Body() data: { email: string; role: WorkspaceRole; participant_type?: string; vendor_id?: string; buyer_id?: string },
     @Request() req: any,
   ) {
-    return this.workspacesService.createInvitation(workspaceId, data.email, data.role, req.user.userId);
+    return this.workspacesService.createInvitation(
+      workspaceId, 
+      data.email, 
+      data.role, 
+      req.user.userId,
+      data.participant_type,
+      data.vendor_id,
+      data.buyer_id
+    );
   }
 
   @Delete(':workspaceId/invitations/:inviteId')
