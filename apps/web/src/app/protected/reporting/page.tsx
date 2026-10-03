@@ -373,6 +373,83 @@ const limit = 20;
           </p>
         </div>
         <div className="flex items-center gap-2">
+            <div className="relative reports-dropdown-container z-50">
+              <Button variant="outline" size="sm" onClick={() => setShowReportsMenu(!showReportsMenu)}>
+                <Bookmark className="w-4 h-4 mr-2" />
+                Saved Reports
+              </Button>
+              {showReportsMenu && (
+                <div className="absolute right-0 mt-2 w-80 bg-surface border border-border rounded-md shadow-lg overflow-hidden">
+                  {!isSavingReport ? (
+                    <>
+                      <div className="p-3 border-b border-border flex justify-between items-center bg-muted/30">
+                        <span className="text-sm font-semibold text-foreground">Saved Reports</span>
+                        <Button variant="default" size="sm" className="h-7 text-xs" onClick={() => setIsSavingReport(true)}>
+                          <Save className="w-3 h-3 mr-1" /> Save Current
+                        </Button>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto p-2 space-y-4">
+                        {savedReports.length === 0 ? (
+                          <div className="text-xs text-muted-foreground text-center py-4">No saved reports yet.</div>
+                        ) : (
+                          <>
+                            {['PERSONAL', 'SHARED'].map(vis => {
+                              const reps = savedReports.filter(r => r.visibility === vis);
+                              if (reps.length === 0) return null;
+                              return (
+                                <div key={vis}>
+                                  <h4 className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-2 px-2">{vis} REPORTS</h4>
+                                  <div className="space-y-1">
+                                    {reps.map(r => (
+                                      <div key={r.id} onClick={() => applyReport(r)} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded-sm cursor-pointer group">
+                                        <div className="flex flex-col gap-0.5">
+                                          <span className="text-sm font-medium text-foreground">{r.name}</span>
+                                          <span className="text-[10px] text-muted-foreground">by {r.creator?.display_name || 'Unknown'}</span>
+                                        </div>
+                                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 text-error hover:text-error hover:bg-error/10" onClick={(e) => deleteReport(e, r.id)}>
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold">Save New Report</span>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setIsSavingReport(false)}><X className="w-4 h-4" /></Button>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="report-name" className="text-xs">Report Name</Label>
+                          <Input id="report-name" placeholder="e.g. Q3 Inbound Success" value={reportName} onChange={e => setReportName(e.target.value)} className="h-8 text-sm" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Visibility</Label>
+                          <div className="flex gap-2">
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input type="radio" name="visibility" checked={reportVisibility === 'PERSONAL'} onChange={() => setReportVisibility('PERSONAL')} className="text-primary focus:ring-primary h-3.5 w-3.5" />
+                              <span className="text-xs text-foreground">Personal</span>
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input type="radio" name="visibility" checked={reportVisibility === 'SHARED'} onChange={() => setReportVisibility('SHARED')} className="text-primary focus:ring-primary h-3.5 w-3.5" />
+                              <span className="text-xs text-foreground">Shared (Workspace)</span>
+                            </label>
+                          </div>
+                        </div>
+                        <Button className="w-full h-8 text-xs" onClick={handleSaveReport}>Save Report</Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           <Button variant="outline" size="sm" onClick={fetchReporting} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh

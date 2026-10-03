@@ -6,6 +6,53 @@ import { WorkspaceRole } from '@prisma/client';
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
+  private normalizeConfiguration(config: any) {
+    if (!config || typeof config !== 'object') return {};
+    const normalized: any = {};
+    
+    // Normalize Filters
+    if (config.filters && typeof config.filters === 'object') {
+      normalized.filters = {};
+      const validFilters = ['startDate', 'endDate', 'campaignId', 'buyerId', 'trackingNumber', 'callerNumber', 'status', 'minDuration', 'maxDuration'];
+      for (const k of validFilters) {
+        if (config.filters[k] !== undefined) normalized.filters[k] = config.filters[k];
+      }
+    }
+    
+    // Normalize groupBy and bucket
+    const validGroupBys = ['Campaign', 'Buyer', 'Tracking Number', 'Status'];
+    if (config.groupBy && validGroupBys.includes(config.groupBy)) {
+      normalized.groupBy = config.groupBy;
+    }
+    const validBuckets = ['hour', 'day', 'week', 'month'];
+    if (config.bucket && validBuckets.includes(config.bucket)) {
+      normalized.bucket = config.bucket;
+    }
+    
+    // Normalize columns
+    if (config.columns && Array.isArray(config.columns)) {
+      normalized.columns = [];
+      const validColumnIds = new Set(['time', 'caller', 'trackingNumber', 'campaign', 'finalDestination', 'status', 'talkDuration', 'totalDuration', 'attempts', 'recording', 'actions']);
+      let hasActions = false;
+      for (const col of config.columns) {
+        if (col && col.id && validColumnIds.has(col.id)) {
+          if (col.id === 'actions') hasActions = true;
+          normalized.columns.push({
+            id: col.id,
+            visible: col.id === 'actions' ? true : !!col.visible,
+            order: typeof col.order === 'number' ? col.order : 99,
+          });
+        }
+      }
+      if (!hasActions) {
+        normalized.columns.push({ id: 'actions', visible: true, order: 99 });
+      }
+    }
+    
+    return normalized;
+  }
+
+
   async createSavedReport(workspaceId: string, userId: string, data: any) {
     if (!data.name || data.name.trim() === '') {
       throw new BadRequestException('Report name is required');
@@ -17,7 +64,7 @@ export class ReportsService {
         created_by_user_id: userId,
         name: data.name.trim().substring(0, 100),
         visibility: data.visibility === 'SHARED' ? 'SHARED' : 'PERSONAL',
-        configuration: data.configuration || {},
+        configuration: this.normalizeConfiguration(data.configuration),
       }
     });
   }
@@ -75,7 +122,7 @@ export class ReportsService {
       updates.visibility = data.visibility === 'SHARED' ? 'SHARED' : 'PERSONAL';
     }
     if (data.configuration !== undefined) {
-      updates.configuration = data.configuration;
+      updates.configuration = this.normalizeConfiguration(data.configuration);
     }
 
     return this.prisma.savedReport.update({
