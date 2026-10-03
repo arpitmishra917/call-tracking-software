@@ -1,3 +1,5 @@
+import { Response } from 'express';
+import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import {
   Controller,
   Get,
@@ -8,6 +10,7 @@ import {
   Body,
   UseGuards,
   Request,
+  Res,
 } from '@nestjs/common';
 import { ReportsService } from './reports.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -16,6 +19,29 @@ import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 @Controller('workspaces/:workspaceId/reports')
 @UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
 export class ReportsController {
+
+  @Post('export')
+  @RequireWorkspaceRoles('ADMIN', 'MEMBER', 'OWNER')
+  async exportReport(
+    @Param('workspaceId') workspaceId: string,
+    @Body() payload: any,
+    @Res() res: Response,
+  ) {
+    const { format, filters, columns } = payload;
+    const { buffer, contentType, extension } = await this.reportsService.generateExport(workspaceId, format, filters, columns);
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `callflow-report-${dateStr}.${extension}`;
+
+    res.set({
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Access-Control-Expose-Headers': 'Content-Disposition',
+    });
+
+    res.send(buffer);
+  }
+
   constructor(private readonly reportsService: ReportsService) {}
 
   @Post()

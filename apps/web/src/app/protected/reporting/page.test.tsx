@@ -90,3 +90,96 @@ describe('ReportingPage (Saved Reports Frontend Matrix)', () => {
     expect(actionCol.visible).toBe(true);
   });
 });
+
+
+describe('ReportingPage (Export E3 Frontend Matrix)', () => {
+  beforeEach(() => {
+    vi.mocked(apiFetch).mockClear();
+    // mock apiFetch default fallback
+    vi.mocked(apiFetch).mockImplementation((url) => {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ 
+        items: [], total: 0, 
+        answered: 0, missed: 0, failed: 0, 
+        buyers: {}, campaigns: {}, trackingNumbers: {} 
+      }) }) as any;
+    });
+    // mock window URL and Object URLs
+    window.URL.createObjectURL = vi.fn().mockReturnValue('blob:test');
+    window.URL.revokeObjectURL = vi.fn();
+  });
+
+  it('Export toggles dropdown and downloads CSV/XLSX', async () => {
+    // mock blob return
+    vi.mocked(apiFetch).mockImplementationOnce(async (url) => {
+      return { 
+        ok: true, 
+        blob: () => Promise.resolve(new Blob(['test'], { type: 'text/csv' })),
+        headers: new Headers({ 'content-disposition': 'attachment; filename="export.csv"' })
+      } as any;
+    });
+
+    render(<ThemeProvider><ReportingPage params={{ workspaceId: 'w1' }} /></ThemeProvider>);
+    
+    // Export button exists
+    const exportBtn = screen.getByRole('button', { name: /Export/i });
+    expect(exportBtn).toBeDefined();
+    
+    // Toggle dropdown
+    fireEvent.click(exportBtn);
+    
+    // Click CSV
+    const csvBtn = screen.getByText('Export CSV');
+    expect(csvBtn).toBeDefined();
+    
+    fireEvent.click(csvBtn);
+    
+    // Check apiFetch was called for export
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/workspaces/w1/reports/export',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.any(String)
+        })
+      );
+    });
+  });
+
+  it('Export duplicate-click protection', async () => {
+    // mock slow response to keep loading state true
+    vi.mocked(apiFetch).mockImplementationOnce(async () => {
+      return new Promise(resolve => setTimeout(() => resolve({
+        ok: true,
+        blob: () => Promise.resolve(new Blob(['test']))
+      } as any), 100));
+    });
+
+    render(<ThemeProvider><ReportingPage params={{ workspaceId: 'w1' }} /></ThemeProvider>);
+    
+    fireEvent.click(screen.getByRole('button', { name: /Export/i }));
+    fireEvent.click(screen.getByText('Export XLSX'));
+    
+    // Check it enters loading state (text changes or button disables)
+    expect(screen.getByRole('button', { name: /Export/i }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('Export error state handling', async () => {
+    // Return a 400 bad request JSON instead of blob
+    vi.mocked(apiFetch).mockImplementationOnce(async () => {
+      return { 
+        ok: false, 
+        json: () => Promise.resolve({ message: 'Export limit exceeded' })
+      } as any;
+    });
+
+    render(<ThemeProvider><ReportingPage params={{ workspaceId: 'w1' }} /></ThemeProvider>);
+    
+    fireEvent.click(screen.getByRole('button', { name: /Export/i }));
+    fireEvent.click(screen.getByText('Export CSV'));
+    
+    // Toast should show error
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Export/i }).hasAttribute('disabled')).toBe(false);
+    });
+  });
+});

@@ -16,7 +16,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart, Pie, Cell 
 } from 'recharts';
 import { 
-  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2
+  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2, Download, Loader2
 } from 'lucide-react';
 
 function formatDurationHms(seconds: number | null | undefined): string {
@@ -254,7 +254,64 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
     return () => document.removeEventListener('mousedown', closeMenu);
   }, [showColumnMenu]);
 
-const limit = 20;
+
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+    const closeMenu = (e: MouseEvent) => {
+      if (showExportMenu && !(e.target as Element).closest('.export-dropdown-container')) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', closeMenu);
+    return () => document.removeEventListener('mousedown', closeMenu);
+  }, [showExportMenu]);
+
+  const handleExport = async (format: 'csv' | 'xlsx') => {
+    setIsExporting(true);
+    setShowExportMenu(false);
+    try {
+      const payload = {
+        format,
+        filters: { startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDurationSecs: minDuration, maxDurationSecs: maxDuration, durationType: 'talk' },
+        columns
+      };
+
+      const res = await apiFetch(`/workspaces/${params.workspaceId}/reports/export`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || 'Export failed.');
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      let filename = `callflow-report-${new Date().toISOString().split('T')[0]}.${format}`;
+      const disp = res.headers.get('content-disposition');
+      if (disp && disp.includes('filename=')) {
+        const matches = /filename="([^"]+)"/.exec(disp);
+        if (matches && matches[1]) filename = matches[1];
+      }
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('An unexpected error occurred during export.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const limit = 20;
 
   const fetchReporting = useCallback(async () => {
     setLoading(true);
@@ -373,6 +430,20 @@ const limit = 20;
           </p>
         </div>
         <div className="flex items-center gap-2">
+            
+            <div className="relative export-dropdown-container z-50">
+              <Button variant="outline" size="sm" onClick={() => setShowExportMenu(!showExportMenu)} disabled={isExporting}>
+                {isExporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                Export ▾
+              </Button>
+              {showExportMenu && (
+                <div className="absolute right-0 mt-2 w-40 bg-surface border border-border rounded-md shadow-lg overflow-hidden flex flex-col p-1">
+                  <button className="flex items-center w-full px-3 py-2 text-sm text-left hover:bg-muted/50 rounded-sm" onClick={() => handleExport('csv')}>Export CSV</button>
+                  <button className="flex items-center w-full px-3 py-2 text-sm text-left hover:bg-muted/50 rounded-sm" onClick={() => handleExport('xlsx')}>Export XLSX</button>
+                </div>
+              )}
+            </div>
+
             <div className="relative reports-dropdown-container z-50">
               <Button variant="outline" size="sm" onClick={() => setShowReportsMenu(!showReportsMenu)}>
                 <Bookmark className="w-4 h-4 mr-2" />

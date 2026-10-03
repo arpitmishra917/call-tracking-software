@@ -1,10 +1,12 @@
+import * as ExcelJS from 'exceljs';
+import { CallsService } from '../calls/calls.service.js';
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WorkspaceRole } from '@prisma/client';
 
 @Injectable()
 export class ReportsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private callsService: CallsService) {}
 
   private normalizeConfiguration(config: any) {
     if (!config || typeof config !== 'object') return {};
@@ -13,7 +15,7 @@ export class ReportsService {
     // Normalize Filters
     if (config.filters && typeof config.filters === 'object') {
       normalized.filters = {};
-      const validFilters = ['startDate', 'endDate', 'campaignId', 'buyerId', 'trackingNumber', 'callerNumber', 'status', 'minDuration', 'maxDuration'];
+      const validFilters = ['startDate', 'endDate', 'campaignId', 'buyerId', 'trackingNumber', 'callerNumber', 'status', 'minDuration', 'maxDuration', 'minDurationSecs', 'maxDurationSecs', 'durationType'];
       for (const k of validFilters) {
         if (config.filters[k] !== undefined) normalized.filters[k] = config.filters[k];
       }
@@ -51,6 +53,87 @@ export class ReportsService {
     
     return normalized;
   }
+
+  async generateExport(workspaceId: string, format: 'csv' | 'xlsx', filters: any, columns: any[]) {
+    if (format !== 'csv' && format !== 'xlsx') {
+      throw new BadRequestException('Invalid export format');
+    }
+
+    // Explicitly validate filters through normalization to ensure tenant safety
+    const normalizedFilters = this.normalizeConfiguration({ filters }).filters || {};
+
+    const { items } = await this.callsService.getCalls(workspaceId, { ...normalizedFilters, limit: 10001 });
+
+    if (items.length > 10000) {
+      throw new BadRequestException('Export limit of 10,000 rows exceeded. Please narrow your filters.');
+    }
+
+    const exportCols = (columns || []).filter(c => c.visible && c.id !== 'actions').sort((a,b) => a.order - b.order);
+    
+    const headerMap: Record<string, string> = {
+      'time': 'Date / Time',
+      'caller': 'Caller',
+      'trackingNumber': 'Tracking Number',
+      'campaign': 'Campaign',
+      'finalDestination': 'Final Destination',
+      'status': 'Status',
+      'talkDuration': 'Talk Duration',
+      'totalDuration': 'Total Duration',
+      'attempts': 'Attempts',
+      'recording': 'Recording',
+      'id': 'Call ID',
+    };
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Report');
+
+    let sheetColumns = exportCols.map(col => ({
+      header: headerMap[col.id] || col.id,
+      key: col.id,
+      width: 20
+    }));
+
+    if (!sheetColumns.find(c => c.key === 'id')) {
+      sheetColumns.push({ header: 'Call ID', key: 'id', width: 40 });
+    }
+
+    worksheet.columns = sheetColumns;
+
+    const formatDuration = (secs: number) => {
+      if (typeof secs !== 'number' || isNaN(secs)) return '00:00';
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      if (h > 0) return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    };
+
+    items.forEach(call => {
+      const row: any = {};
+      row['time'] = call.created_at ? new Date(call.created_at).toISOString() : '';
+      row['caller'] = call.from_number || '';
+      row['trackingNumber'] = call.to_number || '';
+      row['campaign'] = call.campaign?.name || '';
+      row['finalDestination'] = call.buyer?.name || '';
+      row['status'] = call.state || '';
+      row['talkDuration'] = formatDuration(call.duration_secs || 0);
+      row['totalDuration'] = formatDuration(call.total_duration_secs || 0);
+      row['attempts'] = call.attempts?.length || 0;
+      row['recording'] = call.recordings && call.recordings.length > 0 ? 'Available' : 'None';
+      row['id'] = call.id;
+
+      worksheet.addRow(row);
+    });
+
+    if (format === 'csv') {
+      const buffer = await workbook.csv.writeBuffer();
+      return { buffer, contentType: 'text/csv', extension: 'csv' };
+    } else {
+      const buffer = await workbook.xlsx.writeBuffer();
+      return { buffer, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', extension: 'xlsx' };
+    }
+  }
+
 
 
   async createSavedReport(workspaceId: string, userId: string, data: any) {
