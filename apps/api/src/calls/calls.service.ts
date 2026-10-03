@@ -571,6 +571,21 @@ export class CallsService {
       bucket?: string;
     },
   ) {
+    
+    if (filters.startDate) {
+      const d = new Date(filters.startDate);
+      if (isNaN(d.getTime())) throw new BadRequestException('Invalid startDate');
+    }
+    if (filters.endDate) {
+      const d = new Date(filters.endDate);
+      if (isNaN(d.getTime())) throw new BadRequestException('Invalid endDate');
+    }
+    if (filters.startDate && filters.endDate) {
+      if (new Date(filters.startDate) > new Date(filters.endDate)) {
+        throw new BadRequestException('startDate cannot be after endDate');
+      }
+    }
+    
     const conditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
     if (filters.startDate) conditions.push(Prisma.sql`c.created_at >= ${new Date(filters.startDate)}`);
     if (filters.endDate) conditions.push(Prisma.sql`c.created_at <= ${new Date(filters.endDate)}`);
@@ -737,9 +752,7 @@ export class CallsService {
       failed: main.failed || 0,
       blocked: main.blocked || 0,
       avgDuration: main.answered > 0 ? Math.round((main.answered_duration || 0) / main.answered) : 0,
-      talkDuration: main.talk_duration || 0,
-      totalDuration: main.total_duration || 0,
-      tclSecs: main.tcl_secs || 0,
+      tclSecs: main.eligible_calls > 0 ? (main.tcl_secs || 0) : null,
       aclSecs: main.eligible_calls > 0 ? Math.round((main.tcl_secs || 0) / main.eligible_calls) : null,
       campaigns,
       buyers,

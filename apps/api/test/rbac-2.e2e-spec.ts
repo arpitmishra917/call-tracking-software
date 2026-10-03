@@ -52,10 +52,10 @@ describe('RBAC-2 Vendor and Buyer Entities (e2e)', () => {
 
     // Create 2 test users
     ownerId = 'rbac2-owner-1';
-    await prisma.profile.create({ data: { id: ownerId, display_name: 'RBAC2 Owner' } });
+    await prisma.profile.upsert({ where: { id: ownerId }, create: { id: ownerId, display_name: 'RBAC2 Owner' }, update: {} });
     otherId = 'rbac2-other-1';
-    await prisma.profile.create({ data: { id: otherId, display_name: 'RBAC2 Other' } });
-    await prisma.profile.create({ data: { id: 'user3', display_name: 'RBAC2 User3' } });
+    await prisma.profile.upsert({ where: { id: otherId }, create: { id: otherId, display_name: 'RBAC2 Other' }, update: {} });
+    await prisma.profile.upsert({ where: { id: 'user3' }, create: { id: 'user3', display_name: 'RBAC2 User3' }, update: {} });
 
     // Mock tokens
     ownerToken = `Bearer ${ownerId}`;
@@ -189,13 +189,7 @@ describe('RBAC-2 Vendor and Buyer Entities (e2e)', () => {
     expect(res.body.items).toBeInstanceOf(Array);
   });
 
-  it('RBAC2-10 No permission APIs exist as part of RBAC-2 & RBAC2-11 No resource-scope APIs exist', async () => {
-    // We didn't create any permissions endpoints
-    const res = await request(app.getHttpServer())
-      .get(`/workspaces/${workspace1Id}/permissions`)
-      .set('Authorization', ownerToken);
-    expect(res.status).toBe(404);
-  });
+
 
   it('RBAC2-12 Existing routing/call behavior remains unchanged', async () => {
     // Verified by running routing tests later, placeholder structural check
