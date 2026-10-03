@@ -16,7 +16,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart, Pie, Cell 
 } from 'recharts';
 import { 
-  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown
+  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2
 } from 'lucide-react';
 
 function formatDurationHms(seconds: number | null | undefined): string {
@@ -90,6 +90,102 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
   const [showFilters, setShowFilters] = useState(false);
 
   
+  
+  const [savedReports, setSavedReports] = useState<any[]>([]);
+  const [showReportsMenu, setShowReportsMenu] = useState(false);
+  const [reportName, setReportName] = useState('');
+  const [reportVisibility, setReportVisibility] = useState<'PERSONAL' | 'SHARED'>('PERSONAL');
+  const [isSavingReport, setIsSavingReport] = useState(false);
+
+  const fetchSavedReports = useCallback(async () => {
+    if (!params.workspaceId) return;
+    try {
+      const res = await apiFetch(`/workspaces/${params.workspaceId}/reports`);
+      if (res.ok) {
+        setSavedReports(await res.json());
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [params.workspaceId]);
+
+  useEffect(() => {
+    fetchSavedReports();
+  }, [fetchSavedReports]);
+
+  const handleSaveReport = async () => {
+    if (!reportName.trim()) return alert('Name required');
+    const config = {
+      filters: draftFilters,
+      groupBy,
+      bucket,
+      columns: columns.map(c => ({ id: c.id, visible: c.visible, order: c.order })),
+    };
+    
+    try {
+      const res = await apiFetch(`/workspaces/${params.workspaceId}/reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: reportName, visibility: reportVisibility, configuration: config })
+      });
+      if (!res.ok) throw new Error('Failed to save report');
+      setReportName('');
+      setIsSavingReport(false);
+      fetchSavedReports();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  const applyReport = (report: any) => {
+    const config = report.configuration || {};
+    
+    if (config.filters) {
+      const q = new URLSearchParams();
+      Object.entries(config.filters).forEach(([k, v]) => { if (v) q.set(k, v as string); });
+      if (config.groupBy) q.set('groupBy', config.groupBy);
+      if (config.bucket) q.set('bucket', config.bucket);
+      router.push(`/protected/reporting?${q.toString()}`);
+    }
+    
+    if (config.columns && Array.isArray(config.columns)) {
+      const validIds = new Set(DEFAULT_COLUMNS.map(c => c.id));
+      const filtered = config.columns.filter((p: any) => validIds.has(p.id));
+      const newCols = DEFAULT_COLUMNS.map(def => {
+        const found = filtered.find((p: any) => p.id === def.id);
+        if (found) {
+          return { ...def, visible: def.locked ? true : found.visible, order: found.order };
+        }
+        return def;
+      }).sort((a, b) => a.order - b.order);
+      newCols.forEach((c, i) => c.order = i);
+      saveColumns(newCols);
+    }
+    setShowReportsMenu(false);
+  };
+
+  const deleteReport = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!confirm('Delete this saved report?')) return;
+    try {
+      const res = await apiFetch(`/workspaces/${params.workspaceId}/reports/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete report');
+      fetchSavedReports();
+    } catch(err: any) {
+      alert(err.message);
+    }
+  };
+
+  useEffect(() => {
+    const closeMenu = (e: MouseEvent) => {
+      if (showReportsMenu && !(e.target as Element).closest('.reports-dropdown-container')) {
+        setShowReportsMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', closeMenu);
+    return () => document.removeEventListener('mousedown', closeMenu);
+  }, [showReportsMenu]);
+
   const [columns, setColumns] = useState<ColumnDef[]>([...DEFAULT_COLUMNS]);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 

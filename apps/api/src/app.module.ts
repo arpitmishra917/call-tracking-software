@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { AuthorizationModule } from './authorization/authorization.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { CallsModule } from './calls/calls.module.js';
+import { ReportsModule } from './reports/reports.module.js';
 import { UsageModule } from './usage/usage.module.js';
 import { BillingModule } from './billing/billing.module.js';
 import { ApiKeysModule } from './api-keys/api-keys.module.js';
@@ -27,6 +28,7 @@ import { WebhooksModule } from './webhooks/webhooks.module.js';
     AuthorizationModule,
     WorkspacesModule,
     CallsModule,
+    ReportsModule,
     UsageModule,
     BillingModule,
     ApiKeysModule,
