@@ -1,3 +1,4 @@
+import { PermissionsModule } from './permissions/permissions.module.js';
 import { Module } from '@nestjs/common';
 import { AccountModule } from './account/account.module.js';
 import { AppController } from './app.controller.js';
@@ -19,6 +20,7 @@ import { WebhooksModule } from './webhooks/webhooks.module.js';
 
 @Module({
   imports: [
+    PermissionsModule,
     AccountModule,
     PrismaModule,
     TelephonyModule,
