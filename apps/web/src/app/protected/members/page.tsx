@@ -23,6 +23,7 @@ type WorkspaceMember = {
   workspace_id: string;
   user_id: string;
   role: string;
+  participant_type: string;
   created_at: string;
   profile: Profile;
 };
@@ -224,6 +225,7 @@ export default function MembersPage() {
                 <TableRow>
                   <TableHead className="min-w-[200px]">Email</TableHead>
                   <TableHead className="min-w-[100px]">Role</TableHead>
+                    <TableHead className="min-w-[120px]">Participant Type</TableHead>
                   <TableHead className="min-w-[120px]">Invited</TableHead>
                   <TableHead className="text-right min-w-[100px]">Actions</TableHead>
                 </TableRow>
@@ -237,9 +239,13 @@ export default function MembersPage() {
                     <TableCell>
                       <Badge variant="outline">{inv.role}</Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {new Date(inv.created_at).toLocaleDateString()}
-                    </TableCell>
+                    
+                      <TableCell>
+                        <Badge variant="outline">INTERNAL</Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {new Date(inv.created_at).toLocaleDateString()}
+                      </TableCell>
                     <TableCell className="text-right">
                       <Button
                         variant="outline"
@@ -281,6 +287,7 @@ export default function MembersPage() {
                 <TableRow>
                   <TableHead className="min-w-[200px]">User / Identity</TableHead>
                   <TableHead className="min-w-[100px]">Role</TableHead>
+                    <TableHead className="min-w-[120px]">Participant Type</TableHead>
                   <TableHead className="min-w-[120px]">Joined</TableHead>
                   {isOwnerOrAdmin && <TableHead className="text-right min-w-[100px]">Actions</TableHead>}
                 </TableRow>
@@ -318,9 +325,13 @@ export default function MembersPage() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {new Date(member.created_at).toLocaleDateString()}
-                    </TableCell>
+                    
+                      <TableCell>
+                        <Badge variant="outline">{member.participant_type || 'INTERNAL'}</Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {new Date(member.created_at).toLocaleDateString()}
+                      </TableCell>
                     {isOwnerOrAdmin && (
                       <TableCell className="text-right">
                         {currentUserId !== member.user_id && (

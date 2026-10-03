@@ -76,6 +76,13 @@ model WorkspaceInvitation {
   @@map("workspace_invitations")
 }
 
+
+enum WorkspaceParticipantType {
+  INTERNAL
+  VENDOR
+  BUYER
+}
+
 model WorkspaceMember {
   id           String        @id @default(uuid())
   workspace_id String
@@ -85,6 +92,9 @@ model WorkspaceMember {
   updated_at   DateTime      @updatedAt
   profile      Profile       @relation(fields: [user_id], references: [id], onDelete: Cascade)
   workspace    Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  
+  participant_type WorkspaceParticipantType @default(INTERNAL)
 
   @@unique([workspace_id, user_id])
   @@map("workspace_members")

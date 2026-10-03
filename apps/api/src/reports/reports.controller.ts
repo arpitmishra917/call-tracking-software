@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import type { Response } from 'express';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import {
   Controller,
