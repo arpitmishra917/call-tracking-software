@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi } from 'vitest';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ReportingPage from './page';
 import { ThemeProvider } from '@/components/theme-provider';
 import { apiFetch } from '@/lib/api';

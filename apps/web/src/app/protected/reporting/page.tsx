@@ -455,7 +455,7 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
                     <>
                       <div className="p-3 border-b border-border flex justify-between items-center bg-muted/30">
                         <span className="text-sm font-semibold text-foreground">Saved Reports</span>
-                        <Button variant="default" size="sm" className="h-7 text-xs" onClick={() => setIsSavingReport(true)}>
+                        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setIsSavingReport(true)}>
                           <Save className="w-3 h-3 mr-1" /> Save Current
                         </Button>
                       </div>

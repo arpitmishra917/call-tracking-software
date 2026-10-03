@@ -304,6 +304,56 @@ describe('Reporting Export API (R3-E3)', () => {
     expect(res.buffer.toString().length).toBeGreaterThan(0);
   });
 
+  
+  it('E3-25 Formula injection prevention', async () => {
+    // create a campaign with formula
+    const camp = await prisma.campaign.create({
+      data: {
+        workspace_id: workspace1,
+        name: '=SUM(A1:A2)',
+        
+      }
+    });
+    // create a buyer with formula
+    const buy = await prisma.buyer.create({
+      data: {
+        workspace_id: workspace1,
+        name: '+123',
+        destination_number: '-123'
+      }
+    });
+    const callForm = await prisma.call.create({
+      data: {
+        workspace: { connect: { id: workspace1 } },
+        campaign: { connect: { id: camp.id } },
+        
+        from_number: '@username',
+        to_number: '-12345',
+        state: 'COMPLETED',
+        started_at: new Date(),
+        ended_at: new Date(),
+        duration_secs: 10,
+        provider: 'telnyx',
+        provider_call_id: 'call-form'
+      }
+    });
+
+    const res = await reportsService.generateExport(workspace1, 'csv', {}, [{ id: 'campaign', visible: true, order: 1 }, { id: 'finalDestination', visible: true, order: 2 }, { id: 'caller', visible: true, order: 3 }, { id: 'trackingNumber', visible: true, order: 4 }]);
+    const str = res.buffer.toString();
+    
+    // We expect the cells to NOT be literal '=SUM(A1:A2)'
+    expect(str).not.toContain('\n=SUM(A1:A2)');
+    expect(str).not.toContain(',=SUM(A1:A2)');
+    expect(str).not.toContain(',+123');
+    expect(str).not.toContain(',@username');
+    expect(str).not.toContain(',-12345');
+    
+    // clean up
+    await prisma.call.delete({ where: { id: callForm.id } });
+    await prisma.buyer.delete({ where: { id: buy.id } });
+    await prisma.campaign.delete({ where: { id: camp.id } });
+  });
+
   it('E3-24 No cross-tenant data leakage through filter IDs', async () => {
     // try to filter by a campaign belonging to ws2
     const c2 = await prisma.campaign.create({ data: { workspace_id: workspace2, name: 'WS2 Camp' } });

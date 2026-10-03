@@ -120,9 +120,18 @@ export class ReportsService {
       row['totalDuration'] = formatDuration(call.total_duration_secs || 0);
       row['attempts'] = call.attempts?.length || 0;
       row['recording'] = call.recordings && call.recordings.length > 0 ? 'Available' : 'None';
-      row['id'] = call.id;
+      
+        row['id'] = call.id;
 
-      worksheet.addRow(row);
+        // Formula injection neutralization
+        Object.keys(row).forEach(k => {
+          if (typeof row[k] === 'string' && /^[=+\-@]/.test(row[k])) {
+            row[k] = "\t" + row[k];
+          }
+        });
+
+        worksheet.addRow(row);
+
     });
 
     if (format === 'csv') {
