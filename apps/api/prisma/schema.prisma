@@ -29,7 +29,8 @@ model Workspace {
   members                   WorkspaceMember[]
   phone_numbers             PhoneNumber[]
   campaigns                 Campaign[]
-  buyers                    Buyer[]
+  buyers            Buyer[]
+  vendors           Vendor[]
   campaign_buyers           CampaignBuyer[]
   blocked_callers           BlockedCaller[]
   calls                     Call[]
@@ -83,6 +84,22 @@ enum WorkspaceParticipantType {
   BUYER
 }
 
+
+model Vendor {
+  id           String   @id @default(uuid())
+  workspace_id String
+  name         String
+  status       String   @default("ACTIVE")
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace         Workspace         @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  workspace_members WorkspaceMember[]
+
+  @@index([workspace_id])
+  @@map("vendors")
+}
+
 model WorkspaceMember {
   id           String        @id @default(uuid())
   workspace_id String
@@ -94,7 +111,14 @@ model WorkspaceMember {
   workspace    Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
 
   
+  
   participant_type WorkspaceParticipantType @default(INTERNAL)
+  vendor_id        String?
+  buyer_id         String?
+
+  vendor           Vendor? @relation(fields: [vendor_id], references: [id], onDelete: SetNull)
+  buyer            Buyer?  @relation(fields: [buyer_id], references: [id], onDelete: SetNull)
+
 
   @@unique([workspace_id, user_id])
   @@map("workspace_members")
@@ -186,6 +210,7 @@ model Buyer {
   updated_at         DateTime @updatedAt
 
   workspace     Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  workspace_members WorkspaceMember[]
   campaigns     CampaignBuyer[]
   call_attempts CallAttempt[]
 
