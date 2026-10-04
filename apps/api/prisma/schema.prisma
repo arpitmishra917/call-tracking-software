@@ -642,18 +642,28 @@ model Permission {
   @@map("permissions")
 }
 
+enum ResourceScopeType {
+  ALL
+  ASSIGNED
+  CAMPAIGN
+  PHONE_NUMBER
+  BUYER
+  VENDOR
+}
+
 model WorkspaceMemberPermission {
   id                  String   @id @default(uuid())
   workspace_id        String
   workspace_member_id String
   permission_id       String
+  scope_type          ResourceScopeType @default(ALL)
+  resource_id         String?
   created_at          DateTime @default(now())
 
   workspace       Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   workspaceMember WorkspaceMember @relation(fields: [workspace_member_id], references: [id], onDelete: Cascade)
   permission      Permission      @relation(fields: [permission_id], references: [id], onDelete: Cascade)
 
-  @@unique([workspace_member_id, permission_id])
   @@index([workspace_id])
   @@map("workspace_member_permissions")
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Delete, Param, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Put, Delete, Param, Body, Query, UseGuards, Req } from '@nestjs/common';
 import { PermissionsService } from './permissions.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 
@@ -25,9 +25,17 @@ export class PermissionsController {
     @Param('workspaceId') workspaceId: string,
     @Param('memberId') memberId: string,
     @Param('permissionKey') permissionKey: string,
+    @Body() body: any,
     @Req() req: any
   ) {
-    return this.permissionsService.assignPermission(workspaceId, req.user.userId, memberId, permissionKey);
+    return this.permissionsService.assignPermission(
+      workspaceId, 
+      req.user.userId, 
+      memberId, 
+      permissionKey,
+      body?.scopeType,
+      body?.resourceId
+    );
   }
 
   @Delete('members/:memberId/:permissionKey')
@@ -35,8 +43,18 @@ export class PermissionsController {
     @Param('workspaceId') workspaceId: string,
     @Param('memberId') memberId: string,
     @Param('permissionKey') permissionKey: string,
+    @Query('scopeType') scopeType: string,
+    @Query('resourceId') resourceId: string,
     @Req() req: any
   ) {
-    return this.permissionsService.removePermission(workspaceId, req.user.userId, memberId, permissionKey);
+    return this.permissionsService.removePermission(
+      workspaceId, 
+      req.user.userId, 
+      memberId, 
+      permissionKey,
+      scopeType,
+      resourceId
+    );
   }
 }
+
