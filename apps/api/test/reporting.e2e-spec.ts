@@ -17,6 +17,7 @@ describe('Reporting API Foundation (R3-A)', () => {
   let campaign1: string;
   let buyer1: string;
   let trackingNumber1: string;
+  let user1: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -45,6 +46,12 @@ describe('Reporting API Foundation (R3-A)', () => {
     workspace1 = ws1.id;
     const ws2 = await prisma.workspace.create({ data: { name: 'Reporting WS 2', slug: "rep-ws-2-" + Math.random() } });
     workspace2 = ws2.id;
+    user1 = 'u_' + Math.random().toString(36).substring(7);
+    let user2 = 'u_' + Math.random().toString(36).substring(7);
+    await prisma.profile.create({ data: { id: user1, display_name: 'Owner' } });
+    await prisma.profile.create({ data: { id: user2, display_name: 'Owner 2' } });
+    await prisma.workspaceMember.create({ data: { workspace_id: workspace1, user_id: user1, role: 'OWNER', participant_type: 'INTERNAL' } });
+    await prisma.workspaceMember.create({ data: { workspace_id: workspace2, user_id: user2, role: 'OWNER', participant_type: 'INTERNAL' } });
     
     const camp = await prisma.campaign.create({ data: { workspace_id: workspace1, name: 'Camp 1' } });
     campaign1 = camp.id;

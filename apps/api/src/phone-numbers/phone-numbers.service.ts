@@ -22,7 +22,9 @@ export class PhoneNumbersService {
 
     const hasAll = readPerms.some((p: any) => p.scope_type === 'ALL');
     const hasAssigned = readPerms.some((p: any) => p.scope_type === 'ASSIGNED');
-    const allowedResourceIds = readPerms.filter((p: any) => p.resource_id).map((p: any) => p.resource_id);
+    const campaignIds = readPerms.filter((p: any) => p.scope_type === 'CAMPAIGN' && p.resource_id).map((p: any) => p.resource_id);
+    const phoneIds = readPerms.filter((p: any) => p.scope_type === 'PHONE_NUMBER' && p.resource_id).map((p: any) => p.resource_id);
+    const buyerIds = readPerms.filter((p: any) => p.scope_type === 'BUYER' && p.resource_id).map((p: any) => p.resource_id);
 
     const where: any = { workspace_id: workspaceId, status: { not: PhoneNumberStatus.RELEASED } };
 
@@ -36,11 +38,21 @@ export class PhoneNumbersService {
           authOrConditions.push({ campaign: { buyers: { some: { buyer_id: member.buyer_id } } } });
         }
       }
-      if (allowedResourceIds.length > 0) {
-        authOrConditions.push({ id: { in: allowedResourceIds } });
+      
+      if (campaignIds.length > 0) {
+        authOrConditions.push({ campaign_id: { in: campaignIds } });
       }
+      
+      if (phoneIds.length > 0) {
+        authOrConditions.push({ id: { in: phoneIds } });
+      }
+      
+      if (buyerIds.length > 0) {
+        authOrConditions.push({ campaign: { buyers: { some: { buyer_id: { in: buyerIds } } } } });
+      }
+      
       if (authOrConditions.length === 0) {
-        return [];
+        return { items: [], total: 0 };
       }
       where.AND = [{ OR: authOrConditions }];
     }

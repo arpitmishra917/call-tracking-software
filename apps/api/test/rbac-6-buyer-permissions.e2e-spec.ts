@@ -75,6 +75,67 @@ describe('RBAC-6 Buyer Permissions (e2e)', () => {
     const c1 = await prisma.campaign.create({ data: { workspace_id: w1Id, name: 'C1' } });
     w1CampaignId = c1.id;
     await prisma.campaignBuyer.create({ data: { workspace_id: w1Id, campaign_id: w1CampaignId, buyer_id: w1BuyerId, priority: 1 } });
+    const p3 = await prisma.permission.findUnique({ where: { key: 'call:recording_read' } });
+    if (p3) {
+      await prisma.workspaceMemberPermission.create({ data: { workspace_id: w1Id, workspace_member_id: wmBuyerId, permission_id: p3.id, scope_type: 'ASSIGNED' } });
+    }
+    
+    // Create calls and recordings
+    const call1 = await prisma.call.create({
+      data: {
+        workspace_id: w1Id,
+        state: 'COMPLETED',
+        from_number: '+12223334444',
+        provider: 'TWILIO',
+        provider_call_id: 'CA' + Math.random().toString().substring(2),
+        to_number: '+15556667777',
+      }
+    });
+    
+    const call2 = await prisma.call.create({
+      data: {
+        workspace_id: w1Id,
+        state: 'COMPLETED',
+        from_number: '+12223334444',
+        provider: 'TWILIO',
+        provider_call_id: 'CA' + Math.random().toString().substring(2),
+        to_number: '+15556667777',
+      }
+    });
+
+    const call3 = await prisma.call.create({
+      data: {
+        workspace_id: w2Id,
+        state: 'COMPLETED',
+        from_number: '+12223334444',
+        provider: 'TWILIO',
+        provider_call_id: 'CA' + Math.random().toString().substring(2),
+        to_number: '+15556667777',
+      }
+    });
+
+    await prisma.callAttempt.create({
+      data: {
+        call_id: call1.id,
+        buyer_id: w1BuyerId,
+        state: 'COMPLETED',
+        
+      }
+    });
+
+    await prisma.callAttempt.create({
+      data: {
+        call_id: call2.id,
+        buyer_id: w1OtherBuyerId,
+        state: 'COMPLETED',
+        
+      }
+    });
+
+    await prisma.recording.create({ data: { id: 'rec-1', call_id: call1.id, workspace_id: w1Id, duration_secs: 10, provider_id: 'a' } });
+    await prisma.recording.create({ data: { id: 'rec-2', call_id: call2.id, workspace_id: w1Id, duration_secs: 10, provider_id: 'b' } });
+    await prisma.recording.create({ data: { id: 'rec-3', call_id: call3.id, workspace_id: w2Id, duration_secs: 10, provider_id: 'c' } });
+
 
     ownerToken = 'owner';
     buyerToken = 'buyer';
@@ -138,4 +199,26 @@ describe('RBAC-6 Buyer Permissions (e2e)', () => {
       .expect(200);
     expect(res.body.items).toHaveLength(2);
   });
+
+  it('Authorized Buyer can access its recording', async () => {
+    await request(app.getHttpServer())
+      .get(`/workspaces/${w1Id}/recordings/rec-1/download`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .expect(200);
+  });
+
+  it('Buyer cannot access another Buyers recording', async () => {
+    await request(app.getHttpServer())
+      .get(`/workspaces/${w1Id}/recordings/rec-2/download`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .expect(403);
+  });
+
+  it('Cross-workspace recording access is denied', async () => {
+    await request(app.getHttpServer())
+      .get(`/workspaces/${w2Id}/recordings/rec-3/download`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .expect(403);
+  });
+
 });

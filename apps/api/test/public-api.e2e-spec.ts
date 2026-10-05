@@ -16,6 +16,8 @@ describe('Public API (e2e)', () => {
   let workspace2: any;
   let validApiKey1: string;
   let validApiKey2: string;
+  let ownerId: string;
+  let otherId: string;
   let revokedApiKey: string;
 
   beforeAll(async () => {
@@ -39,12 +41,16 @@ describe('Public API (e2e)', () => {
       data: { id: crypto.randomUUID(), display_name: 'Test Owner' },
     });
 
+    ownerId = 'u_' + Math.random().toString(36).substring(7);
+    otherId = 'u_' + Math.random().toString(36).substring(7);
+    await prisma.profile.create({ data: { id: ownerId, display_name: 'Test Owner' } });
+    await prisma.profile.create({ data: { id: otherId, display_name: 'Other' } });
     workspace1 = await prisma.workspace.create({
       data: {
         name: 'Workspace 1',
         slug: `ws1-${crypto.randomUUID()}`,
         members: {
-          create: { user_id: Math.random().toString(), role: 'OWNER' },
+          create: { user_id: ownerId, role: 'OWNER' },
         },
       },
     });
@@ -54,29 +60,23 @@ describe('Public API (e2e)', () => {
         name: 'Workspace 2',
         slug: `ws2-${crypto.randomUUID()}`,
         members: {
-          create: { user_id: Math.random().toString(), role: 'OWNER' },
+          create: { user_id: otherId, role: 'OWNER' },
         },
       },
     });
 
     // Create API Keys
-    const key1 = await apiKeysService.createApiKey(
-      workspace1.id,
-      Math.random().toString(),
+    const key1 = await apiKeysService.createApiKey(workspace1.id, ownerId,
       'Key 1',
     );
     validApiKey1 = key1.rawSecret;
 
-    const key2 = await apiKeysService.createApiKey(
-      workspace2.id,
-      Math.random().toString(),
+    const key2 = await apiKeysService.createApiKey(workspace2.id, otherId,
       'Key 2',
     );
     validApiKey2 = key2.rawSecret;
 
-    const key3 = await apiKeysService.createApiKey(
-      workspace1.id,
-      Math.random().toString(),
+    const key3 = await apiKeysService.createApiKey(workspace1.id, ownerId,
       'Revoked Key',
     );
     revokedApiKey = key3.rawSecret;
@@ -94,7 +94,7 @@ describe('Public API (e2e)', () => {
       await prisma.workspace.deleteMany({
         where: { id: { in: [workspace1.id, workspace2.id] } },
       });
-      await prisma.profile.delete({ where: { id: Math.random().toString() } });
+      await prisma.profile.deleteMany({ where: { id: { in: [ownerId, otherId] } } });
     }
     if (app) {
       await app.close();

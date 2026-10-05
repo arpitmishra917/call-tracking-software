@@ -51,6 +51,7 @@ export class BuyersController {
     );
   }
 
+  @RequirePermission('buyer:update')
   @Post(':id/archive')
   @RequireResourceScope('buyer', 'id')
   archive(
@@ -60,6 +61,7 @@ export class BuyersController {
     return this.buyersService.updateBuyer(workspaceId, id, { status: 'INACTIVE' });
   }
 
+  @RequirePermission('buyer:update')
   @Post(':id/activate')
   @RequireResourceScope('buyer', 'id')
   activate(

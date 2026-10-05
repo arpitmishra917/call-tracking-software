@@ -57,6 +57,7 @@ export class CampaignsController {
     return this.campaignsService.updateCampaign(workspaceId, id, body);
   }
 
+  @RequirePermission('campaign:update')
   @Post(':id/archive')
   @RequireResourceScope('campaign', 'id')
   archive(
@@ -68,6 +69,7 @@ export class CampaignsController {
     });
   }
 
+  @RequirePermission('campaign:update')
   @Post(':id/activate')
   @RequireResourceScope('campaign', 'id')
   activate(
@@ -79,6 +81,7 @@ export class CampaignsController {
     });
   }
 
+  @RequirePermission('campaign:update')
   @Post(':id/phone-numbers')
   @RequireResourceScope('campaign', 'id')
   assignPhoneNumber(
@@ -93,6 +96,7 @@ export class CampaignsController {
     );
   }
 
+  @RequirePermission('campaign:update')
   @Delete(':id/phone-numbers/:phoneNumberId')
   @RequireResourceScope('campaign', 'id')
   removePhoneNumber(
@@ -123,6 +127,7 @@ export class CampaignsController {
     );
   }
 
+  @RequirePermission('campaign:update')
   @Delete(':id/buyers/:buyerId')
   @RequireResourceScope('campaign', 'id')
   removeBuyer(
@@ -133,6 +138,7 @@ export class CampaignsController {
     return this.campaignsService.removeBuyerFromCampaign(workspaceId, id, buyerId);
   }
 
+  @RequirePermission('campaign:update')
   @Put(':id/buyers/reorder')
   @RequireResourceScope('campaign', 'id')
   reorderBuyers(

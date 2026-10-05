@@ -428,8 +428,10 @@ export class CallsService {
     
     const hasAll = readPerms.some(p => p.scope_type === 'ALL');
     const hasAssigned = readPerms.some(p => p.scope_type === 'ASSIGNED');
-    const allowedResourceIds = readPerms.filter(p => p.resource_id).map(p => p.resource_id);
-
+    const campaignIds = readPerms.filter(p => p.scope_type === 'CAMPAIGN' && p.resource_id).map(p => p.resource_id);
+    const phoneIds = readPerms.filter(p => p.scope_type === 'PHONE_NUMBER' && p.resource_id).map(p => p.resource_id);
+    const buyerIds = readPerms.filter(p => p.scope_type === 'BUYER' && p.resource_id).map(p => p.resource_id);
+    
     let authOrConditions: any[] = [];
     if (!hasAll) {
       let assignedBuyerId = null;
@@ -444,8 +446,26 @@ export class CallsService {
         authOrConditions.push({ campaign: { buyers: { some: { buyer_id: assignedBuyerId } } } });
         authOrConditions.push({ attempts: { some: { buyer_id: assignedBuyerId } } });
       }
-      if (allowedResourceIds.length > 0) {
-        authOrConditions.push({ id: { in: allowedResourceIds } });
+      
+      if (campaignIds.length > 0) {
+        authOrConditions.push({ campaign_id: { in: campaignIds as string[] } });
+      }
+      
+      if (buyerIds.length > 0) {
+        authOrConditions.push({ attempts: { some: { buyer_id: { in: buyerIds as string[] } } } });
+      }
+      
+      if (phoneIds.length > 0) {
+        const phoneNumbers = await this.prisma.phoneNumber.findMany({
+          where: { id: { in: phoneIds as string[] } },
+          select: { phone_number: true }
+        });
+        const numberStrings = phoneNumbers.map(n => n.phone_number);
+        if (numberStrings.length > 0) {
+           authOrConditions.push({ to_number: { in: numberStrings } });
+        } else {
+           authOrConditions.push({ id: '__invalid__' });
+        }
       }
       
       if (authOrConditions.length === 0) {
@@ -644,8 +664,34 @@ export class CallsService {
 
 
     const conditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
-    if (!hasAll && hasAssigned && assignedBuyerId) {
-      conditions.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id = ${assignedBuyerId}) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id = ${assignedBuyerId}))`);
+    
+    if (!hasAll) {
+      let authOrConditionsRaw: any[] = [];
+      
+      if (hasAssigned && assignedBuyerId) {
+        authOrConditionsRaw.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id = ${assignedBuyerId}) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id = ${assignedBuyerId}))`);
+      }
+      
+      const campaignIds = readPerms.filter((p: any) => p.scope_type === 'CAMPAIGN' && p.resource_id).map((p: any) => p.resource_id);
+      if (campaignIds.length > 0) {
+        authOrConditionsRaw.push(Prisma.sql`c.campaign_id IN (${Prisma.join(campaignIds)})`);
+      }
+      
+      const phoneIds = readPerms.filter((p: any) => p.scope_type === 'PHONE_NUMBER' && p.resource_id).map((p: any) => p.resource_id);
+      if (phoneIds.length > 0) {
+        authOrConditionsRaw.push(Prisma.sql`c.to_number IN (SELECT phone_number FROM phone_numbers WHERE id IN (${Prisma.join(phoneIds)}))`);
+      }
+
+      const buyerIds = readPerms.filter((p: any) => p.scope_type === 'BUYER' && p.resource_id).map((p: any) => p.resource_id);
+      if (buyerIds.length > 0) {
+        authOrConditionsRaw.push(Prisma.sql`EXISTS(SELECT 1 FROM call_attempts a3 WHERE a3.call_id = c.id AND a3.buyer_id IN (${Prisma.join(buyerIds)}))`);
+      }
+
+      if (authOrConditionsRaw.length === 0) {
+         return { total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, avgDuration: 0, tclSecs: null, aclSecs: null, campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: [] };
+      }
+      
+      conditions.push(Prisma.sql`(${Prisma.join(authOrConditionsRaw, ' OR ')})`);
     }
   
   

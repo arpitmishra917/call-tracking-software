@@ -25,7 +25,21 @@ export class PermissionsGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    if (!requiredPermission) {
+if (!requiredPermission) {
+      const scopeMetadata = this.reflector.getAllAndOverride<{
+        resourceType: string;
+        idParam: string;
+      }>(REQUIRE_RESOURCE_SCOPE_KEY, [context.getHandler(), context.getClass()]);
+      
+      if (scopeMetadata) {
+        throw new ForbiddenException('Resource scoped endpoints must specify a required permission');
+      }
+
+      const request = context.switchToHttp().getRequest();
+      if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method)) {
+        throw new ForbiddenException('Mutation endpoints must specify a required permission');
+      }
+
       return true;
     }
 

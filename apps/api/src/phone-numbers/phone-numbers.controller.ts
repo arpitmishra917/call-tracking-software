@@ -67,6 +67,7 @@ export class PhoneNumbersController {
     );
   }
 
+  @RequirePermission('phone_number:manage')
   @Put(':id')
   @RequireResourceScope('phone_number', 'id')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
@@ -78,6 +79,7 @@ export class PhoneNumbersController {
     return this.phoneNumbersService.updateNumber(workspaceId, id, name);
   }
 
+  @RequirePermission('phone_number:manage')
   @Delete(':id')
   @RequireResourceScope('phone_number', 'id')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)

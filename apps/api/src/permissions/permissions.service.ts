@@ -150,8 +150,24 @@ export class PermissionsService implements OnModuleInit {
         if (pn?.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
       }
 
+// RECORDING resource
+      if (permissionKey === 'call:recording_read' && member.buyer_id) {
+        const rec = await this.prisma.recording.findUnique({
+          where: { id: resourceId },
+          include: {
+            call: {
+              include: { attempts: true, campaign: { include: { buyers: true } } }
+            }
+          }
+        });
+        if (!rec || !rec.call) return false;
+        if (rec.call.attempts.some(a => a.buyer_id === member.buyer_id)) return true;
+        if (rec.call.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
+        return false;
+      }
+
       // CALL resource
-      if (permDef.group === 'CALLS' && member.buyer_id) {
+      if (permDef.group === 'CALLS' && member.buyer_id && permissionKey !== 'call:recording_read') {
         // Can be linked via CallAttempt -> Buyer OR Call -> Campaign -> CampaignBuyer
         const call = await this.prisma.call.findUnique({
           where: { id: resourceId },
