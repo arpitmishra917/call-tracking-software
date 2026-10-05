@@ -1,3 +1,4 @@
+import { PermissionsModule } from '../permissions/permissions.module.js';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { CallController, TELEPHONY_PROVIDER } from './call-controller.js';
@@ -19,6 +20,7 @@ import { BillingModule } from '../billing/billing.module.js';
 
 @Module({
   imports: [
+    PermissionsModule,
     PrismaModule,
     RoutingModule,
     CallsModule,

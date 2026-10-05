@@ -60,7 +60,8 @@ describe('Phase 3D: Call Routing Billing Integration', () => {
 
     await prisma.workspace.create({ data: { id: wsId, name: 'P3D', slug: 'p3d-slug' } });
     await prisma.workspaceBalance.create({ data: { workspace_id: wsId, balance_micro: 50000000n, reserved_micro: 0n } });
-    await prisma.phoneNumber.create({ data: { workspace_id: wsId, phone_number: trackNum, provider: 'telnyx', number_type: 'local', status: 'ACTIVE' } });
+    const baseCamp = await prisma.campaign.create({ data: { workspace_id: wsId, name: 'Base Camp' } });
+    await prisma.phoneNumber.create({ data: { workspace_id: wsId, phone_number: trackNum, provider: 'telnyx', number_type: 'local', status: 'ACTIVE', campaign_id: baseCamp.id } });
   });
 
   it('TEST A: Inbound call with sufficient wallet', async () => {
@@ -100,7 +101,7 @@ describe('Phase 3D: Call Routing Billing Integration', () => {
     const camp = await prisma.campaign.create({ data: { workspace_id: wsId, name: 'Camp' } });
     await prisma.phoneNumber.update({ where: { phone_number: trackNum }, data: { campaign_id: camp.id } });
     await prisma.call.update({ where: { id: cId }, data: { campaign_id: camp.id } });
-    await prisma.campaignBuyer.createMany({ data: [{ workspace_id: wsId, campaign_id: camp.id, buyer_id: b1.id }, { workspace_id: wsId, campaign_id: camp.id, buyer_id: b2.id }] });
+    await prisma.campaignBuyer.createMany({ data: [{ workspace_id: wsId, campaign_id: camp.id, buyer_id: b1.id, priority: 1 }, { workspace_id: wsId, campaign_id: camp.id, buyer_id: b2.id, priority: 2 }] });
 
     // Answer incoming leg => starts routing
     providerMock.dialBuyer.mockResolvedValueOnce('b1_prov_id');

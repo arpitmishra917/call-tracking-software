@@ -1,9 +1,10 @@
-import { PermissionsService } from '../src/permissions/permissions.service.js';
+import { PermissionsService } from '../permissions/permissions.service.js';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CallController, TELEPHONY_PROVIDER } from './call-controller.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CallsService } from '../calls/calls.service.js';
 import { UsageService } from '../usage/usage.service.js';
+import { WalletService } from '../billing/wallet.service.js';
 import { UsageBillingService } from '../billing/usage-billing.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 import { CallEventType } from './telephony.events.js';
@@ -21,8 +22,8 @@ describe('Routing Concurrency Tests', () => {
 
   beforeEach(async () => {
     provider = {
-      answerCall: vi.fn(),
-      hangupCall: vi.fn(),
+      answerCall: vi.fn().mockResolvedValue(undefined),
+      hangupCall: vi.fn().mockResolvedValue(undefined),
       bridgeCalls: vi.fn(),
       startRecording: vi.fn(),
       dialBuyer: vi.fn().mockResolvedValue('buyer_call_id_123'),
@@ -69,8 +70,9 @@ describe('Routing Concurrency Tests', () => {
     };
 
     usageBillingService = {
-      billCallUsage: vi.fn(),
-      billRecordingUsage: vi.fn(),
+      calculateInitialReservation: vi.fn().mockReturnValue(100),
+      billCallUsage: vi.fn().mockResolvedValue(undefined),
+      billRecordingUsage: vi.fn().mockResolvedValue(undefined),
     };
 
     webhooksService = {
@@ -80,6 +82,7 @@ describe('Routing Concurrency Tests', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CallController,
+        { provide: WalletService, useValue: { finalizeCall: vi.fn().mockImplementation(() => Promise.resolve()) } },
         { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         { provide: TELEPHONY_PROVIDER, useValue: provider },
         { provide: PrismaService, useValue: prisma },
