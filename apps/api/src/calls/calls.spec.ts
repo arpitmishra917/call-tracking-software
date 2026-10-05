@@ -43,7 +43,7 @@ describe('CallsService (Stage 13)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CallsService,
-        { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
+        { provide: PermissionsService, useValue: { getPermissionsForUser: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         { provide: PrismaService, useValue: prisma },
         { provide: UsageService, useValue: usage },
         { provide: WebhooksService, useValue: webhooks },

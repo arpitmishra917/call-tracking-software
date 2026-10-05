@@ -1,3 +1,4 @@
+import { PermissionsService } from '../permissions/permissions.service.js';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CampaignsService } from './campaigns.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -10,7 +11,7 @@ describe('CampaignsService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
+      providers: [{ provide: PermissionsService, useValue: { hasResourceScope: async () => true, hasPermission: async () => true, getPermissionsForUser: async () => [] } }, 
         CampaignsService,
         {
           provide: PrismaService,

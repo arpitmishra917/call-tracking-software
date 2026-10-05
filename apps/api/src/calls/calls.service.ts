@@ -422,6 +422,37 @@ export class CallsService {
       offset?: number;
     },
   ) {
+    const permissions = await this.permissionsService.getPermissionsForUser(workspaceId, userId);
+    const readPerms = permissions.filter(p => p.key === 'call:read');
+    if (readPerms.length === 0) throw new ForbiddenException('Missing call:read permission');
+    
+    const hasAll = readPerms.some(p => p.scope_type === 'ALL');
+    const hasAssigned = readPerms.some(p => p.scope_type === 'ASSIGNED');
+    const allowedResourceIds = readPerms.filter(p => p.resource_id).map(p => p.resource_id);
+
+    let authOrConditions: any[] = [];
+    if (!hasAll) {
+      let assignedBuyerId = null;
+      if (hasAssigned) {
+        const member = await this.prisma.workspaceMember.findUnique({
+          where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }
+        });
+        assignedBuyerId = member?.buyer_id;
+      }
+      
+      if (assignedBuyerId) {
+        authOrConditions.push({ campaign: { buyers: { some: { buyer_id: assignedBuyerId } } } });
+        authOrConditions.push({ attempts: { some: { buyer_id: assignedBuyerId } } });
+      }
+      if (allowedResourceIds.length > 0) {
+        authOrConditions.push({ id: { in: allowedResourceIds } });
+      }
+      
+      if (authOrConditions.length === 0) {
+        return { items: [], total: 0 };
+      }
+    }
+
     let durationIds: string[] | null = null;
 
     if (filters.durationType && (filters.minDurationSecs !== undefined || filters.maxDurationSecs !== undefined)) {
@@ -451,6 +482,10 @@ export class CallsService {
     }
 
     const where: any = { workspace_id: workspaceId };
+
+    if (authOrConditions.length > 0) {
+      where.AND = [{ OR: authOrConditions }];
+    }
 
     if (durationIds !== null) {
       where.id = { in: durationIds };
@@ -592,7 +627,7 @@ export class CallsService {
     }
     
     
-    const permissions = await this.permissionsService.getMemberPermissions(workspaceId, userId);
+    const permissions = await this.permissionsService.getPermissionsForUser(workspaceId, userId);
     const readPerms = permissions.filter((p: any) => p.key === 'call:read');
     if (readPerms.length === 0) throw new ForbiddenException('Missing call:read permission');
     const hasAll = readPerms.some((p: any) => p.scope_type === 'ALL');

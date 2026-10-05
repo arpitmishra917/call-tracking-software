@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PermissionsModule } from '../permissions/permissions.module.js';
 import { PublicWorkspacesController } from './public-workspaces.controller.js';
 import { PublicPhoneNumbersController } from './public-phone-numbers.controller.js';
 import { PublicCampaignsController } from './public-campaigns.controller.js';

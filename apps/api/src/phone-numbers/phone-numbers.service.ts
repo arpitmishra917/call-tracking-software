@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PermissionsService } from '../permissions/permissions.service.js';
 import { ForbiddenException } from '@nestjs/common';
@@ -16,10 +12,39 @@ export class PhoneNumbersService {
     private readonly prisma: PrismaService,
     private readonly telnyxProvisioning: TelnyxProvisioningService,
     private readonly usageService: UsageService,
+    private readonly permissionsService: PermissionsService,
   ) {}
 
-  async listWorkspaceNumbers(workspaceId: string, params: any = {}) {
-    const where = { workspace_id: workspaceId, status: { not: PhoneNumberStatus.RELEASED } };
+  async listWorkspaceNumbers(workspaceId: string, userId: string = '', params: any = {}) {
+    const permissions = await this.permissionsService.getPermissionsForUser(workspaceId, userId);
+    const readPerms = permissions.filter((p: any) => p.key === 'phone_number:read');
+    if (readPerms.length === 0) throw new ForbiddenException('Missing phone_number:read permission');
+
+    const hasAll = readPerms.some((p: any) => p.scope_type === 'ALL');
+    const hasAssigned = readPerms.some((p: any) => p.scope_type === 'ASSIGNED');
+    const allowedResourceIds = readPerms.filter((p: any) => p.resource_id).map((p: any) => p.resource_id);
+
+    const where: any = { workspace_id: workspaceId, status: { not: PhoneNumberStatus.RELEASED } };
+
+    if (!hasAll) {
+      let authOrConditions: any[] = [];
+      if (hasAssigned) {
+        const member = await this.prisma.workspaceMember.findUnique({
+          where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }
+        });
+        if (member?.buyer_id) {
+          authOrConditions.push({ campaign: { buyers: { some: { buyer_id: member.buyer_id } } } });
+        }
+      }
+      if (allowedResourceIds.length > 0) {
+        authOrConditions.push({ id: { in: allowedResourceIds } });
+      }
+      if (authOrConditions.length === 0) {
+        return [];
+      }
+      where.AND = [{ OR: authOrConditions }];
+    }
+
     
     // Opportunistically reconcile any numbers stuck in PROVISIONING
     const pendingNumbers = await this.prisma.phoneNumber.findMany({

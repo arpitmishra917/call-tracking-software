@@ -26,6 +26,19 @@ export class PermissionsService implements OnModuleInit {
     });
   }
 
+  async getPermissionsForUser(workspaceId: string, userId: string) {
+    if (!userId) {
+      throw new NotFoundException('User ID is required');
+    }
+    const member = await this.prisma.workspaceMember.findFirst({
+      where: { workspace_id: workspaceId, user_id: userId }
+    });
+    if (!member) {
+      throw new NotFoundException('Workspace member not found');
+    }
+    return this.getMemberPermissions(workspaceId, member.id);
+  }
+
   async getMemberPermissions(workspaceId: string, memberId: string) {
     const member = await this.prisma.workspaceMember.findUnique({
       where: { id: memberId },

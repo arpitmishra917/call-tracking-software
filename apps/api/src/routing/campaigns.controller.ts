@@ -1,13 +1,6 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Param,
-  Body,
-  UseGuards, Query,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards, Query, Request } from '@nestjs/common';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission, RequireResourceScope } from '../authorization/permissions.decorator.js';
 import { CampaignsService } from './campaigns.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
@@ -15,20 +8,21 @@ import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorato
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/campaigns')
-@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
-@RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
 
   @Get()
+  @RequirePermission('campaign:read')
   list(
     @Param('workspaceId') workspaceId: string,
+    @Request() req: any,
     @Query('search') search?: string,
     @Query('status') status?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string
   ) {
-    return this.campaignsService.listCampaigns(workspaceId, {
+    return this.campaignsService.listCampaigns(workspaceId, req.user.userId, {
       search,
       status,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -37,11 +31,14 @@ export class CampaignsController {
   }
 
   @Get(':id')
+  @RequirePermission('campaign:read')
+  @RequireResourceScope('campaign', 'id')
   get(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
     return this.campaignsService.getCampaign(workspaceId, id);
   }
 
   @Post()
+  @RequirePermission('campaign:create')
   create(
     @Param('workspaceId') workspaceId: string,
     @Body('name') name: string,
@@ -50,6 +47,8 @@ export class CampaignsController {
   }
 
   @Put(':id')
+  @RequirePermission('campaign:update')
+  @RequireResourceScope('campaign', 'id')
   update(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -59,6 +58,7 @@ export class CampaignsController {
   }
 
   @Post(':id/archive')
+  @RequireResourceScope('campaign', 'id')
   archive(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -69,6 +69,7 @@ export class CampaignsController {
   }
 
   @Post(':id/activate')
+  @RequireResourceScope('campaign', 'id')
   activate(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -79,6 +80,7 @@ export class CampaignsController {
   }
 
   @Post(':id/phone-numbers')
+  @RequireResourceScope('campaign', 'id')
   assignPhoneNumber(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -92,6 +94,7 @@ export class CampaignsController {
   }
 
   @Delete(':id/phone-numbers/:phoneNumberId')
+  @RequireResourceScope('campaign', 'id')
   removePhoneNumber(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -105,6 +108,8 @@ export class CampaignsController {
   }
 
   @Post(':id/buyers')
+  @RequirePermission('campaign:update')
+  @RequireResourceScope('campaign', 'id')
   addBuyer(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -119,6 +124,7 @@ export class CampaignsController {
   }
 
   @Delete(':id/buyers/:buyerId')
+  @RequireResourceScope('campaign', 'id')
   removeBuyer(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -128,6 +134,7 @@ export class CampaignsController {
   }
 
   @Put(':id/buyers/reorder')
+  @RequireResourceScope('campaign', 'id')
   reorderBuyers(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,

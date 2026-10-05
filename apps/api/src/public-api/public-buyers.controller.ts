@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, UseGuards , Request} from '@nestjs/common';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission, RequireResourceScope } from '../authorization/permissions.decorator.js';
 import { BuyersService } from '../routing/buyers.service.js';
 import { ApiKeyAuthGuard } from '../auth/api-key.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
@@ -6,28 +8,20 @@ import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorato
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('api/v1/workspaces/:workspaceId/buyers')
-@UseGuards(ApiKeyAuthGuard, WorkspaceRolesGuard)
+@UseGuards(ApiKeyAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class PublicBuyersController {
   constructor(private readonly buyersService: BuyersService) {}
 
   @Get()
-  @RequireWorkspaceRoles(
-    WorkspaceRole.OWNER,
-    WorkspaceRole.ADMIN,
-    WorkspaceRole.MEMBER,
-    WorkspaceRole.VIEWER,
-  )
-  async listBuyers(@Param('workspaceId') workspaceId: string) {
-    return this.buyersService.listBuyers(workspaceId);
+  @RequirePermission('buyer:read')
+  async listBuyers(
+@Param('workspaceId') workspaceId: string,
+@Request() req: any) {
+    return this.buyersService.listBuyers(workspaceId, req.user.userId);
   }
 
   @Get(':id')
-  @RequireWorkspaceRoles(
-    WorkspaceRole.OWNER,
-    WorkspaceRole.ADMIN,
-    WorkspaceRole.MEMBER,
-    WorkspaceRole.VIEWER,
-  )
+  @RequireResourceScope('buyer', 'id')
   async getBuyer(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -36,7 +30,7 @@ export class PublicBuyersController {
   }
 
   @Post()
-  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('buyer:create')
   async createBuyer(
     @Param('workspaceId') workspaceId: string,
     @Body('name') name: string,

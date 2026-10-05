@@ -1,3 +1,4 @@
+import { PermissionsService } from '../permissions/permissions.service.js';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PhoneNumbersService } from './phone-numbers.service.js';
@@ -40,7 +41,7 @@ describe('PhoneNumbersService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
+      providers: [{ provide: PermissionsService, useValue: { hasResourceScope: async () => true, hasPermission: async () => true, getPermissionsForUser: async () => [{ key: 'phone_number:read', scope_type: 'ALL' }] } }, 
         PhoneNumbersService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: TelnyxProvisioningService, useValue: telnyxMock },

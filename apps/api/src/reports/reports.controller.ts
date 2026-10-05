@@ -31,7 +31,8 @@ export class ReportsController {
     @Res() res: Response,
   ) {
     const { format, filters, columns } = payload;
-    const { buffer, contentType, extension } = await this.reportsService.generateExport(workspaceId, req.user.userId, format, filters, columns);
+    const userId = req.user?.userId || req.user?.sub || req.user?.id;
+    const { buffer, contentType, extension } = await this.reportsService.generateExport(workspaceId, userId, format, filters, columns);
 
     const dateStr = new Date().toISOString().split('T')[0];
     const filename = `callflow-report-${dateStr}.${extension}`;

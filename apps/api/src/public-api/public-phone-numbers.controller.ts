@@ -1,14 +1,6 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Param,
-  Body,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission, RequireResourceScope } from '../authorization/permissions.decorator.js';
 import { PhoneNumbersService } from '../phone-numbers/phone-numbers.service.js';
 import { ApiKeyAuthGuard } from '../auth/api-key.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
@@ -16,23 +8,19 @@ import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorato
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('api/v1/workspaces/:workspaceId/phone-numbers')
-@UseGuards(ApiKeyAuthGuard, WorkspaceRolesGuard)
+@UseGuards(ApiKeyAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class PublicPhoneNumbersController {
   constructor(private readonly phoneNumbersService: PhoneNumbersService) {}
 
   @Get()
-  @RequireWorkspaceRoles(
-    WorkspaceRole.OWNER,
-    WorkspaceRole.ADMIN,
-    WorkspaceRole.MEMBER,
-    WorkspaceRole.VIEWER,
-  )
-  async listNumbers(@Param('workspaceId') workspaceId: string) {
-    return this.phoneNumbersService.listWorkspaceNumbers(workspaceId);
+  @RequirePermission('phone_number:read')
+  async listNumbers(
+@Param('workspaceId') workspaceId: string,
+@Request() req: any) {
+    return this.phoneNumbersService.listWorkspaceNumbers(workspaceId, req.user.userId);
   }
 
   @Get('search')
-  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async searchNumbers(
     @Param('workspaceId') workspaceId: string,
     @Query('countryCode') countryCode?: string,
@@ -46,7 +34,7 @@ export class PublicPhoneNumbersController {
   }
 
   @Post()
-  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('phone_number:create')
   async provisionNumber(
     @Param('workspaceId') workspaceId: string,
     @Body('phoneNumber') phoneNumber: string,
@@ -60,7 +48,6 @@ export class PublicPhoneNumbersController {
   }
 
   @Put(':id')
-  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async updateNumber(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -70,7 +57,6 @@ export class PublicPhoneNumbersController {
   }
 
   @Delete(':id')
-  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async releaseNumber(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,

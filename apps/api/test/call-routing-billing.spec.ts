@@ -32,7 +32,7 @@ describe('Phase 3D: Call Routing Billing Integration', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CallController,
-        { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
+        { provide: PermissionsService, useValue: { getPermissionsForUser: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         PrismaService,
         CallsService,
         UsageService,

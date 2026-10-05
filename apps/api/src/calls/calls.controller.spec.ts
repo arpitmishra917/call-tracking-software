@@ -21,7 +21,7 @@ describe('CallsController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CallsController],
       providers: [
-        { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
+        { provide: PermissionsService, useValue: { getPermissionsForUser: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         {
           provide: CallsService,
           useValue: service,

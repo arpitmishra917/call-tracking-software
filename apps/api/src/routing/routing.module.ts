@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PermissionsModule } from '../permissions/permissions.module.js';
 import { CampaignsService } from './campaigns.service.js';
 import { CampaignsController } from './campaigns.controller.js';
 import { BuyersService } from './buyers.service.js';
@@ -9,7 +10,7 @@ import { PrismaModule } from '../prisma/prisma.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, PermissionsModule],
   controllers: [
     CampaignsController,
     BuyersController,

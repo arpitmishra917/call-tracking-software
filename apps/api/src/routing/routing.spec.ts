@@ -1,3 +1,4 @@
+import { PermissionsService } from '../permissions/permissions.service.js';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CampaignsService } from './campaigns.service.js';
 import { BuyersService } from './buyers.service.js';
@@ -36,7 +37,7 @@ describe('Routing Services (Stage 12)', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
+      providers: [{ provide: PermissionsService, useValue: { hasResourceScope: async () => true, hasPermission: async () => true, getPermissionsForUser: async () => [] } }, 
         CampaignsService,
         BuyersService,
         { provide: PrismaService, useValue: prisma },

@@ -1,17 +1,42 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { PermissionsService } from '../permissions/permissions.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { normalizeE164 } from '../common/phone.utils.js';
 
 @Injectable()
 export class BuyersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private permissionsService: PermissionsService) {}
 
-  async listBuyers(workspaceId: string, filters?: { search?: string; status?: string; limit?: number; offset?: number }) {
+  async listBuyers(workspaceId: string, userId: string = '', filters?: { search?: string; status?: string; limit?: number; offset?: number }) {
+
+    const permissions = await this.permissionsService.getPermissionsForUser(workspaceId, userId);
+    const readPerms = permissions.filter(p => p.key === 'buyer:read');
+    if (readPerms.length === 0) throw new ForbiddenException('Missing buyer:read permission');
+
+    const hasAll = readPerms.some(p => p.scope_type === 'ALL');
+    const hasAssigned = readPerms.some(p => p.scope_type === 'ASSIGNED');
+    const allowedResourceIds = readPerms.filter(p => p.resource_id).map(p => p.resource_id);
+
     const where: any = { workspace_id: workspaceId };
+
+    if (!hasAll) {
+      let authOrConditions: any[] = [];
+      if (hasAssigned) {
+        const member = await this.prisma.workspaceMember.findUnique({
+          where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }
+        });
+        if (member?.buyer_id) {
+          authOrConditions.push({ id: member.buyer_id });
+        }
+      }
+      if (allowedResourceIds.length > 0) {
+        authOrConditions.push({ id: { in: allowedResourceIds } });
+      }
+      if (authOrConditions.length === 0) {
+        return { items: [], total: 0 };
+      }
+      where.AND = [{ OR: authOrConditions }];
+    }
     if (filters?.search) {
       where.OR = [
         { name: { contains: filters.search, mode: 'insensitive' } },

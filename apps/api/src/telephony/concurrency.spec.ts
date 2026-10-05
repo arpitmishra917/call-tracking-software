@@ -83,7 +83,7 @@ describe('Routing Concurrency Tests', () => {
       providers: [
         CallController,
         { provide: WalletService, useValue: { finalizeCall: vi.fn().mockImplementation(() => Promise.resolve()) } },
-        { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
+        { provide: PermissionsService, useValue: { getPermissionsForUser: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         { provide: TELEPHONY_PROVIDER, useValue: provider },
         { provide: PrismaService, useValue: prisma },
         { provide: CallsService, useValue: callsService },

@@ -1,16 +1,6 @@
 import { PermissionsGuard } from '../authorization/permissions.guard.js';
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Param,
-  Body,
-  Query,
-  UseGuards,
-  Request,
-} from '@nestjs/common';
+import { RequirePermission, RequireResourceScope } from '../authorization/permissions.decorator.js';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { PhoneNumbersService } from './phone-numbers.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
@@ -23,6 +13,7 @@ export class PhoneNumbersController {
   constructor(private readonly phoneNumbersService: PhoneNumbersService) {}
 
   @Get()
+  @RequirePermission('phone_number:read')
   @RequireWorkspaceRoles(
     WorkspaceRole.OWNER,
     WorkspaceRole.ADMIN,
@@ -36,7 +27,7 @@ export class PhoneNumbersController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string
   ) {
-    return this.phoneNumbersService.listWorkspaceNumbers(workspaceId, {
+    return this.phoneNumbersService.listWorkspaceNumbers(workspaceId, req.user.userId, {
       search,
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined
@@ -62,6 +53,7 @@ export class PhoneNumbersController {
   }
 
   @Post()
+  @RequirePermission('phone_number:create')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async provisionNumber(
     @Param('workspaceId') workspaceId: string,
@@ -76,6 +68,7 @@ export class PhoneNumbersController {
   }
 
   @Put(':id')
+  @RequireResourceScope('phone_number', 'id')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async updateNumber(
     @Param('workspaceId') workspaceId: string,
@@ -86,6 +79,7 @@ export class PhoneNumbersController {
   }
 
   @Delete(':id')
+  @RequireResourceScope('phone_number', 'id')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async releaseNumber(
     @Param('workspaceId') workspaceId: string,
