@@ -1,3 +1,4 @@
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
 import {
   Controller,
   Get,
@@ -8,6 +9,7 @@ import {
   Body,
   Query,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { PhoneNumbersService } from './phone-numbers.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -16,7 +18,7 @@ import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorato
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/phone-numbers')
-@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class PhoneNumbersController {
   constructor(private readonly phoneNumbersService: PhoneNumbersService) {}
 
@@ -29,6 +31,7 @@ export class PhoneNumbersController {
   )
   async listNumbers(
     @Param('workspaceId') workspaceId: string,
+    @Request() req: any,
     @Query('search') search?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string

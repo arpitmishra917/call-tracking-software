@@ -4,6 +4,8 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { PermissionsService } from '../permissions/permissions.service.js';
+import { ForbiddenException } from '@nestjs/common';
 import { TelnyxProvisioningService } from './telnyx-provisioning.service.js';
 import { UsageService } from '../usage/usage.service.js';
 import { PhoneNumberStatus } from '@prisma/client';

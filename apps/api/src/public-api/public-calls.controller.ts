@@ -27,7 +27,7 @@ export class PublicCallsController {
 
     // getCalls likely takes (workspaceId, filterObject) or something, let's just pass workspaceId for now if it doesn't take pagination
     // Actually, I'll pass workspaceId and an object
-    return this.callsService.getCalls(workspaceId, { limit: limitNum });
+    return this.callsService.getCalls(workspaceId, '', { limit: limitNum });
   }
 
   @Get(':id')

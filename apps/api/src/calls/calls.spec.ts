@@ -1,3 +1,4 @@
+import { PermissionsService } from '../permissions/permissions.service.js';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CallsService } from './calls.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -42,6 +43,7 @@ describe('CallsService (Stage 13)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CallsService,
+        { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         { provide: PrismaService, useValue: prisma },
         { provide: UsageService, useValue: usage },
         { provide: WebhooksService, useValue: webhooks },
@@ -132,42 +134,42 @@ describe('CallsService (Stage 13)', () => {
       });
 
       it('1. tracking number filter', async () => {
-        await service.getCalls('ws_1', { trackingNumber: '+13215033884' });
+        await service.getCalls('ws_1', '', { trackingNumber: '+13215033884' });
         expect(prisma.call.findMany).toHaveBeenCalledWith(expect.objectContaining({
           where: expect.objectContaining({ to_number: '+13215033884' })
         }));
       });
 
       it('2. campaign filter', async () => {
-        await service.getCalls('ws_1', { campaignId: 'camp_1' });
+        await service.getCalls('ws_1', '', { campaignId: 'camp_1' });
         expect(prisma.call.findMany).toHaveBeenCalledWith(expect.objectContaining({
           where: expect.objectContaining({ campaign_id: 'camp_1' })
         }));
       });
 
       it('3. caller filter', async () => {
-        await service.getCalls('ws_1', { callerNumber: '+123' });
+        await service.getCalls('ws_1', '', { callerNumber: '+123' });
         expect(prisma.call.findMany).toHaveBeenCalledWith(expect.objectContaining({
           where: expect.objectContaining({ from_number: { contains: '+123' } })
         }));
       });
 
       it('4. status filter', async () => {
-        await service.getCalls('ws_1', { status: 'COMPLETED' as any });
+        await service.getCalls('ws_1', '', { status: 'COMPLETED' as any });
         expect(prisma.call.findMany).toHaveBeenCalledWith(expect.objectContaining({
           where: expect.objectContaining({ state: 'COMPLETED' })
         }));
       });
 
       it('5. start date', async () => {
-        await service.getCalls('ws_1', { startDate: '2026-10-01' });
+        await service.getCalls('ws_1', '', { startDate: '2026-10-01' });
         expect(prisma.call.findMany).toHaveBeenCalledWith(expect.objectContaining({
           where: expect.objectContaining({ created_at: expect.objectContaining({ gte: new Date('2026-10-01T00:00:00Z') }) })
         }));
       });
 
       it('6. end date', async () => {
-        await service.getCalls('ws_1', { endDate: '2026-10-01' });
+        await service.getCalls('ws_1', '', { endDate: '2026-10-01' });
         expect(prisma.call.findMany).toHaveBeenCalledWith(expect.objectContaining({
           where: expect.objectContaining({ created_at: expect.objectContaining({ lt: new Date('2026-10-02T00:00:00.000Z') }) })
         }));
@@ -175,7 +177,7 @@ describe('CallsService (Stage 13)', () => {
 
       it('7. talk duration filter', async () => {
         prisma.$queryRaw.mockResolvedValue([{ id: 'valid_call' }]);
-        await service.getCalls('ws_1', { durationType: 'talk', minDurationSecs: 60 });
+        await service.getCalls('ws_1', '', { durationType: 'talk', minDurationSecs: 60 });
         expect(prisma.$queryRaw).toHaveBeenCalled();
         expect(prisma.call.findMany).toHaveBeenCalledWith(expect.objectContaining({
           where: expect.objectContaining({ id: { in: ['valid_call'] } })
@@ -184,19 +186,19 @@ describe('CallsService (Stage 13)', () => {
 
       it('8. total duration filter', async () => {
         prisma.$queryRaw.mockResolvedValue([{ id: 'valid_call' }]);
-        await service.getCalls('ws_1', { durationType: 'total', minDurationSecs: 80 });
+        await service.getCalls('ws_1', '', { durationType: 'total', minDurationSecs: 80 });
         expect(prisma.$queryRaw).toHaveBeenCalled();
       });
 
       it('11. combined filters', async () => {
-        await service.getCalls('ws_1', { campaignId: 'c1', trackingNumber: 't1' });
+        await service.getCalls('ws_1', '', { campaignId: 'c1', trackingNumber: 't1' });
         expect(prisma.call.findMany).toHaveBeenCalledWith(expect.objectContaining({
           where: expect.objectContaining({ campaign_id: 'c1', to_number: 't1' })
         }));
       });
 
       it('12. workspace isolation', async () => {
-        await service.getCalls('ws_secure', {});
+        await service.getCalls('ws_secure', '', {});
         expect(prisma.call.findMany).toHaveBeenCalledWith(expect.objectContaining({
           where: expect.objectContaining({ workspace_id: 'ws_secure' })
         }));
@@ -210,7 +212,7 @@ describe('CallsService (Stage 13)', () => {
           answered_at: new Date('2026-10-01T10:00:10Z'),
           ended_at: new Date('2026-10-01T10:02:10Z'),
         }]);
-        const res = await service.getCalls('ws_1', {});
+        const res = await service.getCalls('ws_1', '', {});
         expect(res.items[0].talkDurationSecs).toBe(120);
         expect(res.items[0].totalDurationSecs).toBe(130);
         expect(res.items[0].recordings[0].id).toBe('rec_1');
@@ -221,7 +223,7 @@ describe('CallsService (Stage 13)', () => {
       prisma.call.findMany = vi.fn().mockResolvedValue([{ id: 'call_1' }]);
       prisma.call.count = vi.fn().mockResolvedValue(1);
 
-      const res = await service.getCalls('ws_1', {
+      const res = await service.getCalls('ws_1', '', {
         campaignId: 'camp_1',
         status: CallState.COMPLETED,
         callerNumber: '+123',
@@ -250,7 +252,7 @@ describe('CallsService (Stage 13)', () => {
           if (q.includes('bucket_time')) return Promise.resolve([]);
           return Promise.resolve([{ total: 3, answered: 1, missed: 2, blocked: 1, answered_duration: 60 }]);
         });
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.total).toBe(3);
         expect(metrics.answered).toBe(1);
         expect(metrics.missed).toBe(2);
@@ -266,7 +268,7 @@ describe('CallsService (Stage 13)', () => {
       it('1. No calls ACL = null TCL = null', async () => {
         prisma.call.findMany = vi.fn().mockResolvedValue([]);
         prisma.callAttempt.findMany = vi.fn().mockResolvedValue([]);
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.aclSecs).toBeNull();
         expect(metrics.tclSecs).toBeNull();
       });
@@ -279,7 +281,7 @@ describe('CallsService (Stage 13)', () => {
           }
           return Promise.resolve([]);
         });
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.aclSecs).toBe(120);
         expect(metrics.tclSecs).toBe(120);
       });
@@ -292,7 +294,7 @@ describe('CallsService (Stage 13)', () => {
           }
           return Promise.resolve([]);
         });
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.aclSecs).toBe(120);
         expect(metrics.tclSecs).toBe(360);
       });
@@ -302,7 +304,7 @@ describe('CallsService (Stage 13)', () => {
           { started_at: new Date('2026-09-30T10:00:00Z'), ended_at: null }
         ]);
         prisma.callAttempt.findMany = vi.fn().mockResolvedValue([]);
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.aclSecs).toBeNull();
         expect(metrics.tclSecs).toBeNull();
       });
@@ -312,7 +314,7 @@ describe('CallsService (Stage 13)', () => {
           { started_at: new Date('2026-09-30T10:02:00Z'), ended_at: new Date('2026-09-30T10:00:00Z') }
         ]);
         prisma.callAttempt.findMany = vi.fn().mockResolvedValue([]);
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.aclSecs).toBeNull();
         expect(metrics.tclSecs).toBeNull();
       });
@@ -325,7 +327,7 @@ describe('CallsService (Stage 13)', () => {
           }
           return Promise.resolve([]);
         });
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.avgDuration).toBe(100);
         expect(metrics.aclSecs).toBeNull();
         expect(metrics.tclSecs).toBeNull();
@@ -333,7 +335,7 @@ describe('CallsService (Stage 13)', () => {
 
       it('7. Date filter: only calls inside selected period included', async () => {
         prisma.$queryRaw = vi.fn().mockResolvedValue([]);
-        await service.getMetrics('ws_1', { startDate: '2026-09-01T00:00:00Z', endDate: '2026-09-30T00:00:00Z' });
+        await service.getMetrics('ws_1', '', { startDate: '2026-09-01T00:00:00Z', endDate: '2026-09-30T00:00:00Z' });
         expect(prisma.$queryRaw).toHaveBeenCalledWith(
           expect.objectContaining({
             strings: expect.arrayContaining([expect.stringContaining('c.created_at >=')])
@@ -348,7 +350,7 @@ describe('CallsService (Stage 13)', () => {
 
       it('12. Tenant isolation: Workspace A cannot aggregate Workspace B calls', async () => {
         prisma.$queryRaw = vi.fn().mockResolvedValue([]);
-        await service.getMetrics('ws_secure', {});
+        await service.getMetrics('ws_secure', '', {});
         expect(prisma.$queryRaw).toHaveBeenCalledWith(
           expect.objectContaining({
             strings: expect.arrayContaining([expect.stringContaining('c.workspace_id =')])
@@ -365,7 +367,7 @@ describe('CallsService (Stage 13)', () => {
           ]);
           return Promise.resolve([]);
         });
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.campaigns['c1'].aclSecs).toBe(60);
         expect(metrics.campaigns['c1'].tclSecs).toBe(60);
         expect(metrics.campaigns['c2'].aclSecs).toBe(120);
@@ -377,7 +379,7 @@ describe('CallsService (Stage 13)', () => {
           { started_at: null, ended_at: null }
         ]);
         prisma.callAttempt.findMany = vi.fn().mockResolvedValue([]);
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.aclSecs).toBeNull();
       });
 
@@ -389,7 +391,7 @@ describe('CallsService (Stage 13)', () => {
           }
           return Promise.resolve([]);
         });
-        const metrics = await service.getMetrics('ws_1', {});
+        const metrics = await service.getMetrics('ws_1', '', {});
         expect(metrics.aclSecs).toBe(11); // 32 / 3 = 10.666 -> rounds to 11
       });
     });
@@ -397,25 +399,25 @@ describe('CallsService (Stage 13)', () => {
     describe('Live Calls', () => {
       it('1. zero live calls', async () => {
         prisma.call.count = vi.fn().mockResolvedValue(0);
-        const res = await service.getLiveCalls('ws_1');
+        const res = await service.getLiveCalls('ws_1', '');
         expect(res.liveCalls).toBe(0);
       });
 
       it('2. one active call', async () => {
         prisma.call.count = vi.fn().mockResolvedValue(1);
-        const res = await service.getLiveCalls('ws_1');
+        const res = await service.getLiveCalls('ws_1', '');
         expect(res.liveCalls).toBe(1);
       });
 
       it('3. multiple active calls', async () => {
         prisma.call.count = vi.fn().mockResolvedValue(5);
-        const res = await service.getLiveCalls('ws_1');
+        const res = await service.getLiveCalls('ws_1', '');
         expect(res.liveCalls).toBe(5);
       });
 
       it('4. terminal calls excluded', async () => {
         prisma.call.count = vi.fn().mockResolvedValue(0);
-        await service.getLiveCalls('ws_1');
+        await service.getLiveCalls('ws_1', '');
         expect(prisma.call.count).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
@@ -427,7 +429,7 @@ describe('CallsService (Stage 13)', () => {
 
       it('5. multiple CallAttempts under one parent Call count as one live call (by counting parent Call)', async () => {
         // Handled naturally because we query the Call model directly, not CallAttempts.
-        await service.getLiveCalls('ws_1');
+        await service.getLiveCalls('ws_1', '');
         expect(prisma.call.count).toHaveBeenCalled();
       });
 

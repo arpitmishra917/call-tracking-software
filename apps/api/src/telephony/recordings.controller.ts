@@ -9,14 +9,14 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
-import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
-import { WorkspaceRole } from '@prisma/client';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission, RequireResourceScope } from '../authorization/permissions.decorator.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { TelephonyProvider } from './telephony.provider.js';
 import { TELEPHONY_PROVIDER } from './call-controller.js';
 
 @Controller('workspaces/:workspaceId/recordings')
-@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class RecordingsController {
   constructor(
     private readonly prisma: PrismaService,
@@ -25,12 +25,8 @@ export class RecordingsController {
   ) {}
 
   @Get(':recordingId/download')
-  @RequireWorkspaceRoles(
-    WorkspaceRole.OWNER,
-    WorkspaceRole.ADMIN,
-    WorkspaceRole.MEMBER,
-    WorkspaceRole.VIEWER,
-  )
+  @RequirePermission('call:recording_read')
+  @RequireResourceScope('recording', 'recordingId')
   async getRecordingUrl(
     @Param('workspaceId') workspaceId: string,
     @Param('recordingId') recordingId: string,

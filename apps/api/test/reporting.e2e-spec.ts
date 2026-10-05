@@ -63,12 +63,12 @@ describe('Reporting API Foundation (R3-A)', () => {
       data: { workspace_id: workspace1, provider: 'telnyx', provider_call_id: uniqueCallId('call_1'), from_number: '+1', to_number: trackingNumber1, state: 'COMPLETED' }
     });
     
-    const res = await service.getMetrics(workspace1, {});
+    const res = await service.getMetrics(workspace1, '', {});
     expect(res.total).toBe(1);
   });
 
   it('R3A-04 & R3A-05: Returns 0 (not null/NaN) when no calls match', async () => {
-    const res = await service.getMetrics(workspace1, {});
+    const res = await service.getMetrics(workspace1, '', {});
     expect(res.total).toBe(0);
     expect(res.answered).toBe(0);
     expect(res.aclSecs).toBeNull(); 
@@ -79,7 +79,7 @@ describe('Reporting API Foundation (R3-A)', () => {
       data: { workspace_id: workspace2, provider: 'telnyx', provider_call_id: uniqueCallId('call_ws2'), from_number: '+1', to_number: '+2', state: 'COMPLETED' }
     });
     
-    const res = await service.getMetrics(workspace1, {});
+    const res = await service.getMetrics(workspace1, '', {});
     expect(res.total).toBe(0); // WS1 shouldn't see WS2's calls
   });
   
@@ -91,7 +91,7 @@ describe('Reporting API Foundation (R3-A)', () => {
       data: { workspace_id: workspace1, provider: 'telnyx', provider_call_id: uniqueCallId('call_new'), from_number: '+1', to_number: '+2', state: 'COMPLETED', created_at: new Date('2026-09-01T00:00:00Z') }
     });
     
-    const res = await service.getMetrics(workspace1, { startDate: '2026-01-01T00:00:00Z' });
+    const res = await service.getMetrics(workspace1, '', { startDate: '2026-01-01T00:00:00Z' });
     expect(res.total).toBe(1);
   });
   
@@ -103,7 +103,7 @@ describe('Reporting API Foundation (R3-A)', () => {
       data: { workspace_id: workspace1, provider: 'telnyx', provider_call_id: uniqueCallId('c2'), from_number: '+1', to_number: '+2', state: 'NO_ANSWER', created_at: new Date('2026-09-01T15:00:00Z') }
     });
     
-    const res = await service.getMetrics(workspace1, { bucket: 'day' });
+    const res = await service.getMetrics(workspace1, '', { bucket: 'day' });
     expect(res.buckets).toBeDefined();
     expect(res.buckets.length).toBe(1);
     expect(res.buckets[0].total).toBe(2);
@@ -112,10 +112,10 @@ describe('Reporting API Foundation (R3-A)', () => {
   });
 
   it('Date Validation: Rejects invalid or reversed dates explicitly', async () => {
-    await expect(service.getMetrics(workspace1, { startDate: 'invalid-date' }))
+    await expect(service.getMetrics(workspace1, '', { startDate: 'invalid-date' }))
       .rejects.toThrow('Invalid startDate');
       
-    await expect(service.getMetrics(workspace1, { startDate: '2026-09-10T00:00:00Z', endDate: '2026-09-01T00:00:00Z' }))
+    await expect(service.getMetrics(workspace1, '', { startDate: '2026-09-10T00:00:00Z', endDate: '2026-09-01T00:00:00Z' }))
       .rejects.toThrow('startDate cannot be after endDate');
   });
 
@@ -133,10 +133,10 @@ describe('Reporting API Foundation (R3-A)', () => {
       data: { call_id: c2.id, buyer_id: buyer1, state: 'COMPLETED' }
     });
     
-    let res = await service.getMetrics(workspace1, { minDuration: '10', status: 'COMPLETED' });
+    let res = await service.getMetrics(workspace1, '', { minDuration: '10', status: 'COMPLETED' });
     expect(res.total).toBe(2);
     
-    res = await service.getMetrics(workspace1, { minDuration: '10', status: 'COMPLETED', buyerId: buyer1 });
+    res = await service.getMetrics(workspace1, '', { minDuration: '10', status: 'COMPLETED', buyerId: buyer1 });
     expect(res.total).toBe(1);
     expect(res.avgDuration).toBe(45);
   });
@@ -155,7 +155,7 @@ describe('Reporting API Foundation (R3-A)', () => {
       data: { call_id: pCall.id, buyer_id: b2.id, state: 'COMPLETED', started_at: new Date('2026-09-01T10:00:10Z'), ended_at: new Date('2026-09-01T10:05:00Z') }
     });
     
-    const res = await service.getMetrics(workspace1, {});
+    const res = await service.getMetrics(workspace1, '', {});
     
     expect(res.buyers[buyer1].total).toBe(1);
     expect(res.buyers[buyer1].answered).toBe(0);

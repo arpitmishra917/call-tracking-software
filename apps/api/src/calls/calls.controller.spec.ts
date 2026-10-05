@@ -1,3 +1,4 @@
+import { PermissionsService } from '../permissions/permissions.service.js';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CallsController } from './calls.controller.js';
 import { CallsService } from './calls.service.js';
@@ -20,6 +21,7 @@ describe('CallsController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CallsController],
       providers: [
+        { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         {
           provide: CallsService,
           useValue: service,
@@ -44,6 +46,7 @@ describe('CallsController', () => {
 
     await controller.getCalls(
       'ws-1',
+      { user: { userId: 'user-1' } },
       'camp-1',
       undefined,
       CallState.COMPLETED,
@@ -58,7 +61,7 @@ describe('CallsController', () => {
       '0',
     );
 
-    expect(service.getCalls).toHaveBeenCalledWith('ws-1', {
+    expect(service.getCalls).toHaveBeenCalledWith('ws-1', 'user-1', {
       campaignId: 'camp-1',
       buyerId: undefined,
       status: CallState.COMPLETED,
@@ -83,8 +86,8 @@ describe('CallsController', () => {
 
   it('should get metrics', async () => {
     service.getMetrics.mockResolvedValue({ total: 5 });
-    const result = await controller.getMetrics('ws-1', '2026-01-01', '2026-01-31');
+    const result = await controller.getMetrics('ws-1', { user: { userId: 'user-1' } } as any, '2026-01-01', '2026-01-31');
     expect(result).toEqual({ total: 5 });
-    expect(service.getMetrics).toHaveBeenCalledWith('ws-1', { startDate: '2026-01-01', endDate: '2026-01-31' });
+    expect(service.getMetrics).toHaveBeenCalledWith('ws-1', 'user-1', { startDate: '2026-01-01', endDate: '2026-01-31' });
   });
 });

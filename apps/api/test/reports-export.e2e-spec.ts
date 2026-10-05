@@ -132,7 +132,7 @@ describe('Reporting Export API (R3-E3)', () => {
   ];
 
   it('E3-01 CSV export succeeds', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', {}, columns);
     expect(res.contentType).toBe('text/csv');
     expect(res.extension).toBe('csv');
     expect(res.buffer).toBeDefined();
@@ -141,20 +141,20 @@ describe('Reporting Export API (R3-E3)', () => {
   });
 
   it('E3-02 XLSX export succeeds', async () => {
-    const res = await reportsService.generateExport(workspace1, 'xlsx', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'xlsx', {}, columns);
     expect(res.contentType).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     expect(res.extension).toBe('xlsx');
     expect(res.buffer).toBeDefined();
   });
 
   it('E3-03 CSV contains correct headers', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', {}, columns);
     const str = res.buffer.toString();
     expect(str).toContain('Date / Time,Caller,Status,Call ID');
   });
 
   it('E3-04 XLSX contains correct headers', async () => {
-    const res = await reportsService.generateExport(workspace1, 'xlsx', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'xlsx', {}, columns);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(res.buffer);
     const ws = wb.getWorksheet('Report');
@@ -167,43 +167,43 @@ describe('Reporting Export API (R3-E3)', () => {
   });
 
   it('E3-05 Active filters affect exported rows', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', { status: 'FAILED' }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { status: 'FAILED' }, columns);
     const str = res.buffer.toString();
     expect(str.split('\n').filter(l => l.trim()).length).toBe(3); // Header + 2 FAILED rows
   });
 
   it('E3-06 Campaign filter is respected', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', { campaignId: campaign1 }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { campaignId: campaign1 }, columns);
     expect(res.buffer.toString().split('\n').filter(l => l.trim()).length).toBe(6);
   });
 
   it('E3-07 Buyer filter is respected', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', { buyerId: buyer1 }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { buyerId: buyer1 }, columns);
     expect(res.buffer.toString().split('\n').filter(l => l.trim()).length).toBe(6);
   });
 
   it('E3-08 Tracking number filter is respected', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', { trackingNumber: '+15550001111' }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { trackingNumber: '+15550001111' }, columns);
     expect(res.buffer.toString().split('\n').filter(l => l.trim()).length).toBe(6);
   });
 
   it('E3-09 Caller filter is respected', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', { callerNumber: '+15552223330' }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { callerNumber: '+15552223330' }, columns);
     expect(res.buffer.toString().split('\n').filter(l => l.trim()).length).toBe(2); // Header + 1
   });
 
   it('E3-10 Status filter is respected', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', { status: 'COMPLETED' }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { status: 'COMPLETED' }, columns);
     expect(res.buffer.toString().split('\n').filter(l => l.trim()).length).toBe(4); // Header + 3
   });
 
   it('E3-11 Duration filters are respected', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', { minDurationSecs: 20, durationType: 'total' }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { minDurationSecs: 20, durationType: 'total' }, columns);
     expect(res.buffer.toString().split('\n').filter(l => l.trim()).length).toBe(4); // Header + 3 rows (20,30,40)
   });
 
   it('E3-12 Workspace isolation', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', {}, columns);
     expect(res.buffer.toString()).not.toContain('+1999'); // ws2 data
   });
 
@@ -216,23 +216,23 @@ describe('Reporting Export API (R3-E3)', () => {
   });
 
   it('E3-14 Invalid format rejected', async () => {
-    await expect(reportsService.generateExport(workspace1, 'pdf' as any, {}, columns))
+    await expect(reportsService.generateExport(workspace1, '', 'pdf' as any, {}, columns))
       .rejects.toThrow('Invalid export format');
   });
 
   it('E3-15 Actions column is never exported', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', {}, columns);
     expect(res.buffer.toString()).not.toContain('Actions');
   });
 
   it('E3-16 Call ID is exportable', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', {}, columns);
     expect(res.buffer.toString()).toContain('Call ID');
     expect(res.buffer.toString()).not.toContain('call-0');
   });
 
   it('E3-17 Recording information does not expose unauthorized provider URLs', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', { callerNumber: '+15552223330' }, [{ id: 'recording', visible: true, order: 0 }]);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { callerNumber: '+15552223330' }, [{ id: 'recording', visible: true, order: 0 }]);
     const str = res.buffer.toString();
     expect(str).toContain('Available');
     expect(str).not.toContain('http'); // no raw url
@@ -241,18 +241,18 @@ describe('Reporting Export API (R3-E3)', () => {
   it('E3-18 Export row limit is enforced', async () => {
     const callsService = app.get(CallsService);
     const mock = vi.spyOn(callsService, 'getCalls').mockResolvedValueOnce({ items: new Array(10001).fill({}), total: 10001 } as any);
-    await expect(reportsService.generateExport(workspace1, 'csv', {}, [])).rejects.toThrow('limit of 10,000 rows exceeded');
+    await expect(reportsService.generateExport(workspace1, '', 'csv', {}, [])).rejects.toThrow('limit of 10,000 rows exceeded');
     mock.mockRestore();
   });
 
   it('E3-19 Deleted/historical report configuration does not affect raw call data', async () => {
-    const res = await reportsService.generateExport(workspace1, 'csv', { fakeUnknownFilter: 'abc' }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { fakeUnknownFilter: 'abc' }, columns);
     expect(res.buffer.toString().split('\n').filter(l => l.trim()).length).toBe(6); // Safely ignores unknown filter
   });
 
   it('E3-20 Saved report applied → current state exported', async () => {
     // This is tested by the frontend sending exact current filters in payload, the API just honors what is passed.
-    const res = await reportsService.generateExport(workspace1, 'csv', { status: 'COMPLETED' }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { status: 'COMPLETED' }, columns);
     expect(res.buffer.toString()).toContain('COMPLETED');
     expect(res.buffer.toString()).not.toContain('FAILED');
   });
@@ -268,7 +268,7 @@ describe('Reporting Export API (R3-E3)', () => {
         provider_call_id: 'call-escape'
       }
     });
-    const res = await reportsService.generateExport(workspace1, 'csv', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', {}, columns);
     const str = res.buffer.toString();
     expect(str).toContain('""Smith""'); // escaped quote
     expect(str).toContain('\n');
@@ -285,7 +285,7 @@ describe('Reporting Export API (R3-E3)', () => {
         provider_call_id: 'call-unicode'
       }
     });
-    const res = await reportsService.generateExport(workspace1, 'csv', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', {}, columns);
     expect(res.buffer.toString()).toContain('Jalapeño 🚀');
   });
 
@@ -300,7 +300,7 @@ describe('Reporting Export API (R3-E3)', () => {
         provider_call_id: 'call-null'
       }
     });
-    const res = await reportsService.generateExport(workspace1, 'csv', {}, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', {}, columns);
     expect(res.buffer.toString().length).toBeGreaterThan(0);
   });
 
@@ -338,7 +338,7 @@ describe('Reporting Export API (R3-E3)', () => {
       }
     });
 
-    const res = await reportsService.generateExport(workspace1, 'csv', {}, [{ id: 'campaign', visible: true, order: 1 }, { id: 'finalDestination', visible: true, order: 2 }, { id: 'caller', visible: true, order: 3 }, { id: 'trackingNumber', visible: true, order: 4 }]);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', {}, [{ id: 'campaign', visible: true, order: 1 }, { id: 'finalDestination', visible: true, order: 2 }, { id: 'caller', visible: true, order: 3 }, { id: 'trackingNumber', visible: true, order: 4 }]);
     const str = res.buffer.toString();
     
     // We expect the cells to NOT be literal '=SUM(A1:A2)'
@@ -357,7 +357,7 @@ describe('Reporting Export API (R3-E3)', () => {
   it('E3-24 No cross-tenant data leakage through filter IDs', async () => {
     // try to filter by a campaign belonging to ws2
     const c2 = await prisma.campaign.create({ data: { workspace_id: workspace2, name: 'WS2 Camp' } });
-    const res = await reportsService.generateExport(workspace1, 'csv', { campaignId: c2.id }, columns);
+    const res = await reportsService.generateExport(workspace1, '', 'csv', { campaignId: c2.id }, columns);
     expect(res.buffer.toString().split('\n').filter(l => l.trim()).length).toBe(1); // Only header, since it doesn't match
   });
 });

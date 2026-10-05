@@ -1,3 +1,4 @@
+import { PermissionsService } from '../src/permissions/permissions.service.js';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CallController, TELEPHONY_PROVIDER } from './call-controller.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -79,6 +80,7 @@ describe('Routing Concurrency Tests', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CallController,
+        { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         { provide: TELEPHONY_PROVIDER, useValue: provider },
         { provide: PrismaService, useValue: prisma },
         { provide: CallsService, useValue: callsService },

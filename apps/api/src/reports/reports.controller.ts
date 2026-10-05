@@ -1,5 +1,4 @@
 import type { Response } from 'express';
-import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import {
   Controller,
   Get,
@@ -15,20 +14,24 @@ import {
 import { ReportsService } from './reports.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission } from '../authorization/permissions.decorator.js';
 
 @Controller('workspaces/:workspaceId/reports')
-@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
+@RequirePermission('report:read')
 export class ReportsController {
 
   @Post('export')
-  @RequireWorkspaceRoles('ADMIN', 'MEMBER', 'OWNER')
+  @RequirePermission('report:export')
   async exportReport(
     @Param('workspaceId') workspaceId: string,
+    @Request() req: any,
     @Body() payload: any,
     @Res() res: Response,
   ) {
     const { format, filters, columns } = payload;
-    const { buffer, contentType, extension } = await this.reportsService.generateExport(workspaceId, format, filters, columns);
+    const { buffer, contentType, extension } = await this.reportsService.generateExport(workspaceId, req.user.userId, format, filters, columns);
 
     const dateStr = new Date().toISOString().split('T')[0];
     const filename = `callflow-report-${dateStr}.${extension}`;

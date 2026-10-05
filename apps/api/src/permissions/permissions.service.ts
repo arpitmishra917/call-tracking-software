@@ -114,13 +114,57 @@ export class PermissionsService implements OnModuleInit {
       const permDef = await this.prisma.permission.findUnique({ where: { key: permissionKey } });
       if (!permDef) return false;
 
+      // BUYER resource: direct check
       if (permDef.group === 'BUYERS' && member.buyer_id === resourceId) return true;
+      
+      // VENDOR resource: direct check
       if (permDef.group === 'VENDORS' && member.vendor_id === resourceId) return true;
+      
+      // CAMPAIGN resource
       if (permDef.group === 'CAMPAIGNS' && member.buyer_id) {
         const cb = await this.prisma.campaignBuyer.findUnique({
           where: { campaign_id_buyer_id: { campaign_id: resourceId, buyer_id: member.buyer_id } }
         });
         if (cb) return true;
+      }
+      
+      // PHONE_NUMBER resource
+      if (permDef.group === 'PHONE_NUMBERS' && member.buyer_id) {
+        const pn = await this.prisma.phoneNumber.findUnique({
+          where: { id: resourceId },
+          include: { campaign: { include: { buyers: true } } }
+        });
+        if (pn?.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
+      }
+
+      // CALL resource
+      if (permDef.group === 'CALLS' && member.buyer_id) {
+        // Can be linked via CallAttempt -> Buyer OR Call -> Campaign -> CampaignBuyer
+        const call = await this.prisma.call.findUnique({
+          where: { id: resourceId },
+          include: {
+            attempts: true,
+            campaign: { include: { buyers: true } }
+          }
+        });
+        if (!call) return false;
+        if (call.attempts.some(a => a.buyer_id === member.buyer_id)) return true;
+        if (call.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
+      }
+
+      // RECORDING resource
+      if (permDef.group === 'RECORDINGS' && member.buyer_id) {
+        const rec = await this.prisma.recording.findUnique({
+          where: { id: resourceId },
+          include: {
+            call: {
+              include: { attempts: true, campaign: { include: { buyers: true } } }
+            }
+          }
+        });
+        if (!rec || !rec.call) return false;
+        if (rec.call.attempts.some(a => a.buyer_id === member.buyer_id)) return true;
+        if (rec.call.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
       }
     }
 

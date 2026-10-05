@@ -6,20 +6,25 @@ import {
   UseGuards,
   ParseIntPipe,
   BadRequestException,
+  Request,
 } from '@nestjs/common';
 import { CallsService } from './calls.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission, RequireResourceScope } from '../authorization/permissions.decorator.js';
 import { CallState } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/calls')
-@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
+@RequirePermission('call:read')
 export class CallsController {
   constructor(private readonly callsService: CallsService) {}
 
   @Get()
   async getCalls(
     @Param('workspaceId') workspaceId: string,
+    @Request() req: any,
     @Query('campaignId') campaignId?: string,
     @Query('buyerId') buyerId?: string,
     @Query('status') status?: CallState,
@@ -57,7 +62,7 @@ export class CallsController {
       throw new BadRequestException('minDurationSecs cannot be greater than maxDurationSecs');
     }
 
-    return this.callsService.getCalls(workspaceId, {
+    return this.callsService.getCalls(workspaceId, req.user.userId, {
       campaignId,
       buyerId,
       status,
@@ -76,6 +81,7 @@ export class CallsController {
   @Get('metrics')
   async getMetrics(
     @Param('workspaceId') workspaceId: string,
+    @Request() req: any,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('campaignId') campaignId?: string,
@@ -87,18 +93,22 @@ export class CallsController {
     @Query('maxDuration') maxDuration?: string,
     @Query('bucket') bucket?: string,
   ) {
-    return this.callsService.getMetrics(workspaceId, {
+    return this.callsService.getMetrics(workspaceId, req.user.userId, {
       startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration, bucket
     });
   }
 
 
   @Get('live-calls')
-  async getLiveCalls(@Param('workspaceId') workspaceId: string) {
-    return this.callsService.getLiveCalls(workspaceId);
+  async getLiveCalls(
+    @Param('workspaceId') workspaceId: string,
+    @Request() req: any,
+  ) {
+    return this.callsService.getLiveCalls(workspaceId, req.user.userId);
   }
 
   @Get(':callId')
+  @RequireResourceScope('call', 'callId')
   async getCallDetail(
     @Param('workspaceId') workspaceId: string,
     @Param('callId') callId: string,

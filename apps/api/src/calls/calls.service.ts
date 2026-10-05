@@ -1,3 +1,5 @@
+import { PermissionsService } from '../permissions/permissions.service.js';
+import { ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   Injectable,
@@ -66,6 +68,7 @@ export class CallsService {
     private prisma: PrismaService,
     private usageService: UsageService,
     private webhooksService: WebhooksService,
+    private permissionsService: PermissionsService,
   ) {}
 
   async createCall(data: {
@@ -403,6 +406,7 @@ export class CallsService {
 
   async getCalls(
     workspaceId: string,
+    userId: string = '',
     filters: {
       campaignId?: string;
       buyerId?: string;
@@ -529,7 +533,7 @@ export class CallsService {
   }
 
 
-  async getLiveCalls(workspaceId: string) {
+  async getLiveCalls(workspaceId: string, userId: string = '') {
     const count = await this.prisma.call.count({
       where: {
         workspace_id: workspaceId,
@@ -558,6 +562,7 @@ export class CallsService {
 
   async getMetrics(
     workspaceId: string,
+    userId: string = '',
     filters: { 
       startDate?: string; 
       endDate?: string;
@@ -586,7 +591,29 @@ export class CallsService {
       }
     }
     
+    
+    const permissions = await this.permissionsService.getMemberPermissions(workspaceId, userId);
+    const readPerms = permissions.filter((p: any) => p.key === 'call:read');
+    if (readPerms.length === 0) throw new ForbiddenException('Missing call:read permission');
+    const hasAll = readPerms.some((p: any) => p.scope_type === 'ALL');
+    const hasAssigned = readPerms.some((p: any) => p.scope_type === 'ASSIGNED');
+    
+    let assignedBuyerId = null;
+    if (!hasAll && hasAssigned) {
+      const member = await this.prisma.workspaceMember.findUnique({ where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }});
+      assignedBuyerId = member?.buyer_id;
+      if (!assignedBuyerId) {
+         return { total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, avgDuration: 0, tclSecs: null, aclSecs: null, campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: [] };
+      }
+    }
+
+
     const conditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
+    if (!hasAll && hasAssigned && assignedBuyerId) {
+      conditions.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id = ${assignedBuyerId}) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id = ${assignedBuyerId}))`);
+    }
+  
+  
     if (filters.startDate) conditions.push(Prisma.sql`c.created_at >= ${new Date(filters.startDate)}`);
     if (filters.endDate) conditions.push(Prisma.sql`c.created_at <= ${new Date(filters.endDate)}`);
     if (filters.campaignId) conditions.push(Prisma.sql`c.campaign_id = ${filters.campaignId}`);
@@ -650,6 +677,9 @@ export class CallsService {
     `;
 
     const buyerConditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
+    if (!hasAll && hasAssigned && assignedBuyerId) {
+      buyerConditions.push(Prisma.sql`a.buyer_id = ${assignedBuyerId}`);
+    }
     if (filters.startDate) buyerConditions.push(Prisma.sql`c.created_at >= ${new Date(filters.startDate)}`);
     if (filters.endDate) buyerConditions.push(Prisma.sql`c.created_at <= ${new Date(filters.endDate)}`);
     if (filters.campaignId) buyerConditions.push(Prisma.sql`c.campaign_id = ${filters.campaignId}`);

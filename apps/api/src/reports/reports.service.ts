@@ -54,7 +54,7 @@ export class ReportsService {
     return normalized;
   }
 
-  async generateExport(workspaceId: string, format: 'csv' | 'xlsx', filters: any, columns: any[]) {
+  async generateExport(workspaceId: string, userId: string, format: 'csv' | 'xlsx', filters: any, columns: any[]) {
     if (format !== 'csv' && format !== 'xlsx') {
       throw new BadRequestException('Invalid export format');
     }
@@ -62,7 +62,7 @@ export class ReportsService {
     // Explicitly validate filters through normalization to ensure tenant safety
     const normalizedFilters = this.normalizeConfiguration({ filters }).filters || {};
 
-    const { items } = await this.callsService.getCalls(workspaceId, { ...normalizedFilters, limit: 10001 });
+    const { items } = await this.callsService.getCalls(workspaceId, userId, { ...normalizedFilters, limit: 10001 });
 
     if (items.length > 10000) {
       throw new BadRequestException('Export limit of 10,000 rows exceeded. Please narrow your filters.');
@@ -153,7 +153,7 @@ export class ReportsService {
     return this.prisma.savedReport.create({
       data: {
         workspace_id: workspaceId,
-        created_by_user_id: userId,
+        created_by_user_id: userId || '',
         name: data.name.trim().substring(0, 100),
         visibility: data.visibility === 'SHARED' ? 'SHARED' : 'PERSONAL',
         configuration: this.normalizeConfiguration(data.configuration),

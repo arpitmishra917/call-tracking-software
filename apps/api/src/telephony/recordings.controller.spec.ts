@@ -1,3 +1,4 @@
+import { PermissionsService } from '../permissions/permissions.service.js';
 import { Test, TestingModule } from '@nestjs/testing';
 import { RecordingsController } from './recordings.controller.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -20,6 +21,7 @@ describe('RecordingsController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [RecordingsController],
       providers: [
+        { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         {
           provide: PrismaService,
           useValue: {

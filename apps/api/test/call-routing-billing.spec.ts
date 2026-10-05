@@ -1,3 +1,4 @@
+import { PermissionsService } from '../src/permissions/permissions.service.js';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CallController, TELEPHONY_PROVIDER } from '../src/telephony/call-controller.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
@@ -31,6 +32,7 @@ describe('Phase 3D: Call Routing Billing Integration', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CallController,
+        { provide: PermissionsService, useValue: { getMemberPermissions: vi.fn().mockResolvedValue([{ key: 'call:read', scope_type: 'ALL' }]) } },
         PrismaService,
         CallsService,
         UsageService,
