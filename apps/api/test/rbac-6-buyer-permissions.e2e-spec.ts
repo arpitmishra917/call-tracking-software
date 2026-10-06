@@ -5,7 +5,8 @@ import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { PermissionsService } from '../src/permissions/permissions.service.js';
 import { JwtAuthGuard } from '../src/auth/jwt-auth.guard.js';
-
+import { TELEPHONY_PROVIDER } from '../src/telephony/call-controller.js';
+import { FakeTelephonyProvider } from '../src/telephony/fake.provider.js';
 describe('RBAC-6 Buyer Permissions (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -20,7 +21,11 @@ describe('RBAC-6 Buyer Permissions (e2e)', () => {
   let w1CampaignId: string;
   let w2Id: string;
 
+  let provider: FakeTelephonyProvider;
+
   beforeAll(async () => {
+    provider = new FakeTelephonyProvider();
+
     const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] })
       .overrideGuard(JwtAuthGuard)
       .useValue({
@@ -33,6 +38,8 @@ describe('RBAC-6 Buyer Permissions (e2e)', () => {
           return true;
         },
       })
+      .overrideProvider(TELEPHONY_PROVIDER)
+      .useValue(provider)
       .compile();
 
     app = moduleFixture.createNestApplication();
