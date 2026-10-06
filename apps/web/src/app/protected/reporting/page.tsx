@@ -53,10 +53,12 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
   { id: 'actions', label: 'Actions', visible: true, order: 10, locked: true },
 ];
 
-export default function ReportingDashboard({ params }: { params: { workspaceId: string } }) {
+export default function ReportingDashboard() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  const workspaceId = searchParams.get('workspace');
 
   // Read Canonical State from URL
   const startDate = searchParams.get('startDate') || '';
@@ -98,16 +100,16 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
   const [isSavingReport, setIsSavingReport] = useState(false);
 
   const fetchSavedReports = useCallback(async () => {
-    if (!params.workspaceId) return;
+    if (!workspaceId) return;
     try {
-      const res = await apiFetch(`/workspaces/${params.workspaceId}/reports`);
+      const res = await apiFetch(`/workspaces/${workspaceId}/reports`);
       if (res.ok) {
         setSavedReports(await res.json());
       }
     } catch (e) {
       console.error(e);
     }
-  }, [params.workspaceId]);
+  }, [workspaceId]);
 
   useEffect(() => {
     fetchSavedReports();
@@ -123,7 +125,7 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
     };
     
     try {
-      const res = await apiFetch(`/workspaces/${params.workspaceId}/reports`, {
+      const res = await apiFetch(`/workspaces/${workspaceId}/reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: reportName, visibility: reportVisibility, configuration: config })
@@ -168,7 +170,7 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
     e.stopPropagation();
     if (!confirm('Delete this saved report?')) return;
     try {
-      const res = await apiFetch(`/workspaces/${params.workspaceId}/reports/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/workspaces/${workspaceId}/reports/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete report');
       fetchSavedReports();
     } catch(err: any) {
@@ -190,8 +192,8 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 
   useEffect(() => {
-    if (!params.workspaceId) return;
-    const key = `callflow.reporting.columns.${params.workspaceId}`;
+    if (!workspaceId) return;
+    const key = `callflow.reporting.columns.${workspaceId}`;
     try {
       const saved = localStorage.getItem(key);
       if (saved) {
@@ -213,12 +215,12 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
     } catch (e) {
       console.error("Malformed localStorage columns", e);
     }
-  }, [params.workspaceId]);
+  }, [workspaceId]);
 
   const saveColumns = (newCols: ColumnDef[]) => {
     setColumns(newCols);
-    if (!params.workspaceId) return;
-    const key = `callflow.reporting.columns.${params.workspaceId}`;
+    if (!workspaceId) return;
+    const key = `callflow.reporting.columns.${workspaceId}`;
     localStorage.setItem(key, JSON.stringify(newCols.map(c => ({ id: c.id, visible: c.visible, order: c.order }))));
   };
 
@@ -278,7 +280,7 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
         columns
       };
 
-      const res = await apiFetch(`/workspaces/${params.workspaceId}/reports/export`, {
+      const res = await apiFetch(`/workspaces/${workspaceId}/reports/export`, {
         method: 'POST',
         body: JSON.stringify(payload)
       });
@@ -320,7 +322,7 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
       const q = new URLSearchParams(searchParams.toString());
       
       // Fetch Aggregated Metrics
-      const metricsRes = await apiFetch(`/workspaces/${params.workspaceId}/calls/metrics?${q.toString()}`);
+      const metricsRes = await apiFetch(`/workspaces/${workspaceId}/calls/metrics?${q.toString()}`);
       if (!metricsRes.ok) throw new Error('Failed to load reporting metrics');
       const metricsData = await metricsRes.json();
       setMetrics(metricsData);
@@ -332,7 +334,7 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
       callsQ.set('limit', limit.toString());
       callsQ.set('offset', ((page - 1) * limit).toString());
       
-      const callsRes = await apiFetch(`/workspaces/${params.workspaceId}/calls?${callsQ.toString()}`);
+      const callsRes = await apiFetch(`/workspaces/${workspaceId}/calls?${callsQ.toString()}`);
       if (!callsRes.ok) throw new Error('Failed to load detailed calls');
       const callsData = await callsRes.json();
       setCalls(callsData.items || []);
@@ -343,7 +345,7 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
     } finally {
       setLoading(false);
     }
-  }, [params.workspaceId, searchParams, page, minDuration, maxDuration]);
+  }, [workspaceId, searchParams, page, minDuration, maxDuration]);
 
   useEffect(() => {
     fetchReporting();
@@ -841,7 +843,7 @@ export default function ReportingDashboard({ params }: { params: { workspaceId: 
                             {recordingAvailable ? 'Available' : '—'}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Link href={`/protected/calls/${call.id}?workspace=${params.workspaceId}&returnTo=reporting&${searchParams.toString()}`}><Button variant="outline" size="sm">View</Button></Link>
+                            <Link href={`/protected/calls/${call.id}?workspace=${workspaceId}&returnTo=reporting&${searchParams.toString()}`}><Button variant="outline" size="sm">View</Button></Link>
                           </TableCell>
                         </TableRow>
                       );

@@ -8,7 +8,7 @@ const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
   usePathname: () => '/protected/reporting',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams("?workspace=w1"),
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -58,7 +58,7 @@ describe('ReportingPage (Saved Reports Frontend Matrix)', () => {
       }) });
     });
 
-    render(<ThemeProvider><ReportingPage params={{ workspaceId: 'w1' }} /></ThemeProvider>);
+    render(<ThemeProvider><ReportingPage  /></ThemeProvider>);
     
     // Open reports dropdown
     const btn = screen.getByRole('button', { name: /Saved Reports/i });
@@ -118,7 +118,7 @@ describe('ReportingPage (Export E3 Frontend Matrix)', () => {
       } as any;
     });
 
-    render(<ThemeProvider><ReportingPage params={{ workspaceId: 'w1' }} /></ThemeProvider>);
+    render(<ThemeProvider><ReportingPage  /></ThemeProvider>);
     
     // Export button exists
     const exportBtn = screen.getByRole('button', { name: /Export/i });
@@ -154,7 +154,7 @@ describe('ReportingPage (Export E3 Frontend Matrix)', () => {
       } as any), 100));
     });
 
-    render(<ThemeProvider><ReportingPage params={{ workspaceId: 'w1' }} /></ThemeProvider>);
+    render(<ThemeProvider><ReportingPage  /></ThemeProvider>);
     
     fireEvent.click(screen.getByRole('button', { name: /Export/i }));
     fireEvent.click(screen.getByText('Export XLSX'));
@@ -172,7 +172,7 @@ describe('ReportingPage (Export E3 Frontend Matrix)', () => {
       } as any;
     });
 
-    render(<ThemeProvider><ReportingPage params={{ workspaceId: 'w1' }} /></ThemeProvider>);
+    render(<ThemeProvider><ReportingPage  /></ThemeProvider>);
     
     fireEvent.click(screen.getByRole('button', { name: /Export/i }));
     fireEvent.click(screen.getByText('Export CSV'));
