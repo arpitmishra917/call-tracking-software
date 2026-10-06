@@ -48,6 +48,7 @@ model Workspace {
   callReservationExtensions  CallReservationExtension[]
   saved_reports              SavedReport[]
   workspaceMemberPermissions WorkspaceMemberPermission[]
+  securityAuditLogs          SecurityAuditLog[]
 
   @@map("workspaces")
 }
@@ -125,6 +126,7 @@ model WorkspaceMember {
   buyer  Buyer?  @relation(fields: [buyer_id], references: [id], onDelete: SetNull)
 
   workspaceMemberPermissions WorkspaceMemberPermission[]
+  audit_actions              SecurityAuditLog[] @relation("AuditLogActor")
 
   @@unique([workspace_id, user_id])
   @@map("workspace_members")
@@ -667,3 +669,24 @@ model WorkspaceMemberPermission {
   @@index([workspace_id])
   @@map("workspace_member_permissions")
 }
+
+model SecurityAuditLog {
+  id               String   @id @default(uuid())
+  workspace_id     String
+  actor_user_id    String?
+  actor_member_id  String?
+  action           String
+  target_type      String?
+  target_id        String?
+  metadata         Json?
+  created_at       DateTime @default(now())
+
+  workspace        Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  actor_member     WorkspaceMember? @relation("AuditLogActor", fields: [actor_member_id], references: [id], onDelete: SetNull)
+
+  @@index([workspace_id, created_at])
+  @@index([actor_user_id])
+  @@index([target_type, target_id])
+  @@map("security_audit_logs")
+}
+

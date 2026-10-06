@@ -97,8 +97,9 @@ export class WorkspacesController {
   async removeMember(
     @Param('workspaceId') workspaceId: string,
     @Param('userId') userId: string,
+    @Request() req: any
   ) {
-    return this.workspacesService.removeMember(workspaceId, userId);
+    return this.workspacesService.removeMember(workspaceId, userId, req.user.userId);
   }
 
   @Get(':workspaceId/invitations')

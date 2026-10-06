@@ -1,10 +1,14 @@
 import { Injectable, OnModuleInit, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AuditLogsService } from '../audit-logs/audit-logs.service.js';
 import { PERMISSIONS_LIST, ADMIN_BASELINE_PERMISSIONS } from './permissions.constants.js';
 
 @Injectable()
 export class PermissionsService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService
+  ) {}
 
   async onModuleInit() {
     await this.seedPermissions();
@@ -285,7 +289,7 @@ export class PermissionsService implements OnModuleInit {
       throw new BadRequestException('Permission already assigned to this member');
     }
 
-    return this.prisma.workspaceMemberPermission.create({
+    const result = await this.prisma.workspaceMemberPermission.create({
       data: {
         workspace_id: workspaceId,
         workspace_member_id: targetMember.id,
@@ -294,6 +298,22 @@ export class PermissionsService implements OnModuleInit {
         resource_id: resourceId || null
       }
     });
+
+    await this.auditLogsService.logAction({
+      workspaceId,
+      actorUserId: callerUserId,
+      actorMemberId: callerMember.id,
+      action: 'PERMISSION_ASSIGNED',
+      targetType: 'WORKSPACE_MEMBER',
+      targetId: targetMember.id,
+      metadata: {
+        permissionKey,
+        scopeType,
+        resourceId
+      }
+    });
+
+    return result;
   }
 
   async removePermission(workspaceId: string, callerUserId: string, targetMemberId: string, permissionKey: string, scopeType: string = 'ALL', resourceId?: string) {
@@ -340,6 +360,20 @@ export class PermissionsService implements OnModuleInit {
 
     await this.prisma.workspaceMemberPermission.delete({
       where: { id: existing.id }
+    });
+
+    await this.auditLogsService.logAction({
+      workspaceId,
+      actorUserId: callerUserId,
+      actorMemberId: callerMember.id,
+      action: 'PERMISSION_REVOKED',
+      targetType: 'WORKSPACE_MEMBER',
+      targetId: targetMember.id,
+      metadata: {
+        permissionKey,
+        scopeType,
+        resourceId
+      }
     });
 
     return { success: true };

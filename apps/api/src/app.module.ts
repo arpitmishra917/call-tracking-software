@@ -1,6 +1,7 @@
 import { PermissionsModule } from './permissions/permissions.module.js';
 import { Module } from '@nestjs/common';
 import { AccountModule } from './account/account.module.js';
+import { AuditLogsModule } from './audit-logs/audit-logs.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -36,6 +37,7 @@ import { WebhooksModule } from './webhooks/webhooks.module.js';
     ApiKeysModule,
     PublicApiModule,
     WebhooksModule,
+    AuditLogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

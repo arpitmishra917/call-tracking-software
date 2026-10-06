@@ -1,10 +1,11 @@
+import { AuditLogsService } from '../audit-logs/audit-logs.service.js';
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class WorkspacesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private auditLogsService: AuditLogsService) {}
 
   async createWorkspace(userId: string, name: string) {
     if (!name || name.trim().length === 0) {
@@ -141,8 +142,8 @@ export class WorkspacesService {
     });
   }
 
-  async removeMember(workspaceId: string, userId: string) {
-    return this.prisma.$transaction(async (tx) => {
+  async removeMember(workspaceId: string, userId: string, requestingUserId?: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
       const member = await tx.workspaceMember.findUnique({
         where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }
       });
@@ -158,7 +159,7 @@ export class WorkspacesService {
         }
       }
 
-      return tx.workspaceMember.delete({
+      const deletedMember = await tx.workspaceMember.delete({
         where: {
           workspace_id_user_id: {
             workspace_id: workspaceId,
@@ -166,7 +167,31 @@ export class WorkspacesService {
           },
         },
       });
+
+      return { deletedMember, requestingUserId };
     });
+
+    if (result.requestingUserId) {
+      const requestor = await this.prisma.workspaceMember.findUnique({
+        where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: result.requestingUserId } }
+      });
+      if (requestor) {
+        await this.auditLogsService.logAction({
+          workspaceId: workspaceId,
+          actorUserId: result.requestingUserId,
+          actorMemberId: requestor.id,
+          action: 'MEMBER_REMOVED',
+          targetType: 'MEMBER',
+          targetId: result.deletedMember.id,
+          metadata: {
+            user_id: result.deletedMember.user_id,
+            role: result.deletedMember.role
+          }
+        });
+      }
+    }
+
+    return result.deletedMember;
   }
 
   async updateWorkspaceStatus(workspaceId: string, status: string, requestingUserId: string) {
@@ -235,12 +260,31 @@ export class WorkspacesService {
         token_hash: token_hash,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         status: 'PENDING' as any,
-        created_by: createdByUserId,
-          participant_type: participant_type as any,
-          vendor_id,
-          buyer_id
+        created_by: createdByUserId,
+        participant_type: participant_type as any,
+        vendor_id,
+        buyer_id
       }
     });
+
+    const requestor = await this.prisma.workspaceMember.findUnique({
+      where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: createdByUserId } }
+    });
+
+    if (requestor) {
+      await this.auditLogsService.logAction({
+        workspaceId: workspaceId,
+        actorUserId: createdByUserId,
+        actorMemberId: requestor.id,
+        action: 'INVITATION_CREATED',
+        targetType: 'INVITATION',
+        targetId: invite.id,
+        metadata: {
+          email: invite.email,
+          role: invite.role,
+        }
+      });
+    }
 
     return { ...invite, token };
   }
@@ -287,7 +331,7 @@ export class WorkspacesService {
     if (!token) throw new BadRequestException('Token is required');
     const token_hash = crypto.createHash('sha256').update(token).digest('hex');
 
-    return this.prisma.$transaction(async (tx) => {
+    const txResult = await this.prisma.$transaction(async (tx) => {
       const invitation = await tx.workspaceInvitation.findUnique({
         where: { token_hash },
       });
@@ -377,7 +421,22 @@ export class WorkspacesService {
         },
       });
 
-      return { workspaceId: invitation.workspace_id };
+      return { workspaceId: invitation.workspace_id, memberId: member.id, invitationId: invitation.id, finalRole, email: userEmail, actorUserId: userId };
     });
+
+    await this.auditLogsService.logAction({
+      workspaceId: txResult.workspaceId,
+      actorUserId: txResult.actorUserId,
+      actorMemberId: txResult.memberId,
+      action: 'INVITATION_ACCEPTED',
+      targetType: 'INVITATION',
+      targetId: txResult.invitationId,
+      metadata: {
+        email: txResult.email,
+        role: txResult.finalRole,
+      }
+    });
+
+    return { workspaceId: txResult.workspaceId };
   }
 }

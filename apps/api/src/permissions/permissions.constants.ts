@@ -40,7 +40,9 @@ export const PERMISSIONS_LIST = [
   { key: 'billing:read', group: 'BILLING', description: 'Read billing details' },
   { key: 'billing:manage', group: 'BILLING', description: 'Manage billing' },
 
-  { key: 'usage:read', group: 'USAGE', description: 'Read usage metrics' }
+  { key: 'usage:read', group: 'USAGE', description: 'Read usage metrics' },
+
+  { key: 'audit_log:read', group: 'SECURITY', description: 'Read security audit logs' }
 ];
 
 // Admin has comprehensive access baseline identical to legacy ADMIN role.

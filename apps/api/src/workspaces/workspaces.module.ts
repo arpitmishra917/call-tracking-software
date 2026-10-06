@@ -7,9 +7,10 @@ import { VendorsService } from './vendors.service.js';
 
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { AuditLogsModule } from '../audit-logs/audit-logs.module.js';
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, AuditLogsModule],
   controllers: [WorkspacesController, InvitationsController, VendorsController],
   providers: [WorkspacesService, VendorsService],
   exports: [WorkspacesService, VendorsService],
