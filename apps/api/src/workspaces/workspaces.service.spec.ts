@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WorkspacesService } from './workspaces.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AuditLogsService } from '../audit-logs/audit-logs.service.js';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import * as crypto from 'crypto';
@@ -21,6 +22,12 @@ describe('WorkspacesService', () => {
             workspace: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
             workspaceMember: { create: vi.fn(), delete: vi.fn(), count: vi.fn(), findUnique: vi.fn(), update: vi.fn(), upsert: vi.fn() },
             workspaceInvitation: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+          },
+        },
+        {
+          provide: AuditLogsService,
+          useValue: {
+            logAction: vi.fn(),
           },
         },
       ],
