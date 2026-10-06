@@ -1,27 +1,29 @@
-import { Controller, Get, Post, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, UseGuards, Request } from '@nestjs/common';
 import { VendorsService } from './vendors.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
-import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
-import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
-import { WorkspaceRole } from '@prisma/client';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission, RequireResourceScope } from '../authorization/permissions.decorator.js';
 
 @Controller('workspaces/:workspaceId/vendors')
-@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
-@RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class VendorsController {
   constructor(private readonly vendorsService: VendorsService) {}
 
   @Get()
-  list(@Param('workspaceId') workspaceId: string) {
-    return this.vendorsService.listVendors(workspaceId);
+  @RequirePermission('vendor:read')
+  list(@Param('workspaceId') workspaceId: string, @Request() req: any) {
+    return this.vendorsService.listVendors(workspaceId, req.user.userId);
   }
 
   @Get(':id')
+  @RequirePermission('vendor:read')
+  @RequireResourceScope('vendor', 'id')
   get(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
     return this.vendorsService.getVendor(workspaceId, id);
   }
 
   @Post()
+  @RequirePermission('vendor:write')
   create(
     @Param('workspaceId') workspaceId: string,
     @Body() body: { name: string },

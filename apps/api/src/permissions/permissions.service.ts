@@ -123,6 +123,31 @@ export class PermissionsService implements OnModuleInit {
     if (permissions.some(p => p.scope_type === 'ALL')) return true;
     if (permissions.some(p => p.resource_id === resourceId)) return true;
 
+    // Explicit hierarchical scopes for CALL and RECORDING resources
+    const permDef = await this.prisma.permission.findUnique({ where: { key: permissionKey } });
+    if (permDef && (permDef.group === 'CALLS' || permDef.group === 'RECORDINGS' || permissionKey === 'call:recording_read')) {
+      const call = permDef.group === 'RECORDINGS' || permissionKey === 'call:recording_read' 
+        ? (await this.prisma.recording.findUnique({ where: { id: resourceId }, include: { call: { include: { attempts: true } } } }))?.call
+        : await this.prisma.call.findUnique({ where: { id: resourceId }, include: { attempts: true } });
+        
+      if (call) {
+        if (permissions.some(p => p.scope_type === 'CAMPAIGN' && p.resource_id === call.campaign_id)) return true;
+        
+        const phoneScopeIds = permissions.filter(p => p.scope_type === 'PHONE_NUMBER' && p.resource_id).map(p => p.resource_id);
+        if (phoneScopeIds.length > 0) {
+          const phone = await this.prisma.phoneNumber.findFirst({
+            where: { id: { in: phoneScopeIds as string[] }, phone_number: call.to_number }
+          });
+          if (phone) return true;
+        }
+        
+        const buyerScopeIds = permissions.filter(p => p.scope_type === 'BUYER' && p.resource_id).map(p => p.resource_id);
+        if (buyerScopeIds.length > 0) {
+          if (call.attempts.some(a => buyerScopeIds.includes(a.buyer_id))) return true;
+        }
+      }
+    }
+
     if (permissions.some(p => p.scope_type === 'ASSIGNED')) {
       const permDef = await this.prisma.permission.findUnique({ where: { key: permissionKey } });
       if (!permDef) return false;
@@ -150,25 +175,10 @@ export class PermissionsService implements OnModuleInit {
         if (pn?.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
       }
 
-// RECORDING resource
-      if (permissionKey === 'call:recording_read' && member.buyer_id) {
-        const rec = await this.prisma.recording.findUnique({
-          where: { id: resourceId },
-          include: {
-            call: {
-              include: { attempts: true, campaign: { include: { buyers: true } } }
-            }
-          }
-        });
-        if (!rec || !rec.call) return false;
-        if (rec.call.attempts.some(a => a.buyer_id === member.buyer_id)) return true;
-        if (rec.call.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
-        return false;
-      }
+
 
       // CALL resource
-      if (permDef.group === 'CALLS' && member.buyer_id && permissionKey !== 'call:recording_read') {
-        // Can be linked via CallAttempt -> Buyer OR Call -> Campaign -> CampaignBuyer
+      if (permDef.group === 'CALLS' && permissionKey !== 'call:recording_read') {
         const call = await this.prisma.call.findUnique({
           where: { id: resourceId },
           include: {
@@ -177,12 +187,16 @@ export class PermissionsService implements OnModuleInit {
           }
         });
         if (!call) return false;
-        if (call.attempts.some(a => a.buyer_id === member.buyer_id)) return true;
-        if (call.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
+        
+        // 1. Implicit ASSIGNED scope
+        if (member.buyer_id) {
+          if (call.attempts.some(a => a.buyer_id === member.buyer_id)) return true;
+          if (call.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
+        }
       }
 
       // RECORDING resource
-      if (permDef.group === 'RECORDINGS' && member.buyer_id) {
+      if (permDef.group === 'RECORDINGS' || permissionKey === 'call:recording_read') {
         const rec = await this.prisma.recording.findUnique({
           where: { id: resourceId },
           include: {
@@ -192,8 +206,12 @@ export class PermissionsService implements OnModuleInit {
           }
         });
         if (!rec || !rec.call) return false;
-        if (rec.call.attempts.some(a => a.buyer_id === member.buyer_id)) return true;
-        if (rec.call.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
+        
+        // 1. Implicit ASSIGNED scope
+        if (member.buyer_id) {
+          if (rec.call.attempts.some(a => a.buyer_id === member.buyer_id)) return true;
+          if (rec.call.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
+        }
       }
     }
 
