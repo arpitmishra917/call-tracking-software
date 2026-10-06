@@ -1,8 +1,8 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ReportingPage from './page';
 import { ThemeProvider } from '@/components/theme-provider';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, apiDownload } from '@/lib/api';
 
 const mockPush = vi.fn();
 const mockSearchParams = new URLSearchParams("?workspace=w1");
@@ -13,7 +13,8 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/lib/api', () => ({
-  apiFetch: vi.fn()
+  apiFetch: vi.fn(),
+  apiDownload: vi.fn(),
 }));
 
 const mock = Object.defineProperty(window, 'matchMedia', {
@@ -96,6 +97,7 @@ describe('ReportingPage (Saved Reports Frontend Matrix)', () => {
 describe('ReportingPage (Export E3 Frontend Matrix)', () => {
   beforeEach(() => {
     vi.mocked(apiFetch).mockClear();
+    vi.mocked(apiDownload).mockClear();
     // mock apiFetch default fallback
     vi.mocked(apiFetch).mockImplementation((url) => {
       if (typeof url === 'string' && url.includes('reports') && !url.includes('export')) {
@@ -112,17 +114,16 @@ describe('ReportingPage (Export E3 Frontend Matrix)', () => {
     window.URL.revokeObjectURL = vi.fn();
   });
 
-  it('Export toggles dropdown and downloads CSV/XLSX', async () => {
-    // mock blob return
-    vi.mocked(apiFetch).mockImplementationOnce(async (url) => {
-      return { 
-        ok: true, 
-        blob: () => Promise.resolve(new Blob(['test'], { type: 'text/csv' })),
-        headers: new Headers({ 'content-disposition': 'attachment; filename="export.csv"' })
-      } as any;
+  it('CSV export successfully downloads a Blob and does NOT call apiFetch', async () => {
+    const mockBlob = new Blob(['test-csv-content'], { type: 'text/csv' });
+    vi.mocked(apiDownload).mockResolvedValueOnce({
+      blob: mockBlob,
+      filename: null,
+      headers: new Headers(),
     });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
-    render(<ThemeProvider><ReportingPage  /></ThemeProvider>);
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
     
     // Export button exists
     const exportBtn = screen.getByRole('button', { name: /Export/i });
@@ -137,54 +138,132 @@ describe('ReportingPage (Export E3 Frontend Matrix)', () => {
     
     fireEvent.click(csvBtn);
     
-    // Check apiFetch was called for export
+    // Check apiDownload was called for export with csv format
     await waitFor(() => {
-      expect(apiFetch).toHaveBeenCalledWith(
+      expect(apiDownload).toHaveBeenCalledWith(
         '/workspaces/w1/reports/export',
         expect.objectContaining({
           method: 'POST',
-          body: expect.any(String)
+          body: expect.stringContaining('"format":"csv"'),
         })
       );
     });
+
+    // Ensure apiFetch was NOT called for export
+    expect(apiFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/reports/export'),
+      expect.anything()
+    );
+
+    // Verify browser download triggers
+    expect(window.URL.createObjectURL).toHaveBeenCalledWith(mockBlob);
+    expect(clickSpy).toHaveBeenCalled();
+    expect(window.URL.revokeObjectURL).toHaveBeenCalledWith('blob:test');
+    clickSpy.mockRestore();
+  });
+
+  it('XLSX export successfully downloads a Blob', async () => {
+    const mockBlob = new Blob(['test-xlsx-content'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    vi.mocked(apiDownload).mockResolvedValueOnce({
+      blob: mockBlob,
+      filename: null,
+      headers: new Headers(),
+    });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: /Export/i }));
+    fireEvent.click(screen.getByText('Export XLSX'));
+
+    await waitFor(() => {
+      expect(apiDownload).toHaveBeenCalledWith(
+        '/workspaces/w1/reports/export',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"format":"xlsx"'),
+        })
+      );
+    });
+
+    expect(window.URL.createObjectURL).toHaveBeenCalledWith(mockBlob);
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  it('Content-Disposition filename is respected when present', async () => {
+    const mockBlob = new Blob(['test-content'], { type: 'text/csv' });
+    vi.mocked(apiDownload).mockResolvedValueOnce({
+      blob: mockBlob,
+      filename: 'custom-export-report-2026.csv',
+      headers: new Headers({ 'content-disposition': 'attachment; filename="custom-export-report-2026.csv"' }),
+    });
+
+    let downloadedFilename = '';
+    const origAppendChild = document.body.appendChild.bind(document.body);
+    const appendSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((node) => {
+      if (node instanceof HTMLAnchorElement) {
+        downloadedFilename = node.download;
+      }
+      return origAppendChild(node);
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: /Export/i }));
+    fireEvent.click(screen.getByText('Export CSV'));
+
+    await waitFor(() => {
+      expect(downloadedFilename).toBe('custom-export-report-2026.csv');
+    });
+
+    appendSpy.mockRestore();
   });
 
   it('Export duplicate-click protection', async () => {
-    // mock slow response to keep loading state true
-    vi.mocked(apiFetch).mockImplementationOnce(async () => {
-      return new Promise(resolve => setTimeout(() => resolve({
-        ok: true,
-        blob: () => Promise.resolve(new Blob(['test']))
-      } as any), 100));
+    let resolveExport: (val: any) => void = () => {};
+    vi.mocked(apiDownload).mockImplementationOnce(() => {
+      return new Promise(resolve => {
+        resolveExport = resolve;
+      });
     });
 
-    render(<ThemeProvider><ReportingPage  /></ThemeProvider>);
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
     
     fireEvent.click(screen.getByRole('button', { name: /Export/i }));
     fireEvent.click(screen.getByText('Export XLSX'));
     
     // Check it enters loading state (text changes or button disables)
     expect(screen.getByRole('button', { name: /Export/i }).hasAttribute('disabled')).toBe(true);
-  });
 
-  it('Export error state handling', async () => {
-    // Return a 400 bad request JSON instead of blob
-    vi.mocked(apiFetch).mockImplementationOnce(async () => {
-      return { 
-        ok: false, 
-        json: () => Promise.resolve({ message: 'Export limit exceeded' })
-      } as any;
+    // Resolve the export promise so state settles cleanly
+    await act(async () => {
+      resolveExport({
+        blob: new Blob(['test']),
+        filename: 'report.xlsx',
+        headers: new Headers(),
+      });
     });
 
-    render(<ThemeProvider><ReportingPage  /></ThemeProvider>);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Export/i }).hasAttribute('disabled')).toBe(false);
+    });
+  });
+
+  it('Export error state handling produces user-facing error alert', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    vi.mocked(apiDownload).mockRejectedValueOnce(new Error('Export quota exceeded'));
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
     
     fireEvent.click(screen.getByRole('button', { name: /Export/i }));
     fireEvent.click(screen.getByText('Export CSV'));
     
-    // Toast should show error
     await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith('Export quota exceeded');
       expect(screen.getByRole('button', { name: /Export/i }).hasAttribute('disabled')).toBe(false);
     });
+    alertSpy.mockRestore();
   });
 });
 

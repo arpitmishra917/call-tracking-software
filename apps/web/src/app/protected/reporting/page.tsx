@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, apiDownload } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
@@ -276,34 +276,24 @@ export default function ReportingDashboard() {
         columns
       };
 
-      const res = await apiFetch(`/workspaces/${workspaceId}/reports/export`, {
+      const { blob, filename: serverFilename } = await apiDownload(`/workspaces/${workspaceId}/reports/export`, {
         method: 'POST',
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert(err.message || 'Export failed.');
-        return;
-      }
+      const fallbackFilename = `callflow-report-${new Date().toISOString().split('T')[0]}.${format}`;
+      const filename = serverFilename || fallbackFilename;
 
-      const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      let filename = `callflow-report-${new Date().toISOString().split('T')[0]}.${format}`;
-      const disp = res.headers.get('content-disposition');
-      if (disp && disp.includes('filename=')) {
-        const matches = /filename="([^"]+)"/.exec(disp);
-        if (matches && matches[1]) filename = matches[1];
-      }
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
-      alert('An unexpected error occurred during export.');
+    } catch (err: any) {
+      alert(err?.message || 'An unexpected error occurred during export.');
     } finally {
       setIsExporting(false);
     }
