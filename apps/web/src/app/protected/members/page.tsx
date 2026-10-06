@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -40,6 +40,7 @@ type WorkspaceInvitation = {
 
 export default function MembersPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const workspaceId = searchParams.get('workspace');
 
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
@@ -355,16 +356,25 @@ export default function MembersPage() {
                       </TableCell>
                     {isOwnerOrAdmin && (
                       <TableCell className="text-right">
-                        {currentUserId !== member.user_id && (
+                        <div className="flex items-center justify-end gap-2">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
-                            onClick={() => setRemoveId(member.user_id)}
+                            onClick={() => router.push(`/protected/members/${member.id}?workspace=${workspaceId}`)}
                           >
-                            Remove
+                            Manage Permissions
                           </Button>
-                        )}
+                          {currentUserId !== member.user_id && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                              onClick={() => setRemoveId(member.user_id)}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>
