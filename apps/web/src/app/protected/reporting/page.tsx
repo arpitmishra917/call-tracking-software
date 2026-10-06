@@ -102,10 +102,8 @@ export default function ReportingDashboard() {
   const fetchSavedReports = useCallback(async () => {
     if (!workspaceId) return;
     try {
-      const res = await apiFetch(`/workspaces/${workspaceId}/reports`);
-      if (res.ok) {
-        setSavedReports(await res.json());
-      }
+      const data = await apiFetch(`/workspaces/${workspaceId}/reports`);
+      setSavedReports(data || []);
     } catch (e) {
       console.error(e);
     }
@@ -125,12 +123,11 @@ export default function ReportingDashboard() {
     };
     
     try {
-      const res = await apiFetch(`/workspaces/${workspaceId}/reports`, {
+      await apiFetch(`/workspaces/${workspaceId}/reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: reportName, visibility: reportVisibility, configuration: config })
       });
-      if (!res.ok) throw new Error('Failed to save report');
       setReportName('');
       setIsSavingReport(false);
       fetchSavedReports();
@@ -170,8 +167,7 @@ export default function ReportingDashboard() {
     e.stopPropagation();
     if (!confirm('Delete this saved report?')) return;
     try {
-      const res = await apiFetch(`/workspaces/${workspaceId}/reports/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete report');
+      await apiFetch(`/workspaces/${workspaceId}/reports/${id}`, { method: 'DELETE' });
       fetchSavedReports();
     } catch(err: any) {
       alert(err.message);
@@ -322,23 +318,26 @@ export default function ReportingDashboard() {
       const q = new URLSearchParams(searchParams.toString());
       
       // Fetch Aggregated Metrics
-      const metricsRes = await apiFetch(`/workspaces/${workspaceId}/calls/metrics?${q.toString()}`);
-      if (!metricsRes.ok) throw new Error('Failed to load reporting metrics');
-      const metricsData = await metricsRes.json();
+      const metricsData = await apiFetch(
+        `/workspaces/${workspaceId}/calls/metrics?${q.toString()}`
+      );
       setMetrics(metricsData);
       
       // Fetch Paginated Detailed Calls
       const callsQ = new URLSearchParams(q.toString());
       if (minDuration) callsQ.set('minDurationSecs', minDuration);
       if (maxDuration) callsQ.set('maxDurationSecs', maxDuration);
+      if ((minDuration || maxDuration) && !callsQ.get('durationType')) {
+        callsQ.set('durationType', 'total');
+      }
       callsQ.set('limit', limit.toString());
       callsQ.set('offset', ((page - 1) * limit).toString());
       
-      const callsRes = await apiFetch(`/workspaces/${workspaceId}/calls?${callsQ.toString()}`);
-      if (!callsRes.ok) throw new Error('Failed to load detailed calls');
-      const callsData = await callsRes.json();
-      setCalls(callsData.items || []);
-      setCallsTotal(callsData.total || 0);
+      const callsData = await apiFetch(
+        `/workspaces/${workspaceId}/calls?${callsQ.toString()}`
+      );
+      setCalls(callsData?.items || []);
+      setCallsTotal(callsData?.total || 0);
       
     } catch (err: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Unable to load reporting data');

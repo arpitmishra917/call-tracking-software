@@ -5,10 +5,11 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { apiFetch } from '@/lib/api';
 
 const mockPush = vi.fn();
+const mockSearchParams = new URLSearchParams("?workspace=w1");
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
   usePathname: () => '/protected/reporting',
-  useSearchParams: () => new URLSearchParams("?workspace=w1"),
+  useSearchParams: () => mockSearchParams,
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -38,7 +39,7 @@ describe('ReportingPage (Saved Reports Frontend Matrix)', () => {
   it('Apply report pushes URL state and saves columns', async () => {
     vi.mocked(apiFetch).mockImplementation((url) => {
       if (typeof url === 'string' && url.includes('reports')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([{
+        return Promise.resolve([{
           id: 'rep1',
           name: 'Full Dashboard',
           visibility: 'PERSONAL',
@@ -49,13 +50,13 @@ describe('ReportingPage (Saved Reports Frontend Matrix)', () => {
             columns: [{ id: 'caller', visible: true, order: 0 }]
           },
           creator: { display_name: 'Test' }
-        }]) });
+        }]);
       }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ 
+      return Promise.resolve({ 
         items: [], total: 0, 
         answered: 0, missed: 0, failed: 0, 
         buyers: {}, campaigns: {}, trackingNumbers: {} 
-      }) });
+      });
     });
 
     render(<ThemeProvider><ReportingPage  /></ThemeProvider>);
@@ -97,11 +98,14 @@ describe('ReportingPage (Export E3 Frontend Matrix)', () => {
     vi.mocked(apiFetch).mockClear();
     // mock apiFetch default fallback
     vi.mocked(apiFetch).mockImplementation((url) => {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ 
+      if (typeof url === 'string' && url.includes('reports') && !url.includes('export')) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve({ 
         items: [], total: 0, 
         answered: 0, missed: 0, failed: 0, 
         buyers: {}, campaigns: {}, trackingNumbers: {} 
-      }) }) as any;
+      });
     });
     // mock window URL and Object URLs
     window.URL.createObjectURL = vi.fn().mockReturnValue('blob:test');
@@ -180,6 +184,120 @@ describe('ReportingPage (Export E3 Frontend Matrix)', () => {
     // Toast should show error
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Export/i }).hasAttribute('disabled')).toBe(false);
+    });
+  });
+});
+
+describe('ReportingPage (Direct apiFetch Payload Regression)', () => {
+  beforeEach(() => {
+    vi.mocked(apiFetch).mockClear();
+    localStorage.clear();
+  });
+
+  it('renders aggregated metrics directly from parsed payload without .ok', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 150,
+          answered: 120,
+          missed: 20,
+          failed: 10,
+          aclSecs: 95,
+          tclSecs: 11400,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('reports')) {
+        return [];
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('150')).toBeDefined();
+      expect(screen.getByText('120')).toBeDefined();
+      expect(screen.getByText('20')).toBeDefined();
+      expect(screen.getByText('10')).toBeDefined();
+    });
+
+    expect(screen.queryByText('Unable to load reporting data')).toBeNull();
+    expect(screen.queryByText('Failed to load reporting metrics')).toBeNull();
+  });
+
+  it('renders detailed calls directly from parsed payload without .ok', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 1,
+          answered: 1,
+          missed: 0,
+          failed: 0,
+          aclSecs: 60,
+          tclSecs: 60,
+          campaigns: {
+            c1: { id: 'c1', name: 'Direct Payload Campaign', total: 1, answered: 1, tclSecs: 60 }
+          },
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('reports')) {
+        return [];
+      }
+      if (typeof url === 'string' && url.includes('calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-regression-1',
+              created_at: new Date().toISOString(),
+              from_number: '+15551234567',
+              to_number: '+15559876543',
+              state: 'COMPLETED',
+              duration_secs: 60,
+              talkDurationSecs: 55,
+              totalDurationSecs: 60,
+              campaign: { name: 'Direct Payload Campaign' },
+              buyer: { name: 'Direct Buyer' },
+              attempts: [],
+              recordings: [],
+            }
+          ],
+          total: 1,
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('+15551234567').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('+15559876543').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Direct Payload Campaign')).toBeDefined();
+    });
+
+    expect(screen.queryByText('Unable to load reporting data')).toBeNull();
+  });
+
+  it('handles apiFetch error rejection gracefully with error banner', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        throw new Error('API error (403): You do not have access to this workspace');
+      }
+      return [];
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Unable to load reporting data')).toBeDefined();
+      expect(screen.getByText('API error (403): You do not have access to this workspace')).toBeDefined();
     });
   });
 });
