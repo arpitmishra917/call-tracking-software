@@ -304,7 +304,7 @@ export class CommercialDisputesService {
   /**
    * Get dispute details by dispute ID within workspace.
    */
-  async getDispute(workspaceId: string, disputeId: string): Promise<CallDispute> {
+  async getDispute(workspaceId: string, disputeId: string, userId?: string): Promise<any> {
     const dispute = await this.prisma.callDispute.findUnique({
       where: { id: disputeId },
       include: {
@@ -317,6 +317,48 @@ export class CommercialDisputesService {
       throw new NotFoundException('Dispute not found');
     }
 
+    if (userId) {
+      const member = await this.prisma.workspaceMember.findUnique({
+        where: {
+          workspace_id_user_id: {
+            workspace_id: workspaceId,
+            user_id: userId,
+          },
+        },
+      });
+
+      if (!member) {
+        throw new ForbiddenException('User is not a member of this workspace');
+      }
+
+      if (member.role === 'OWNER' || member.role === 'ADMIN') {
+        return dispute;
+      }
+
+      if (member.participant_type === 'VENDOR') {
+        throw new ForbiddenException('Vendors cannot view buyer disputes');
+      }
+
+      if (member.participant_type === 'BUYER') {
+        if (!member.buyer_id || dispute.buyer_id !== member.buyer_id) {
+          throw new ForbiddenException('Buyer can only view disputes filed for their own buyer account');
+        }
+
+        const sanitized = { ...dispute };
+        if (sanitized.commercial) {
+          const { payout, cost, profit, vendor_id, ...commRest } = sanitized.commercial as any;
+          sanitized.commercial = commRest;
+        }
+        if (sanitized.adjustment) {
+          const { original_payout, adjusted_payout, ...adjRest } = sanitized.adjustment as any;
+          sanitized.adjustment = adjRest;
+        }
+        return sanitized;
+      }
+
+      throw new ForbiddenException('Insufficient permission to view commercial disputes');
+    }
+
     return dispute;
   }
 
@@ -326,16 +368,64 @@ export class CommercialDisputesService {
   async getDisputeByCallCommercial(
     workspaceId: string,
     callCommercialId: string,
-  ): Promise<CallDispute | null> {
+    userId?: string,
+  ): Promise<any> {
     const dispute = await this.prisma.callDispute.findUnique({
       where: { call_commercial_id: callCommercialId },
       include: {
         adjustment: true,
+        commercial: true,
       },
     });
 
     if (dispute && dispute.workspace_id !== workspaceId) {
       throw new NotFoundException('Dispute not found');
+    }
+
+    if (!dispute) {
+      return null;
+    }
+
+    if (userId) {
+      const member = await this.prisma.workspaceMember.findUnique({
+        where: {
+          workspace_id_user_id: {
+            workspace_id: workspaceId,
+            user_id: userId,
+          },
+        },
+      });
+
+      if (!member) {
+        throw new ForbiddenException('User is not a member of this workspace');
+      }
+
+      if (member.role === 'OWNER' || member.role === 'ADMIN') {
+        return dispute;
+      }
+
+      if (member.participant_type === 'VENDOR') {
+        throw new ForbiddenException('Vendors cannot view buyer disputes');
+      }
+
+      if (member.participant_type === 'BUYER') {
+        if (!member.buyer_id || dispute.buyer_id !== member.buyer_id) {
+          throw new ForbiddenException('Buyer can only view disputes filed for their own buyer account');
+        }
+
+        const sanitized = { ...dispute };
+        if (sanitized.commercial) {
+          const { payout, cost, profit, vendor_id, ...commRest } = sanitized.commercial as any;
+          sanitized.commercial = commRest;
+        }
+        if (sanitized.adjustment) {
+          const { original_payout, adjusted_payout, ...adjRest } = sanitized.adjustment as any;
+          sanitized.adjustment = adjRest;
+        }
+        return sanitized;
+      }
+
+      throw new ForbiddenException('Insufficient permission to view commercial disputes');
     }
 
     return dispute;

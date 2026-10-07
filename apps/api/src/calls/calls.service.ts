@@ -404,6 +404,363 @@ export class CallsService {
     return VALID_CALL_TRANSITIONS[state].length === 0;
   }
 
+  async getParticipantContext(workspaceId: string, userId: string = '') {
+    if (!userId) {
+      return {
+        isOwnerOrAdmin: true,
+        isBuyer: false,
+        buyerId: undefined as string | undefined,
+        isVendor: false,
+        vendorId: undefined as string | undefined,
+        isInternalMember: false,
+      };
+    }
+
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
+    });
+
+    if (!member) {
+      throw new ForbiddenException('User is not a member of this workspace');
+    }
+
+    if (member.role === 'OWNER' || member.role === 'ADMIN') {
+      return {
+        isOwnerOrAdmin: true,
+        isBuyer: false,
+        buyerId: undefined as string | undefined,
+        isVendor: false,
+        vendorId: undefined as string | undefined,
+        isInternalMember: false,
+      };
+    }
+
+    if (member.participant_type === 'BUYER' && member.buyer_id) {
+      return {
+        isOwnerOrAdmin: false,
+        isBuyer: true,
+        buyerId: member.buyer_id,
+        isVendor: false,
+        vendorId: undefined as string | undefined,
+        isInternalMember: false,
+      };
+    }
+
+    if (member.participant_type === 'VENDOR' && member.vendor_id) {
+      return {
+        isOwnerOrAdmin: false,
+        isBuyer: false,
+        buyerId: undefined as string | undefined,
+        isVendor: true,
+        vendorId: member.vendor_id,
+        isInternalMember: false,
+      };
+    }
+
+    return {
+      isOwnerOrAdmin: false,
+      isBuyer: false,
+      buyerId: undefined as string | undefined,
+      isVendor: false,
+      vendorId: undefined as string | undefined,
+      isInternalMember: true,
+    };
+  }
+
+  sanitizeCommercial(rawCommercial: any, ctx: { isOwnerOrAdmin: boolean; isBuyer: boolean; isVendor: boolean; isInternalMember: boolean }) {
+    if (!rawCommercial) return null;
+
+    if (ctx.isOwnerOrAdmin) {
+      return {
+        id: rawCommercial.id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        revenue: Number(rawCommercial.revenue),
+        payout: Number(rawCommercial.payout),
+        cost: Number(rawCommercial.cost),
+        profit: Number(rawCommercial.profit),
+        currency: rawCommercial.currency,
+        vendor: rawCommercial.vendor ? { id: rawCommercial.vendor.id, name: rawCommercial.vendor.name } : null,
+        buyer: rawCommercial.buyer ? { id: rawCommercial.buyer.id, name: rawCommercial.buyer.name } : null,
+        disputeStatus: rawCommercial.dispute?.status || null,
+        disputeReason: rawCommercial.dispute?.reason || null,
+      };
+    }
+
+    if (ctx.isBuyer) {
+      return {
+        id: rawCommercial.id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        revenue: Number(rawCommercial.revenue),
+        currency: rawCommercial.currency,
+        buyer: rawCommercial.buyer ? { id: rawCommercial.buyer.id, name: rawCommercial.buyer.name } : null,
+        disputeStatus: rawCommercial.dispute?.status || null,
+        disputeReason: rawCommercial.dispute?.reason || null,
+      };
+    }
+
+    if (ctx.isVendor) {
+      return {
+        id: rawCommercial.id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        payout: Number(rawCommercial.payout),
+        currency: rawCommercial.currency,
+        vendor: rawCommercial.vendor ? { id: rawCommercial.vendor.id, name: rawCommercial.vendor.name } : null,
+      };
+    }
+
+    // isInternalMember (or other non-commercial member)
+    return {
+      id: rawCommercial.id,
+      status: rawCommercial.status,
+      qualified: rawCommercial.qualified,
+      converted: rawCommercial.converted,
+      duplicate: rawCommercial.duplicate,
+      currency: rawCommercial.currency,
+    };
+  }
+
+  sanitizeCommercialDetail(rawCommercial: any, ctx: { isOwnerOrAdmin: boolean; isBuyer: boolean; isVendor: boolean; isInternalMember: boolean }) {
+    if (!rawCommercial) return null;
+
+    if (ctx.isOwnerOrAdmin) {
+      return rawCommercial;
+    }
+
+    if (ctx.isBuyer) {
+      const comm: any = {
+        id: rawCommercial.id,
+        workspace_id: rawCommercial.workspace_id,
+        call_id: rawCommercial.call_id,
+        campaign_id: rawCommercial.campaign_id,
+        buyer_id: rawCommercial.buyer_id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        duplicate_of_call_id: rawCommercial.duplicate_of_call_id,
+        evaluated_at: rawCommercial.evaluated_at,
+        revenue: Number(rawCommercial.revenue),
+        currency: rawCommercial.currency,
+        created_at: rawCommercial.created_at,
+        buyer: rawCommercial.buyer,
+      };
+
+      if (rawCommercial.dispute) {
+        comm.dispute = {
+          id: rawCommercial.dispute.id,
+          workspace_id: rawCommercial.dispute.workspace_id,
+          call_commercial_id: rawCommercial.dispute.call_commercial_id,
+          buyer_id: rawCommercial.dispute.buyer_id,
+          reason: rawCommercial.dispute.reason,
+          description: rawCommercial.dispute.description,
+          status: rawCommercial.dispute.status,
+          created_by_user_id: rawCommercial.dispute.created_by_user_id,
+          resolved_by_user_id: rawCommercial.dispute.resolved_by_user_id,
+          resolution_notes: rawCommercial.dispute.resolution_notes,
+          resolved_at: rawCommercial.dispute.resolved_at,
+          created_at: rawCommercial.dispute.created_at,
+          updated_at: rawCommercial.dispute.updated_at,
+        };
+      }
+
+      if (rawCommercial.adjustment) {
+        comm.adjustment = {
+          id: rawCommercial.adjustment.id,
+          workspace_id: rawCommercial.adjustment.workspace_id,
+          call_commercial_id: rawCommercial.adjustment.call_commercial_id,
+          dispute_id: rawCommercial.adjustment.dispute_id,
+          original_revenue: Number(rawCommercial.adjustment.original_revenue),
+          adjusted_revenue: Number(rawCommercial.adjustment.adjusted_revenue),
+          reason: rawCommercial.adjustment.reason,
+          created_at: rawCommercial.adjustment.created_at,
+        };
+      }
+
+      return comm;
+    }
+
+    if (ctx.isVendor) {
+      return {
+        id: rawCommercial.id,
+        workspace_id: rawCommercial.workspace_id,
+        call_id: rawCommercial.call_id,
+        campaign_id: rawCommercial.campaign_id,
+        vendor_id: rawCommercial.vendor_id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        duplicate_of_call_id: rawCommercial.duplicate_of_call_id,
+        evaluated_at: rawCommercial.evaluated_at,
+        payout: Number(rawCommercial.payout),
+        currency: rawCommercial.currency,
+        created_at: rawCommercial.created_at,
+        vendor: rawCommercial.vendor,
+      };
+    }
+
+    // isInternalMember
+    return {
+      id: rawCommercial.id,
+      workspace_id: rawCommercial.workspace_id,
+      call_id: rawCommercial.call_id,
+      campaign_id: rawCommercial.campaign_id,
+      status: rawCommercial.status,
+      qualified: rawCommercial.qualified,
+      converted: rawCommercial.converted,
+      duplicate: rawCommercial.duplicate,
+      duplicate_of_call_id: rawCommercial.duplicate_of_call_id,
+      evaluated_at: rawCommercial.evaluated_at,
+      currency: rawCommercial.currency,
+      created_at: rawCommercial.created_at,
+    };
+  }
+
+  private getEmptyMetrics() {
+    return {
+      total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, answerRate: 0, avgDuration: 0, tclSecs: null, aclSecs: null,
+      revenue: 0, payout: 0, profit: 0, cost: 0, converted: 0, qualified: 0, duplicate: 0, conversionRate: 0, commercialCalls: 0, currency: 'USD',
+      campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: []
+    };
+  }
+
+  sanitizeMetrics(metrics: any, ctx: { isOwnerOrAdmin: boolean; isBuyer: boolean; buyerId?: string; isVendor: boolean; isInternalMember: boolean }) {
+    if (ctx.isOwnerOrAdmin) {
+      return metrics;
+    }
+
+    if (ctx.isBuyer) {
+      delete metrics.payout;
+      delete metrics.cost;
+      delete metrics.profit;
+
+      if (metrics.campaigns) {
+        for (const k of Object.keys(metrics.campaigns)) {
+          delete metrics.campaigns[k].payout;
+          delete metrics.campaigns[k].cost;
+          delete metrics.campaigns[k].profit;
+        }
+      }
+
+      if (metrics.buyers) {
+        for (const k of Object.keys(metrics.buyers)) {
+          if (k !== ctx.buyerId) {
+            delete metrics.buyers[k];
+          } else {
+            delete metrics.buyers[k].payout;
+            delete metrics.buyers[k].cost;
+            delete metrics.buyers[k].profit;
+          }
+        }
+      }
+
+      if (metrics.trackingNumbers) {
+        for (const k of Object.keys(metrics.trackingNumbers)) {
+          delete metrics.trackingNumbers[k].payout;
+          delete metrics.trackingNumbers[k].cost;
+          delete metrics.trackingNumbers[k].profit;
+        }
+      }
+
+      if (metrics.buckets) {
+        for (const b of metrics.buckets) {
+          delete b.payout;
+          delete b.cost;
+          delete b.profit;
+        }
+      }
+
+      return metrics;
+    }
+
+    if (ctx.isVendor) {
+      delete metrics.revenue;
+      delete metrics.cost;
+      delete metrics.profit;
+
+      if (metrics.campaigns) {
+        for (const k of Object.keys(metrics.campaigns)) {
+          delete metrics.campaigns[k].revenue;
+          delete metrics.campaigns[k].cost;
+          delete metrics.campaigns[k].profit;
+        }
+      }
+
+      metrics.buyers = {};
+
+      if (metrics.trackingNumbers) {
+        for (const k of Object.keys(metrics.trackingNumbers)) {
+          delete metrics.trackingNumbers[k].revenue;
+          delete metrics.trackingNumbers[k].cost;
+          delete metrics.trackingNumbers[k].profit;
+        }
+      }
+
+      if (metrics.buckets) {
+        for (const b of metrics.buckets) {
+          delete b.revenue;
+          delete b.cost;
+          delete b.profit;
+        }
+      }
+
+      return metrics;
+    }
+
+    // isInternalMember
+    delete metrics.revenue;
+    delete metrics.payout;
+    delete metrics.cost;
+    delete metrics.profit;
+
+    if (metrics.campaigns) {
+      for (const k of Object.keys(metrics.campaigns)) {
+        delete metrics.campaigns[k].revenue;
+        delete metrics.campaigns[k].payout;
+        delete metrics.campaigns[k].cost;
+        delete metrics.campaigns[k].profit;
+      }
+    }
+
+    if (metrics.buyers) {
+      for (const k of Object.keys(metrics.buyers)) {
+        delete metrics.buyers[k].revenue;
+        delete metrics.buyers[k].payout;
+        delete metrics.buyers[k].cost;
+        delete metrics.buyers[k].profit;
+      }
+    }
+
+    if (metrics.trackingNumbers) {
+      for (const k of Object.keys(metrics.trackingNumbers)) {
+        delete metrics.trackingNumbers[k].revenue;
+        delete metrics.trackingNumbers[k].payout;
+        delete metrics.trackingNumbers[k].cost;
+        delete metrics.trackingNumbers[k].profit;
+      }
+    }
+
+    if (metrics.buckets) {
+      for (const b of metrics.buckets) {
+        delete b.revenue;
+        delete b.payout;
+        delete b.cost;
+        delete b.profit;
+      }
+    }
+
+    return metrics;
+  }
+
   async getCalls(
     workspaceId: string,
     userId: string = '',
@@ -501,7 +858,21 @@ export class CallsService {
       durationIds = results.map(r => r.id);
     }
 
+    const ctx = await this.getParticipantContext(workspaceId, userId);
+
+    if (ctx.isBuyer) {
+      if (filters.buyerId && filters.buyerId !== ctx.buyerId) {
+        return { items: [], total: 0 };
+      }
+    }
+
     const where: any = { workspace_id: workspaceId };
+
+    if (ctx.isBuyer) {
+      where.commercial = { buyer_id: ctx.buyerId };
+    } else if (ctx.isVendor) {
+      where.commercial = { vendor_id: ctx.vendorId };
+    }
 
     if (authOrConditions.length > 0) {
       where.AND = [{ OR: authOrConditions }];
@@ -514,7 +885,7 @@ export class CallsService {
     if (filters.campaignId) {
       where.campaign_id = filters.campaignId;
     }
-    if (filters.buyerId) {
+    if (filters.buyerId && !ctx.isBuyer) {
       where.attempts = {
         some: { buyer_id: filters.buyerId },
       };
@@ -586,30 +957,21 @@ export class CallsService {
           totalDurationSecs = Math.floor((call.ended_at.getTime() - call.started_at.getTime()) / 1000);
        }
 
-       let commercial: any = null;
-       if (call.commercial) {
-         commercial = {
-           id: call.commercial.id,
-           status: call.commercial.status,
-           qualified: call.commercial.qualified,
-           converted: call.commercial.converted,
-           duplicate: call.commercial.duplicate,
-           revenue: Number(call.commercial.revenue),
-           payout: Number(call.commercial.payout),
-           cost: Number(call.commercial.cost),
-           profit: Number(call.commercial.profit),
-           currency: call.commercial.currency,
-           vendor: call.commercial.vendor ? { id: call.commercial.vendor.id, name: call.commercial.vendor.name } : null,
-           buyer: call.commercial.buyer ? { id: call.commercial.buyer.id, name: call.commercial.buyer.name } : null,
-           disputeStatus: call.commercial.dispute?.status || null,
-           disputeReason: call.commercial.dispute?.reason || null,
-         };
+       const commercial = this.sanitizeCommercial(call.commercial, ctx);
+
+       let attempts = call.attempts;
+       if (ctx.isVendor && attempts) {
+         attempts = attempts.map((a: any) => {
+           const { buyer, buyer_id, ...rest } = a;
+           return rest;
+         });
        }
 
        return {
           ...call,
           talkDurationSecs,
           totalDurationSecs,
+          attempts,
           commercial,
           recordings: call.recordings ? call.recordings.map((r: any) => ({
              id: r.id,
@@ -632,7 +994,9 @@ export class CallsService {
     return { liveCalls: count };
   }
 
-  async getCallDetail(workspaceId: string, callId: string) {
+  async getCallDetail(workspaceId: string, callId: string, userId: string = '') {
+    const ctx = await this.getParticipantContext(workspaceId, userId);
+
     const call = await this.prisma.call.findUnique({
       where: { id: callId, workspace_id: workspaceId },
       include: {
@@ -654,7 +1018,34 @@ export class CallsService {
     });
 
     if (!call) throw new NotFoundException(`Call ${callId} not found`);
-    return call;
+
+    if (ctx.isBuyer) {
+      if (!call.commercial || call.commercial.buyer_id !== ctx.buyerId) {
+        throw new ForbiddenException('Access denied to call');
+      }
+    }
+
+    if (ctx.isVendor) {
+      if (!call.commercial || call.commercial.vendor_id !== ctx.vendorId) {
+        throw new ForbiddenException('Access denied to call');
+      }
+    }
+
+    const sanitizedCommercial = this.sanitizeCommercialDetail(call.commercial, ctx);
+
+    let attempts = call.attempts;
+    if (ctx.isVendor && attempts) {
+      attempts = attempts.map((a: any) => {
+        const { buyer, buyer_id, ...rest } = a;
+        return rest;
+      });
+    }
+
+    return {
+      ...call,
+      attempts,
+      commercial: sanitizedCommercial,
+    };
   }
 
   async getMetrics(
@@ -688,7 +1079,14 @@ export class CallsService {
       }
     }
     
-    
+    const ctx = await this.getParticipantContext(workspaceId, userId);
+
+    if (ctx.isBuyer) {
+      if (filters.buyerId && filters.buyerId !== ctx.buyerId) {
+        return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
+      }
+    }
+
     const permissions = await this.permissionsService.getPermissionsForUser(workspaceId, userId);
     const readPerms = permissions.filter((p: any) => p.key === 'call:read');
     if (readPerms.length === 0) throw new ForbiddenException('Missing call:read permission');
@@ -699,17 +1097,19 @@ export class CallsService {
     if (!hasAll && hasAssigned) {
       const member = await this.prisma.workspaceMember.findUnique({ where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }});
       assignedBuyerId = member?.buyer_id;
-      if (!assignedBuyerId) {
-         return {
-           total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, answerRate: 0, avgDuration: 0, tclSecs: null, aclSecs: null,
-           revenue: 0, payout: 0, profit: 0, cost: 0, converted: 0, qualified: 0, duplicate: 0, conversionRate: 0, commercialCalls: 0, currency: 'USD',
-           campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: []
-         };
+      if (!assignedBuyerId && !ctx.isVendor) {
+         return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
       }
     }
 
 
     const conditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
+
+    if (ctx.isBuyer) {
+      conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_b WHERE ccom_b.call_id = c.id AND ccom_b.buyer_id = ${ctx.buyerId})`);
+    } else if (ctx.isVendor) {
+      conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_v WHERE ccom_v.call_id = c.id AND ccom_v.vendor_id = ${ctx.vendorId})`);
+    }
     
     if (!hasAll) {
       let authOrConditionsRaw: any[] = [];
@@ -733,15 +1133,13 @@ export class CallsService {
         authOrConditionsRaw.push(Prisma.sql`EXISTS(SELECT 1 FROM call_attempts a3 WHERE a3.call_id = c.id AND a3.buyer_id IN (${Prisma.join(buyerIds)}))`);
       }
 
-      if (authOrConditionsRaw.length === 0) {
-         return {
-           total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, answerRate: 0, avgDuration: 0, tclSecs: null, aclSecs: null,
-           revenue: 0, payout: 0, profit: 0, cost: 0, converted: 0, qualified: 0, duplicate: 0, conversionRate: 0, commercialCalls: 0, currency: 'USD',
-           campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: []
-         };
+      if (authOrConditionsRaw.length === 0 && !ctx.isBuyer && !ctx.isVendor) {
+         return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
       }
       
-      conditions.push(Prisma.sql`(${Prisma.join(authOrConditionsRaw, ' OR ')})`);
+      if (authOrConditionsRaw.length > 0) {
+        conditions.push(Prisma.sql`(${Prisma.join(authOrConditionsRaw, ' OR ')})`);
+      }
     }
   
   
@@ -865,7 +1263,12 @@ export class CallsService {
     `;
 
     const buyerConditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
-    if (!hasAll && hasAssigned && assignedBuyerId) {
+    if (ctx.isBuyer) {
+      buyerConditions.push(Prisma.sql`a.buyer_id = ${ctx.buyerId}`);
+      buyerConditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_bb WHERE ccom_bb.call_id = c.id AND ccom_bb.buyer_id = ${ctx.buyerId})`);
+    } else if (ctx.isVendor) {
+      buyerConditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_vv WHERE ccom_vv.call_id = c.id AND ccom_vv.vendor_id = ${ctx.vendorId})`);
+    } else if (!hasAll && hasAssigned && assignedBuyerId) {
       buyerConditions.push(Prisma.sql`a.buyer_id = ${assignedBuyerId}`);
     }
     if (filters.startDate) buyerConditions.push(Prisma.sql`c.created_at >= ${new Date(filters.startDate)}`);
@@ -1119,7 +1522,7 @@ export class CallsService {
       }))
     };
 
-    return metrics;
+    return this.sanitizeMetrics(metrics, ctx);
   }
 
   async commitBuyerDial(attemptId: string, providerCallId: string): Promise<boolean> {

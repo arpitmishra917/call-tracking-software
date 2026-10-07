@@ -116,8 +116,9 @@ export class CommercialDisputesController {
   async getDispute(
     @Param('workspaceId') workspaceId: string,
     @Param('disputeId') disputeId: string,
+    @Request() req?: any,
   ) {
-    return this.disputesService.getDispute(workspaceId, disputeId);
+    return this.disputesService.getDispute(workspaceId, disputeId, req?.user?.userId);
   }
 
   /**
@@ -127,7 +128,8 @@ export class CommercialDisputesController {
   async getDisputeByCommercial(
     @Param('workspaceId') workspaceId: string,
     @Param('callCommercialId') callCommercialId: string,
+    @Request() req?: any,
   ) {
-    return this.disputesService.getDisputeByCallCommercial(workspaceId, callCommercialId);
+    return this.disputesService.getDisputeByCallCommercial(workspaceId, callCommercialId, req?.user?.userId);
   }
 }
