@@ -161,6 +161,13 @@ export class CommercialDisputesService {
 
     // 2. Transactional resolution
     return this.prisma.$transaction(async (tx) => {
+      // Concurrency guard: acquire row lock to serialize concurrent resolutions
+      if (typeof (tx as any).$queryRaw === 'function') {
+        await (tx as any).$queryRaw`
+          SELECT id FROM call_disputes WHERE id = ${params.disputeId} FOR UPDATE
+        `;
+      }
+
       // a. Read dispute
       const dispute = await tx.callDispute.findUnique({
         where: { id: params.disputeId },
