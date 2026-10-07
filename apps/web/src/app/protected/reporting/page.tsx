@@ -16,7 +16,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart, Pie, Cell 
 } from 'recharts';
 import { 
-  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2, Download, Loader2, Percent, Timer, Radio
+  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2, Download, Loader2, Percent, Timer, Radio, DollarSign, TrendingUp, CheckCircle, Copy, AlertTriangle
 } from 'lucide-react';
 
 function formatDurationHms(seconds: number | null | undefined): string {
@@ -34,6 +34,16 @@ function formatPercent(value: number): string {
   return `${rounded}%`;
 }
 
+function formatCurrency(amount: number | null | undefined, currency: string = 'USD'): string {
+  if (amount === null || amount === undefined || isNaN(amount)) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency || 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(amount);
+}
+
 export interface ReportingMetrics {
   total: number;
   answered: number;
@@ -43,6 +53,16 @@ export interface ReportingMetrics {
   avgDuration: number | null;
   tclSecs: number | null;
   aclSecs: number | null;
+  revenue?: number;
+  payout?: number;
+  profit?: number;
+  cost?: number;
+  converted?: number;
+  qualified?: number;
+  duplicate?: number;
+  conversionRate?: number;
+  commercialCalls?: number;
+  currency?: string;
   campaigns?: Record<string, any>;
   buyers?: Record<string, any>;
   trackingNumbers?: Record<string, any>;
@@ -52,6 +72,15 @@ export interface ReportingMetrics {
     answered: number;
     missed: number;
     failed: number;
+    revenue?: number;
+    payout?: number;
+    profit?: number;
+    cost?: number;
+    converted?: number;
+    qualified?: number;
+    duplicate?: number;
+    conversionRate?: number;
+    commercialCalls?: number;
   }>;
 }
 
@@ -736,6 +765,87 @@ export default function ReportingDashboard() {
             </Card>
           </div>
 
+          {/* Commercial Economics KPI Cards */}
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Commercial Economics</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <DollarSign className="h-4 w-4 text-emerald-600" />
+                    <span className="text-sm font-medium">Revenue</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.revenue, metrics.currency)}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <DollarSign className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm font-medium">Payout</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.payout, metrics.currency)}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <TrendingUp className={`h-4 w-4 ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`} />
+                    <span className="text-sm font-medium">Profit</span>
+                  </div>
+                  <div className={`text-2xl font-bold ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {formatCurrency(metrics.profit, metrics.currency)}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <DollarSign className="h-4 w-4 text-orange-500" />
+                    <span className="text-sm font-medium">Cost</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.cost, metrics.currency)}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <CheckCircle className="h-4 w-4 text-emerald-600" />
+                    <span className="text-sm font-medium">Converted</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{(metrics.converted ?? 0).toLocaleString()}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <Percent className="h-4 w-4 text-indigo-500" />
+                    <span className="text-sm font-medium">Qualified</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{(metrics.qualified ?? 0).toLocaleString()}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <Copy className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Duplicate</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{(metrics.duplicate ?? 0).toLocaleString()}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <Percent className="h-4 w-4 text-emerald-500" />
+                    <span className="text-sm font-medium">Conv. Rate</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{formatPercent(metrics.conversionRate ?? 0)}</div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card className="col-span-1 lg:col-span-2 flex flex-col">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -905,6 +1015,12 @@ export default function ReportingDashboard() {
                       <TableHead className="text-right">Answered</TableHead>
                       <TableHead className="text-right">Failed</TableHead>
                       <TableHead className="text-right">TCL</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Payout</TableHead>
+                      <TableHead className="text-right">Cost</TableHead>
+                      <TableHead className="text-right">Profit</TableHead>
+                      <TableHead className="text-right">Converted</TableHead>
+                      <TableHead className="text-right">Conv. Rate</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -915,6 +1031,14 @@ export default function ReportingDashboard() {
                         <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
                         <TableCell className="text-right">{stats.failed.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>
+                        <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {formatCurrency(stats.profit, metrics.currency)}
+                        </TableCell>
+                        <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -932,16 +1056,30 @@ export default function ReportingDashboard() {
                       <TableHead className="text-right">Answered</TableHead>
                       <TableHead className="text-right">ACL</TableHead>
                       <TableHead className="text-right">TCL</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Payout</TableHead>
+                      <TableHead className="text-right">Cost</TableHead>
+                      <TableHead className="text-right">Profit</TableHead>
+                      <TableHead className="text-right">Converted</TableHead>
+                      <TableHead className="text-right">Conv. Rate</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {Object.values(metrics.trackingNumbers as Record<string, any>).map((stats: any, index: number) => (
                       <TableRow key={index}>
-                        <TableCell className="font-medium font-mono text-xs whitespace-nowrap">{stats.tracking_number || 'Unknown'}</TableCell>
+                        <TableCell className="font-medium font-mono text-xs whitespace-nowrap">{stats.tracking_number || stats.phone_number || 'Unknown'}</TableCell>
                         <TableCell className="text-right">{stats.total.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>
+                        <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {formatCurrency(stats.profit, metrics.currency)}
+                        </TableCell>
+                        <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

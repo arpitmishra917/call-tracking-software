@@ -553,6 +553,19 @@ export class CallsService {
             orderBy: { created_at: 'asc' },
           },
           recordings: true,
+          commercial: {
+            include: {
+              dispute: {
+                select: {
+                  status: true,
+                  reason: true,
+                  resolved_at: true,
+                },
+              },
+              buyer: { select: { id: true, name: true } },
+              vendor: { select: { id: true, name: true } },
+            },
+          },
         },
         orderBy: { created_at: 'desc' },
         skip: filters.offset || 0,
@@ -573,10 +586,31 @@ export class CallsService {
           totalDurationSecs = Math.floor((call.ended_at.getTime() - call.started_at.getTime()) / 1000);
        }
 
+       let commercial: any = null;
+       if (call.commercial) {
+         commercial = {
+           id: call.commercial.id,
+           status: call.commercial.status,
+           qualified: call.commercial.qualified,
+           converted: call.commercial.converted,
+           duplicate: call.commercial.duplicate,
+           revenue: Number(call.commercial.revenue),
+           payout: Number(call.commercial.payout),
+           cost: Number(call.commercial.cost),
+           profit: Number(call.commercial.profit),
+           currency: call.commercial.currency,
+           vendor: call.commercial.vendor ? { id: call.commercial.vendor.id, name: call.commercial.vendor.name } : null,
+           buyer: call.commercial.buyer ? { id: call.commercial.buyer.id, name: call.commercial.buyer.name } : null,
+           disputeStatus: call.commercial.dispute?.status || null,
+           disputeReason: call.commercial.dispute?.reason || null,
+         };
+       }
+
        return {
           ...call,
           talkDurationSecs,
           totalDurationSecs,
+          commercial,
           recordings: call.recordings ? call.recordings.map((r: any) => ({
              id: r.id,
              status: r.status
@@ -608,6 +642,14 @@ export class CallsService {
           orderBy: { created_at: 'asc' },
         },
         recordings: true,
+        commercial: {
+          include: {
+            dispute: true,
+            adjustment: true,
+            buyer: { select: { id: true, name: true } },
+            vendor: { select: { id: true, name: true } },
+          },
+        },
       },
     });
 
@@ -658,7 +700,11 @@ export class CallsService {
       const member = await this.prisma.workspaceMember.findUnique({ where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }});
       assignedBuyerId = member?.buyer_id;
       if (!assignedBuyerId) {
-         return { total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, answerRate: 0, avgDuration: 0, tclSecs: null, aclSecs: null, campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: [] };
+         return {
+           total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, answerRate: 0, avgDuration: 0, tclSecs: null, aclSecs: null,
+           revenue: 0, payout: 0, profit: 0, cost: 0, converted: 0, qualified: 0, duplicate: 0, conversionRate: 0, commercialCalls: 0, currency: 'USD',
+           campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: []
+         };
       }
     }
 
@@ -688,7 +734,11 @@ export class CallsService {
       }
 
       if (authOrConditionsRaw.length === 0) {
-         return { total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, avgDuration: 0, tclSecs: null, aclSecs: null, campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: [] };
+         return {
+           total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, answerRate: 0, avgDuration: 0, tclSecs: null, aclSecs: null,
+           revenue: 0, payout: 0, profit: 0, cost: 0, converted: 0, qualified: 0, duplicate: 0, conversionRate: 0, commercialCalls: 0, currency: 'USD',
+           campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: []
+         };
       }
       
       conditions.push(Prisma.sql`(${Prisma.join(authOrConditionsRaw, ' OR ')})`);
@@ -734,6 +784,23 @@ export class CallsService {
       ${whereClause}
     `;
 
+    const commercialMainQuery = Prisma.sql`
+      SELECT 
+        COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+        COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+        COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+        COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+        SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+        SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+        SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+        COUNT(ccom.id)::int as commercial_total,
+        COUNT(DISTINCT ccom.currency)::int as currency_count,
+        MAX(ccom.currency) as currency
+      FROM call_commercials ccom
+      JOIN calls c ON c.id = ccom.call_id
+      ${whereClause}
+    `;
+
     const campaignQuery = Prisma.sql`
       SELECT 
         c.campaign_id,
@@ -749,6 +816,23 @@ export class CallsService {
       GROUP BY c.campaign_id, camp.name
     `;
 
+    const commercialCampaignQuery = Prisma.sql`
+      SELECT 
+        c.campaign_id,
+        COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+        COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+        COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+        COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+        SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+        SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+        SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+        COUNT(ccom.id)::int as commercial_total
+      FROM calls c
+      JOIN call_commercials ccom ON ccom.call_id = c.id
+      ${whereClause} AND c.campaign_id IS NOT NULL
+      GROUP BY c.campaign_id
+    `;
+
     const trackingQuery = Prisma.sql`
       SELECT 
         c.to_number as phone_number,
@@ -761,6 +845,23 @@ export class CallsService {
       LEFT JOIN phone_numbers pn ON pn.phone_number = c.to_number AND pn.workspace_id = c.workspace_id
       ${whereClause}
       GROUP BY c.to_number, pn.id, pn.name, pn.number_type
+    `;
+
+    const commercialTrackingQuery = Prisma.sql`
+      SELECT 
+        c.to_number as phone_number,
+        COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+        COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+        COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+        COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+        SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+        SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+        SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+        COUNT(ccom.id)::int as commercial_total
+      FROM calls c
+      JOIN call_commercials ccom ON ccom.call_id = c.id
+      ${whereClause}
+      GROUP BY c.to_number
     `;
 
     const buyerConditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
@@ -795,17 +896,57 @@ export class CallsService {
       GROUP BY a.buyer_id, b.name
     `;
 
-    const [mainRes, campRes, buyerRes, trackingRes] = await Promise.all([
+    const commercialBuyerQuery = Prisma.sql`
+      SELECT 
+        ccom.buyer_id,
+        COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+        COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+        COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+        COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+        SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+        SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+        SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+        COUNT(ccom.id)::int as commercial_total
+      FROM calls c
+      JOIN call_commercials ccom ON ccom.call_id = c.id
+      ${whereClause} AND ccom.buyer_id IS NOT NULL
+      GROUP BY ccom.buyer_id
+    `;
+
+    const [
+      mainRes,
+      commercialMainRes,
+      campRes,
+      commercialCampRes,
+      buyerRes,
+      commercialBuyerRes,
+      trackingRes,
+      commercialTrackingRes,
+    ] = await Promise.all([
       this.prisma.$queryRaw(mainQuery) as any,
+      this.prisma.$queryRaw(commercialMainQuery) as any,
       this.prisma.$queryRaw(campaignQuery) as any,
+      this.prisma.$queryRaw(commercialCampaignQuery) as any,
       this.prisma.$queryRaw(buyerQuery) as any,
+      this.prisma.$queryRaw(commercialBuyerQuery) as any,
       this.prisma.$queryRaw(trackingQuery) as any,
+      this.prisma.$queryRaw(commercialTrackingQuery) as any,
     ]);
 
     const main = mainRes[0] || {
       total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, 
       total_duration: 0, talk_duration: 0, tcl_secs: 0, eligible_calls: 0, answered_duration: 0
     };
+
+    const commMain = commercialMainRes?.[0] || {
+      revenue: 0, payout: 0, cost: 0, profit: 0,
+      converted: 0, qualified: 0, duplicate: 0, commercial_total: 0,
+      currency_count: 0, currency: 'USD'
+    };
+
+    if ((commMain.currency_count || 0) > 1) {
+      throw new BadRequestException('Workspace contains commercial records with multiple currencies. Please filter by campaign to isolate currency.');
+    }
 
     let buckets: any[] = [];
     if (filters.bucket) {
@@ -824,8 +965,17 @@ export class CallsService {
           SUM(CASE WHEN c.state = 'FAILED' AND EXISTS (
             SELECT 1 FROM blocked_callers bc 
             WHERE bc.workspace_id = c.workspace_id AND bc.phone_number = c.from_number
-          ) THEN 1 ELSE 0 END)::int as blocked
+          ) THEN 1 ELSE 0 END)::int as blocked,
+          COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+          COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+          COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+          COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+          SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+          SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+          SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+          COUNT(ccom.id)::int as commercial_total
         FROM calls c
+        LEFT JOIN call_commercials ccom ON ccom.call_id = c.id
         ${whereClause}
         GROUP BY bucket_time
         ORDER BY bucket_time ASC
@@ -833,8 +983,16 @@ export class CallsService {
       buckets = await this.prisma.$queryRaw(tsQuery) as any;
     }
 
+    const commercialCampMap = new Map<string, any>();
+    for (const row of commercialCampRes || []) {
+      commercialCampMap.set(row.campaign_id, row);
+    }
+
     const campaigns: Record<string, any> = {};
     for (const row of campRes) {
+      const comm = commercialCampMap.get(row.campaign_id);
+      const commTotal = comm?.commercial_total || 0;
+      const converted = comm?.converted || 0;
       campaigns[row.campaign_id] = {
         id: row.campaign_id,
         name: row.campaign_name,
@@ -842,11 +1000,28 @@ export class CallsService {
         answered: row.answered || 0,
         tclSecs: row.tcl_secs || 0,
         aclSecs: row.eligible_calls > 0 ? Math.round(row.tcl_secs / row.eligible_calls) : null,
+        revenue: Number(comm?.revenue || 0),
+        payout: Number(comm?.payout || 0),
+        profit: Number(comm?.profit || 0),
+        cost: Number(comm?.cost || 0),
+        converted,
+        qualified: comm?.qualified || 0,
+        duplicate: comm?.duplicate || 0,
+        conversionRate: commTotal > 0 ? Number(((converted / commTotal) * 100).toFixed(2)) : 0,
+        commercialCalls: commTotal,
       };
+    }
+
+    const commercialBuyerMap = new Map<string, any>();
+    for (const row of commercialBuyerRes || []) {
+      commercialBuyerMap.set(row.buyer_id, row);
     }
 
     const buyers: Record<string, any> = {};
     for (const row of buyerRes) {
+      const comm = commercialBuyerMap.get(row.buyer_id);
+      const commTotal = comm?.commercial_total || 0;
+      const converted = comm?.converted || 0;
       buyers[row.buyer_id] = {
         id: row.buyer_id,
         name: row.buyer_name,
@@ -854,11 +1029,28 @@ export class CallsService {
         answered: row.answered || 0,
         tclSecs: row.tcl_secs || 0,
         aclSecs: row.eligible_attempts > 0 ? Math.round(row.tcl_secs / row.eligible_attempts) : null,
+        revenue: Number(comm?.revenue || 0),
+        payout: Number(comm?.payout || 0),
+        profit: Number(comm?.profit || 0),
+        cost: Number(comm?.cost || 0),
+        converted,
+        qualified: comm?.qualified || 0,
+        duplicate: comm?.duplicate || 0,
+        conversionRate: commTotal > 0 ? Number(((converted / commTotal) * 100).toFixed(2)) : 0,
+        commercialCalls: commTotal,
       };
+    }
+
+    const commercialTrackingMap = new Map<string, any>();
+    for (const row of commercialTrackingRes || []) {
+      commercialTrackingMap.set(row.phone_number, row);
     }
     
     const trackingNumbers: Record<string, any> = {};
     for (const row of trackingRes) {
+      const comm = commercialTrackingMap.get(row.phone_number);
+      const commTotal = comm?.commercial_total || 0;
+      const converted = comm?.converted || 0;
       trackingNumbers[row.phone_number] = {
         id: row.tracking_number_id,
         phone_number: row.phone_number,
@@ -866,12 +1058,24 @@ export class CallsService {
         number_type: row.number_type,
         total: row.total || 0,
         answered: row.answered || 0,
+        revenue: Number(comm?.revenue || 0),
+        payout: Number(comm?.payout || 0),
+        profit: Number(comm?.profit || 0),
+        cost: Number(comm?.cost || 0),
+        converted,
+        qualified: comm?.qualified || 0,
+        duplicate: comm?.duplicate || 0,
+        conversionRate: commTotal > 0 ? Number(((converted / commTotal) * 100).toFixed(2)) : 0,
+        commercialCalls: commTotal,
       };
     }
 
     const totalCalls = main.total || 0;
     const answeredCalls = main.answered || 0;
     const answerRate = totalCalls > 0 ? Number(((answeredCalls / totalCalls) * 100).toFixed(2)) : 0;
+    const commercialCalls = commMain.commercial_total || 0;
+    const commercialConverted = commMain.converted || 0;
+    const conversionRate = commercialCalls > 0 ? Number(((commercialConverted / commercialCalls) * 100).toFixed(2)) : 0;
 
     const metrics = {
       total: totalCalls,
@@ -883,6 +1087,16 @@ export class CallsService {
       avgDuration: answeredCalls > 0 ? Math.round((main.answered_duration || 0) / answeredCalls) : 0,
       tclSecs: main.eligible_calls > 0 ? (main.tcl_secs || 0) : null,
       aclSecs: main.eligible_calls > 0 ? Math.round((main.tcl_secs || 0) / main.eligible_calls) : null,
+      revenue: Number(commMain.revenue || 0),
+      payout: Number(commMain.payout || 0),
+      profit: Number(commMain.profit || 0),
+      cost: Number(commMain.cost || 0),
+      converted: commercialConverted,
+      qualified: commMain.qualified || 0,
+      duplicate: commMain.duplicate || 0,
+      conversionRate,
+      commercialCalls,
+      currency: commMain.currency || 'USD',
       campaigns,
       buyers,
       trackingNumbers,
@@ -892,7 +1106,16 @@ export class CallsService {
         answered: b.answered || 0,
         missed: b.missed || 0,
         failed: b.failed || 0,
-        blocked: b.blocked || 0
+        blocked: b.blocked || 0,
+        revenue: Number(b.revenue || 0),
+        payout: Number(b.payout || 0),
+        profit: Number(b.profit || 0),
+        cost: Number(b.cost || 0),
+        converted: b.converted || 0,
+        qualified: b.qualified || 0,
+        duplicate: b.duplicate || 0,
+        conversionRate: (b.commercial_total || 0) > 0 ? Number(((b.converted / b.commercial_total) * 100).toFixed(2)) : 0,
+        commercialCalls: b.commercial_total || 0,
       }))
     };
 

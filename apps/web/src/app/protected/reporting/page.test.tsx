@@ -446,7 +446,7 @@ describe('ReportingPage (Owner KPI UI Completion)', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Answer Rate')).toBeDefined();
-      expect(screen.getByText('0%')).toBeDefined();
+      expect(screen.getAllByText('0%').length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -570,7 +570,7 @@ describe('ReportingPage (Owner KPI UI Completion)', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Live Calls')).toBeDefined();
-      expect(screen.getByText('0')).toBeDefined();
+      expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(1);
     });
   });
 

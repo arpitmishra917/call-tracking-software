@@ -24,6 +24,22 @@ interface CallLog {
   totalDurationSecs?: number | null;
   campaign?: { name: string } | null;
   recordings?: { id: string; status: string }[];
+  commercial?: {
+    id: string;
+    status: string;
+    qualified: boolean;
+    converted: boolean;
+    duplicate: boolean;
+    revenue: number;
+    payout: number;
+    cost: number;
+    profit: number;
+    currency: string;
+    vendor?: { id: string; name: string } | null;
+    buyer?: { id: string; name: string } | null;
+    disputeStatus?: string | null;
+    disputeReason?: string | null;
+  } | null;
 }
 
 function formatDuration(secs: number | null | undefined): string {
@@ -33,6 +49,16 @@ function formatDuration(secs: number | null | undefined): string {
   const s = secs % 60;
   if (h > 0) return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function formatCurrency(amount: number | null | undefined, currency: string = 'USD'): string {
+  if (amount === null || amount === undefined || isNaN(amount)) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency || 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(amount);
 }
 
 function InlineRecordingPlayer({ workspaceId, recordingId }: { workspaceId: string, recordingId: string }) {
@@ -342,6 +368,10 @@ export default function CallsPage() {
                 <TableHead className="min-w-[100px]" title="Talk Time = connected/answered time through final hangup.">Talk Time</TableHead>
                 <TableHead className="min-w-[100px]" title="Total Time = tracking number call start through final hangup.">Total Time</TableHead>
                 <TableHead className="min-w-[100px]">Status</TableHead>
+                <TableHead className="min-w-[90px] text-right">Revenue</TableHead>
+                <TableHead className="min-w-[90px] text-right">Payout</TableHead>
+                <TableHead className="min-w-[90px] text-right">Profit</TableHead>
+                <TableHead className="min-w-[110px]">Commercial</TableHead>
                 <TableHead className="min-w-[120px]">Recording</TableHead>
                 <TableHead className="text-right min-w-[90px]">Actions</TableHead>
               </TableRow>
@@ -349,7 +379,7 @@ export default function CallsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={13} className="h-32 text-center text-muted-foreground">
                     <div className="flex items-center justify-center gap-2">
                       <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                       Loading calls...
@@ -358,7 +388,7 @@ export default function CallsPage() {
                 </TableRow>
               ) : calls.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-48 text-center">
+                  <TableCell colSpan={13} className="h-48 text-center">
                     <EmptyState 
                       icon={<PhoneCall className="w-8 h-8" />}
                       title="No calls found"
@@ -369,6 +399,7 @@ export default function CallsPage() {
               ) : (
                 calls.map(call => {
                   const playableRec = call.recordings?.find(r => r.status === 'COMPLETED');
+                  const comm = call.commercial;
                   return (
                     <TableRow key={call.id} className="group hover:bg-muted/50 transition-colors">
                       <TableCell className="font-medium whitespace-nowrap text-sm">
@@ -392,6 +423,33 @@ export default function CallsPage() {
                         <Badge variant={getStatusBadgeVariant(call.state)}>
                           {call.state}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {comm ? formatCurrency(comm.revenue, comm.currency) : '—'}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {comm ? formatCurrency(comm.payout, comm.currency) : '—'}
+                      </TableCell>
+                      <TableCell className={`text-right font-mono text-xs ${comm && comm.profit >= 0 ? 'text-emerald-600' : comm ? 'text-red-500' : ''}`}>
+                        {comm ? formatCurrency(comm.profit, comm.currency) : '—'}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {comm ? (
+                          <div className="flex flex-col gap-1 items-start">
+                            <div className="flex gap-1 flex-wrap">
+                              {comm.converted && <Badge variant="success" className="text-[9px] px-1 py-0">Converted</Badge>}
+                              {comm.duplicate && <Badge variant="warning" className="text-[9px] px-1 py-0">Duplicate</Badge>}
+                              <Badge variant="outline" className="text-[9px] px-1 py-0">{comm.status}</Badge>
+                            </div>
+                            {comm.disputeStatus && (
+                              <Badge variant={comm.disputeStatus === 'ACCEPTED' ? 'error' : comm.disputeStatus === 'PENDING' ? 'warning' : 'outline'} className="text-[9px] px-1 py-0">
+                                Dispute: {comm.disputeStatus}
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {playableRec ? (
