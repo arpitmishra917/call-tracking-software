@@ -380,3 +380,265 @@ describe('ReportingPage (Direct apiFetch Payload Regression)', () => {
     });
   });
 });
+
+describe('ReportingPage (Owner KPI UI Completion)', () => {
+  beforeEach(() => {
+    vi.mocked(apiFetch).mockClear();
+    vi.mocked(apiDownload).mockClear();
+    localStorage.clear();
+  });
+
+  it('Answer Rate calculation (answered=25, total=100 -> 25%)', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 100,
+          answered: 25,
+          missed: 50,
+          failed: 25,
+          avgDuration: 60,
+          aclSecs: 90,
+          tclSecs: 9000,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('live-calls')) {
+        return { liveCalls: 0 };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Answer Rate')).toBeDefined();
+      expect(screen.getByText('25%')).toBeDefined();
+    });
+  });
+
+  it('Answer Rate with total=0 -> 0%', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 0,
+          answered: 0,
+          missed: 0,
+          failed: 0,
+          avgDuration: 0,
+          aclSecs: 0,
+          tclSecs: 0,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('live-calls')) {
+        return { liveCalls: 0 };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Answer Rate')).toBeDefined();
+      expect(screen.getByText('0%')).toBeDefined();
+    });
+  });
+
+  it('Average Talk Time avgDuration renders correctly', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 10,
+          missed: 0,
+          failed: 0,
+          avgDuration: 125, // 02:05
+          aclSecs: 150,
+          tclSecs: 1500,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('live-calls')) {
+        return { liveCalls: 0 };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Average Talk Time')).toBeDefined();
+      expect(screen.getByText('02:05')).toBeDefined();
+    });
+  });
+
+  it('Average Total Time aclSecs renders correctly', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 10,
+          missed: 0,
+          failed: 0,
+          avgDuration: 60,
+          aclSecs: 3665, // 1h 1m 5s
+          tclSecs: 36650,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('live-calls')) {
+        return { liveCalls: 0 };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Average Total Time')).toBeDefined();
+      expect(screen.getByText('1h 1m 5s')).toBeDefined();
+    });
+  });
+
+  it('Live Calls apiFetch returns { liveCalls: 3 } -> card displays 3', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 5,
+          answered: 5,
+          missed: 0,
+          failed: 0,
+          avgDuration: 60,
+          aclSecs: 60,
+          tclSecs: 300,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('live-calls')) {
+        return { liveCalls: 3 };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Live Calls')).toBeDefined();
+      expect(screen.getByText('3')).toBeDefined();
+    });
+  });
+
+  it('Live Calls zero { liveCalls: 0 } -> displays 0', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 6,
+          missed: 3,
+          failed: 1,
+          avgDuration: 60,
+          aclSecs: 60,
+          tclSecs: 300,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('live-calls')) {
+        return { liveCalls: 0 };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Live Calls')).toBeDefined();
+      expect(screen.getByText('0')).toBeDefined();
+    });
+  });
+
+  it('Null ACL: aclSecs=null -> no NaN/error', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 5,
+          missed: 5,
+          failed: 0,
+          avgDuration: null,
+          aclSecs: null,
+          tclSecs: null,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('live-calls')) {
+        return { liveCalls: 0 };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Average Total Time')).toBeDefined();
+      expect(screen.getByText('Average Talk Time')).toBeDefined();
+    });
+
+    // Ensure formatDurationHms(null) rendered '00:00' and not NaN / Infinity / undefined
+    expect(screen.queryByText(/NaN/)).toBeNull();
+    expect(screen.queryByText(/Infinity/)).toBeNull();
+    expect(screen.queryByText(/undefined/)).toBeNull();
+    expect(screen.getAllByText('00:00').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('apiFetch error for live calls -> existing Reporting error behavior remains sane', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('live-calls')) {
+        throw new Error('API error (500): Internal live calls failure');
+      }
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 5,
+          missed: 5,
+          failed: 0,
+          avgDuration: 60,
+          aclSecs: 60,
+          tclSecs: 600,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Unable to load reporting data')).toBeDefined();
+      expect(screen.getByText('API error (500): Internal live calls failure')).toBeDefined();
+    });
+  });
+});

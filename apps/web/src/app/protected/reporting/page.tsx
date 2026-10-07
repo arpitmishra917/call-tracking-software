@@ -16,7 +16,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart, Pie, Cell 
 } from 'recharts';
 import { 
-  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2, Download, Loader2
+  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2, Download, Loader2, Percent, Timer, Radio
 } from 'lucide-react';
 
 function formatDurationHms(seconds: number | null | undefined): string {
@@ -26,6 +26,37 @@ function formatDurationHms(seconds: number | null | undefined): string {
   const s = Math.floor(seconds % 60);
   if (h > 0) return `${h}h ${m}m ${s}s`;
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function formatPercent(value: number): string {
+  if (isNaN(value) || !isFinite(value)) return '0%';
+  const rounded = Number(value.toFixed(1));
+  return `${rounded}%`;
+}
+
+export interface ReportingMetrics {
+  total: number;
+  answered: number;
+  missed: number;
+  failed: number;
+  blocked?: number;
+  avgDuration: number | null;
+  tclSecs: number | null;
+  aclSecs: number | null;
+  campaigns?: Record<string, any>;
+  buyers?: Record<string, any>;
+  trackingNumbers?: Record<string, any>;
+  buckets?: Array<{
+    bucket: string;
+    total: number;
+    answered: number;
+    missed: number;
+    failed: number;
+  }>;
+}
+
+export interface LiveCallsResponse {
+  liveCalls: number;
 }
 
 
@@ -84,7 +115,8 @@ export default function ReportingDashboard() {
     setDraftFilters({ startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration });
   }, [startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration]);
 
-  const [metrics, setMetrics] = useState<Record<string, any> | null>(null);
+  const [metrics, setMetrics] = useState<ReportingMetrics | null>(null);
+  const [liveCalls, setLiveCalls] = useState<number>(0);
   const [calls, setCalls] = useState<any[]>([]);
   const [callsTotal, setCallsTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -307,12 +339,6 @@ export default function ReportingDashboard() {
     try {
       const q = new URLSearchParams(searchParams.toString());
       
-      // Fetch Aggregated Metrics
-      const metricsData = await apiFetch(
-        `/workspaces/${workspaceId}/calls/metrics?${q.toString()}`
-      );
-      setMetrics(metricsData);
-      
       // Fetch Paginated Detailed Calls
       const callsQ = new URLSearchParams(q.toString());
       if (minDuration) callsQ.set('minDurationSecs', minDuration);
@@ -323,11 +349,16 @@ export default function ReportingDashboard() {
       callsQ.set('limit', limit.toString());
       callsQ.set('offset', ((page - 1) * limit).toString());
       
-      const callsData = await apiFetch(
-        `/workspaces/${workspaceId}/calls?${callsQ.toString()}`
-      );
+      const [metricsData, callsData, liveCallsData] = await Promise.all([
+        apiFetch(`/workspaces/${workspaceId}/calls/metrics?${q.toString()}`),
+        apiFetch(`/workspaces/${workspaceId}/calls?${callsQ.toString()}`),
+        apiFetch(`/workspaces/${workspaceId}/calls/live-calls`),
+      ]);
+
+      setMetrics(metricsData);
       setCalls(callsData?.items || []);
       setCallsTotal(callsData?.total || 0);
+      setLiveCalls(typeof liveCallsData?.liveCalls === 'number' ? liveCallsData.liveCalls : 0);
       
     } catch (err: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Unable to load reporting data');
@@ -410,6 +441,10 @@ export default function ReportingDashboard() {
     { name: 'Missed', value: metrics.missed || 0, color: '#f97316' }, 
     { name: 'Failed', value: metrics.failed || 0, color: '#ef4444' }, 
   ].filter(d => d.value > 0) : [];
+
+  const answerRate = metrics && metrics.total > 0
+    ? (metrics.answered / metrics.total) * 100
+    : 0;
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -613,8 +648,8 @@ export default function ReportingDashboard() {
         </Card>
       ) : loading ? (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Skeleton className="h-[350px] col-span-2 rounded-xl" />
@@ -626,14 +661,14 @@ export default function ReportingDashboard() {
         <EmptyState title="No matching calls" description="Try adjusting your filters or clearing them." />
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                   <PhoneCall className="h-4 w-4" />
                   <span className="text-sm font-medium">Total Calls</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{metrics.total.toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(metrics.total ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -642,7 +677,7 @@ export default function ReportingDashboard() {
                   <PhoneIncoming className="h-4 w-4 text-emerald-600" />
                   <span className="text-sm font-medium">Answered</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{metrics.answered.toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(metrics.answered ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -651,7 +686,7 @@ export default function ReportingDashboard() {
                   <PhoneMissed className="h-4 w-4 text-orange-500" />
                   <span className="text-sm font-medium">Missed</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{metrics.missed.toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(metrics.missed ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -660,14 +695,32 @@ export default function ReportingDashboard() {
                   <PhoneOff className="h-4 w-4 text-red-500" />
                   <span className="text-sm font-medium">Failed</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{metrics.failed.toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(metrics.failed ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <Clock className="h-4 w-4 text-blue-500" />
-                  <span className="text-sm font-medium">ACL</span>
+                  <Percent className="h-4 w-4 text-emerald-500" />
+                  <span className="text-sm font-medium">Answer Rate</span>
+                </div>
+                <div className="text-3xl font-bold text-foreground">{formatPercent(answerRate)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Timer className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm font-medium">Average Talk Time</span>
+                </div>
+                <div className="text-3xl font-bold text-foreground">{formatDurationHms(metrics.avgDuration)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Clock className="h-4 w-4 text-indigo-500" />
+                  <span className="text-sm font-medium">Average Total Time</span>
                 </div>
                 <div className="text-3xl font-bold text-foreground">{formatDurationHms(metrics.aclSecs)}</div>
               </CardContent>
@@ -675,10 +728,10 @@ export default function ReportingDashboard() {
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <BarChart3 className="h-4 w-4 text-indigo-500" />
-                  <span className="text-sm font-medium">TCL</span>
+                  <Radio className="h-4 w-4 text-emerald-600 animate-pulse" />
+                  <span className="text-sm font-medium">Live Calls</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{formatDurationHms(metrics.tclSecs)}</div>
+                <div className="text-3xl font-bold text-foreground">{(liveCalls ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
           </div>
