@@ -175,4 +175,357 @@ describe('Reporting API Foundation (R3-A)', () => {
     expect(res.total).toBe(1); 
     expect(res.tclSecs).toBe(300); 
   });
+
+  describe('REP-2: Blocked Caller Isolation & Authoritative Metrics', () => {
+    it('TEST A: blocked-only dataset (failed = 0, blocked = 3)', async () => {
+      const blockedNum = '+19998880001';
+      await prisma.blockedCaller.create({
+        data: { workspace_id: workspace1, phone_number: blockedNum, reason: 'Spam caller' },
+      });
+
+      for (let i = 0; i < 3; i++) {
+        await prisma.call.create({
+          data: {
+            workspace_id: workspace1,
+            provider: 'telnyx',
+            provider_call_id: uniqueCallId(`c_blk_${i}`),
+            from_number: blockedNum,
+            to_number: trackingNumber1,
+            state: 'FAILED',
+          },
+        });
+      }
+
+      const res = await service.getMetrics(workspace1, user1, {});
+      expect(res.blocked).toBe(3);
+      expect(res.failed).toBe(0);
+    });
+
+    it('TEST B: failed-only dataset (failed = 3, blocked = 0)', async () => {
+      for (let i = 0; i < 3; i++) {
+        await prisma.call.create({
+          data: {
+            workspace_id: workspace1,
+            provider: 'telnyx',
+            provider_call_id: uniqueCallId(`c_fail_${i}`),
+            from_number: `+1777000000${i}`,
+            to_number: trackingNumber1,
+            state: 'FAILED',
+          },
+        });
+      }
+
+      const res = await service.getMetrics(workspace1, user1, {});
+      expect(res.failed).toBe(3);
+      expect(res.blocked).toBe(0);
+    });
+
+    it('TEST C: mixed dataset (failed = 5, blocked = 3)', async () => {
+      const blockedNum = '+18889991111';
+      await prisma.blockedCaller.create({
+        data: { workspace_id: workspace1, phone_number: blockedNum },
+      });
+
+      // 3 blocked calls
+      for (let i = 0; i < 3; i++) {
+        await prisma.call.create({
+          data: {
+            workspace_id: workspace1,
+            provider: 'telnyx',
+            provider_call_id: uniqueCallId(`c_mixed_blk_${i}`),
+            from_number: blockedNum,
+            to_number: trackingNumber1,
+            state: 'FAILED',
+          },
+        });
+      }
+
+      // 5 genuine failed calls
+      for (let i = 0; i < 5; i++) {
+        await prisma.call.create({
+          data: {
+            workspace_id: workspace1,
+            provider: 'telnyx',
+            provider_call_id: uniqueCallId(`c_mixed_fail_${i}`),
+            from_number: `+1666000000${i}`,
+            to_number: trackingNumber1,
+            state: 'FAILED',
+          },
+        });
+      }
+
+      const res = await service.getMetrics(workspace1, user1, {});
+      expect(res.failed).toBe(5);
+      expect(res.blocked).toBe(3);
+      expect(res.total).toBe(8);
+    });
+
+    it('TEST D: CANCELED remains included in missed', async () => {
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_canc'),
+          from_number: '+15551110001',
+          to_number: trackingNumber1,
+          state: 'CANCELED',
+        },
+      });
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_noans'),
+          from_number: '+15551110002',
+          to_number: trackingNumber1,
+          state: 'NO_ANSWER',
+        },
+      });
+
+      const res = await service.getMetrics(workspace1, user1, {});
+      expect(res.missed).toBe(2);
+    });
+
+    it('TEST E: answerRate calculation (answered=25, total=100 => 25)', async () => {
+      // 25 answered calls
+      for (let i = 0; i < 25; i++) {
+        await prisma.call.create({
+          data: {
+            workspace_id: workspace1,
+            provider: 'telnyx',
+            provider_call_id: uniqueCallId(`c_ans_${i}`),
+            from_number: '+1',
+            to_number: trackingNumber1,
+            state: 'COMPLETED',
+          },
+        });
+      }
+      // 75 missed calls (total 100)
+      for (let i = 0; i < 75; i++) {
+        await prisma.call.create({
+          data: {
+            workspace_id: workspace1,
+            provider: 'telnyx',
+            provider_call_id: uniqueCallId(`c_miss_${i}`),
+            from_number: '+1',
+            to_number: trackingNumber1,
+            state: 'NO_ANSWER',
+          },
+        });
+      }
+
+      const res = await service.getMetrics(workspace1, user1, {});
+      expect(res.total).toBe(100);
+      expect(res.answered).toBe(25);
+      expect(res.answerRate).toBe(25);
+    });
+
+    it('TEST F: answerRate zero total (total=0, answered=0 => 0)', async () => {
+      const res = await service.getMetrics(workspace1, user1, {});
+      expect(res.total).toBe(0);
+      expect(res.answered).toBe(0);
+      expect(res.answerRate).toBe(0);
+      expect(Number.isNaN(res.answerRate)).toBe(false);
+    });
+
+    it('TEST G: date filters preserve semantics', async () => {
+      const blockedNum = '+18883334444';
+      await prisma.blockedCaller.create({
+        data: { workspace_id: workspace1, phone_number: blockedNum },
+      });
+
+      // Call in 2026-08 (outside range)
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_date_out'),
+          from_number: blockedNum,
+          to_number: trackingNumber1,
+          state: 'FAILED',
+          created_at: new Date('2026-08-15T00:00:00Z'),
+        },
+      });
+
+      // Call in 2026-09 (inside range)
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_date_in'),
+          from_number: blockedNum,
+          to_number: trackingNumber1,
+          state: 'FAILED',
+          created_at: new Date('2026-09-15T00:00:00Z'),
+        },
+      });
+
+      const res = await service.getMetrics(workspace1, user1, {
+        startDate: '2026-09-01T00:00:00Z',
+        endDate: '2026-09-30T23:59:59Z',
+      });
+      expect(res.blocked).toBe(1);
+      expect(res.failed).toBe(0);
+    });
+
+    it('TEST H: campaign filters preserve semantics', async () => {
+      const blockedNum = '+18885556666';
+      await prisma.blockedCaller.create({
+        data: { workspace_id: workspace1, phone_number: blockedNum },
+      });
+
+      const camp2 = await prisma.campaign.create({
+        data: { workspace_id: workspace1, name: 'Camp 2' },
+      });
+
+      // Call under campaign1
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          campaign_id: campaign1,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_camp1'),
+          from_number: blockedNum,
+          to_number: trackingNumber1,
+          state: 'FAILED',
+        },
+      });
+
+      // Call under camp2
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          campaign_id: camp2.id,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_camp2'),
+          from_number: blockedNum,
+          to_number: trackingNumber1,
+          state: 'FAILED',
+        },
+      });
+
+      const res = await service.getMetrics(workspace1, user1, { campaignId: campaign1 });
+      expect(res.blocked).toBe(1);
+      expect(res.failed).toBe(0);
+    });
+
+    it('TEST I: buyer filters preserve semantics', async () => {
+      const c = await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_buyer_attempt'),
+          from_number: '+15554443333',
+          to_number: trackingNumber1,
+          state: 'FAILED',
+        },
+      });
+      await prisma.callAttempt.create({
+        data: { call_id: c.id, buyer_id: buyer1, state: 'FAILED' },
+      });
+
+      const res = await service.getMetrics(workspace1, user1, { buyerId: buyer1 });
+      expect(res.failed).toBe(1);
+      expect(res.blocked).toBe(0);
+    });
+
+    it('TEST J: tracking number filters preserve semantics', async () => {
+      const blockedNum = '+19991112222';
+      await prisma.blockedCaller.create({
+        data: { workspace_id: workspace1, phone_number: blockedNum },
+      });
+
+      const otherTN = '+18889990000';
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_tn1'),
+          from_number: blockedNum,
+          to_number: trackingNumber1,
+          state: 'FAILED',
+        },
+      });
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_tn2'),
+          from_number: blockedNum,
+          to_number: otherTN,
+          state: 'FAILED',
+        },
+      });
+
+      const res = await service.getMetrics(workspace1, user1, { trackingNumber: trackingNumber1 });
+      expect(res.blocked).toBe(1);
+      expect(res.total).toBe(1);
+    });
+
+    it('TEST K: tenant isolation: workspace A blocked caller never classifies workspace B call', async () => {
+      const sharedNumber = '+15559998888';
+      // Workspace 1 has blocked this number
+      await prisma.blockedCaller.create({
+        data: { workspace_id: workspace1, phone_number: sharedNumber },
+      });
+
+      // Workspace 2 has NOT blocked this number, but receives a failed call from it
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace2,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_ws2_isolated'),
+          from_number: sharedNumber,
+          to_number: '+1000',
+          state: 'FAILED',
+        },
+      });
+
+      const user2 = (await prisma.workspaceMember.findFirst({ where: { workspace_id: workspace2 } }))!.user_id;
+      const resWs2 = await service.getMetrics(workspace2, user2, {});
+      expect(resWs2.failed).toBe(1);
+      expect(resWs2.blocked).toBe(0); // Must NOT be counted as blocked in WS2!
+    });
+
+    it('TEST M: time-series failed count does not include BLOCKED_CALLER', async () => {
+      const blockedNum = '+15557778888';
+      await prisma.blockedCaller.create({
+        data: { workspace_id: workspace1, phone_number: blockedNum },
+      });
+
+      const dayDate = new Date('2026-09-02T12:00:00Z');
+      // 1 blocked call
+      await prisma.call.create({
+        data: {
+          workspace_id: workspace1,
+          provider: 'telnyx',
+          provider_call_id: uniqueCallId('c_ts_blk'),
+          from_number: blockedNum,
+          to_number: trackingNumber1,
+          state: 'FAILED',
+          created_at: dayDate,
+        },
+      });
+      // 2 genuine failed calls
+      for (let i = 0; i < 2; i++) {
+        await prisma.call.create({
+          data: {
+            workspace_id: workspace1,
+            provider: 'telnyx',
+            provider_call_id: uniqueCallId(`c_ts_fail_${i}`),
+            from_number: `+1333000000${i}`,
+            to_number: trackingNumber1,
+            state: 'FAILED',
+            created_at: dayDate,
+          },
+        });
+      }
+
+      const res = await service.getMetrics(workspace1, user1, { bucket: 'day' });
+      expect(res.buckets).toBeDefined();
+      expect(res.buckets.length).toBe(1);
+      expect(res.buckets[0].failed).toBe(2);
+      expect(res.buckets[0].blocked).toBe(1);
+    });
+  });
 });

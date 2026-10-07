@@ -658,7 +658,7 @@ export class CallsService {
       const member = await this.prisma.workspaceMember.findUnique({ where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }});
       assignedBuyerId = member?.buyer_id;
       if (!assignedBuyerId) {
-         return { total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, avgDuration: 0, tclSecs: null, aclSecs: null, campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: [] };
+         return { total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, answerRate: 0, avgDuration: 0, tclSecs: null, aclSecs: null, campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: [] };
       }
     }
 
@@ -715,8 +715,14 @@ export class CallsService {
         COUNT(*)::int as total,
         SUM(CASE WHEN c.state = 'COMPLETED' THEN 1 ELSE 0 END)::int as answered,
         SUM(CASE WHEN c.state IN ('NO_ANSWER', 'CANCELED') THEN 1 ELSE 0 END)::int as missed,
-        SUM(CASE WHEN c.state = 'FAILED' THEN 1 ELSE 0 END)::int as failed,
-        SUM(CASE WHEN c.state = 'FAILED' THEN 1 ELSE 0 END)::int as blocked,
+        SUM(CASE WHEN c.state = 'FAILED' AND NOT EXISTS (
+          SELECT 1 FROM blocked_callers bc 
+          WHERE bc.workspace_id = c.workspace_id AND bc.phone_number = c.from_number
+        ) THEN 1 ELSE 0 END)::int as failed,
+        SUM(CASE WHEN c.state = 'FAILED' AND EXISTS (
+          SELECT 1 FROM blocked_callers bc 
+          WHERE bc.workspace_id = c.workspace_id AND bc.phone_number = c.from_number
+        ) THEN 1 ELSE 0 END)::int as blocked,
         SUM(c.duration_secs)::int as total_duration,
         SUM(CASE WHEN c.answered_at IS NOT NULL AND c.ended_at IS NOT NULL 
                  THEN EXTRACT(EPOCH FROM (c.ended_at - c.answered_at)) ELSE 0 END)::int as talk_duration,
@@ -811,7 +817,14 @@ export class CallsService {
           COUNT(*)::int as total,
           SUM(CASE WHEN c.state = 'COMPLETED' THEN 1 ELSE 0 END)::int as answered,
           SUM(CASE WHEN c.state IN ('NO_ANSWER', 'CANCELED') THEN 1 ELSE 0 END)::int as missed,
-          SUM(CASE WHEN c.state = 'FAILED' THEN 1 ELSE 0 END)::int as failed
+          SUM(CASE WHEN c.state = 'FAILED' AND NOT EXISTS (
+            SELECT 1 FROM blocked_callers bc 
+            WHERE bc.workspace_id = c.workspace_id AND bc.phone_number = c.from_number
+          ) THEN 1 ELSE 0 END)::int as failed,
+          SUM(CASE WHEN c.state = 'FAILED' AND EXISTS (
+            SELECT 1 FROM blocked_callers bc 
+            WHERE bc.workspace_id = c.workspace_id AND bc.phone_number = c.from_number
+          ) THEN 1 ELSE 0 END)::int as blocked
         FROM calls c
         ${whereClause}
         GROUP BY bucket_time
@@ -856,13 +869,18 @@ export class CallsService {
       };
     }
 
+    const totalCalls = main.total || 0;
+    const answeredCalls = main.answered || 0;
+    const answerRate = totalCalls > 0 ? Number(((answeredCalls / totalCalls) * 100).toFixed(2)) : 0;
+
     const metrics = {
-      total: main.total || 0,
-      answered: main.answered || 0,
+      total: totalCalls,
+      answered: answeredCalls,
       missed: main.missed || 0,
       failed: main.failed || 0,
       blocked: main.blocked || 0,
-      avgDuration: main.answered > 0 ? Math.round((main.answered_duration || 0) / main.answered) : 0,
+      answerRate,
+      avgDuration: answeredCalls > 0 ? Math.round((main.answered_duration || 0) / answeredCalls) : 0,
       tclSecs: main.eligible_calls > 0 ? (main.tcl_secs || 0) : null,
       aclSecs: main.eligible_calls > 0 ? Math.round((main.tcl_secs || 0) / main.eligible_calls) : null,
       campaigns,
@@ -873,7 +891,8 @@ export class CallsService {
         total: b.total || 0,
         answered: b.answered || 0,
         missed: b.missed || 0,
-        failed: b.failed || 0
+        failed: b.failed || 0,
+        blocked: b.blocked || 0
       }))
     };
 
