@@ -252,7 +252,7 @@ describe('COMM-13 Settlement Schema Implementation E2E', () => {
     ).rejects.toThrow();
   });
 
-  it('5. should link SettlementItem to CallCommercial and SettlementBatch with exact Decimal precision', async () => {
+  it('5. should link SettlementItem to CallCommercial and SettlementBatch with exact Decimal precision and participant_type', async () => {
     const comm = await createCallCommercial({ revenue: '150.2550' });
     const batch = await prisma.settlementBatch.create({
       data: {
@@ -272,12 +272,14 @@ describe('COMM-13 Settlement Schema Implementation E2E', () => {
         workspace_id: workspaceId,
         settlement_batch_id: batch.id,
         call_commercial_id: comm.id,
+        participant_type: SettlementParticipantType.BUYER,
         amount: new Prisma.Decimal('150.2550'),
         currency: 'USD',
       },
     });
 
     expect(item.id).toBeDefined();
+    expect(item.participant_type).toBe(SettlementParticipantType.BUYER);
     expect(item.amount.toString()).toBe('150.255');
     expect(item.currency).toBe('USD');
 
@@ -289,12 +291,12 @@ describe('COMM-13 Settlement Schema Implementation E2E', () => {
     expect(retrieved?.commercial.id).toBe(comm.id);
   });
 
-  it('6. should enforce INV-1 uniqueness: a CallCommercial can belong to at most one SettlementItem', async () => {
-    const comm = await createCallCommercial();
-    const batch1 = await prisma.settlementBatch.create({
+  it('6. should enforce INV-1 uniqueness: a CallCommercial can belong to at most one SettlementItem per participant_type', async () => {
+    const comm = await createCallCommercial({ revenue: '100.0000', payout: '60.0000' });
+    const buyerBatch1 = await prisma.settlementBatch.create({
       data: {
         workspace_id: workspaceId,
-        batch_number: uniqueId('SB-1'),
+        batch_number: uniqueId('SB-B1'),
         participant_type: SettlementParticipantType.BUYER,
         buyer_id: buyerId,
         currency: 'USD',
@@ -303,12 +305,36 @@ describe('COMM-13 Settlement Schema Implementation E2E', () => {
         created_by_user_id: uniqueId('user'),
       },
     });
-    const batch2 = await prisma.settlementBatch.create({
+    const buyerBatch2 = await prisma.settlementBatch.create({
       data: {
         workspace_id: workspaceId,
-        batch_number: uniqueId('SB-2'),
+        batch_number: uniqueId('SB-B2'),
         participant_type: SettlementParticipantType.BUYER,
         buyer_id: buyerId,
+        currency: 'USD',
+        period_start: new Date(),
+        period_end: new Date(),
+        created_by_user_id: uniqueId('user'),
+      },
+    });
+    const vendorBatch1 = await prisma.settlementBatch.create({
+      data: {
+        workspace_id: workspaceId,
+        batch_number: uniqueId('SB-V1'),
+        participant_type: SettlementParticipantType.VENDOR,
+        vendor_id: vendorId,
+        currency: 'USD',
+        period_start: new Date(),
+        period_end: new Date(),
+        created_by_user_id: uniqueId('user'),
+      },
+    });
+    const vendorBatch2 = await prisma.settlementBatch.create({
+      data: {
+        workspace_id: workspaceId,
+        batch_number: uniqueId('SB-V2'),
+        participant_type: SettlementParticipantType.VENDOR,
+        vendor_id: vendorId,
         currency: 'USD',
         period_start: new Date(),
         period_end: new Date(),
@@ -316,28 +342,85 @@ describe('COMM-13 Settlement Schema Implementation E2E', () => {
       },
     });
 
-    await prisma.settlementItem.create({
+    // 1. One BUYER SettlementItem for CallCommercial -> PASS
+    const buyerItem1 = await prisma.settlementItem.create({
       data: {
         workspace_id: workspaceId,
-        settlement_batch_id: batch1.id,
+        settlement_batch_id: buyerBatch1.id,
         call_commercial_id: comm.id,
+        participant_type: SettlementParticipantType.BUYER,
         amount: new Prisma.Decimal('100.0000'),
         currency: 'USD',
       },
     });
+    expect(buyerItem1.id).toBeDefined();
 
-    // Attempting to add the same call commercial to batch 2 must fail
+    // 2. One VENDOR SettlementItem for SAME CallCommercial -> PASS (Two-sided settlement)
+    const vendorItem1 = await prisma.settlementItem.create({
+      data: {
+        workspace_id: workspaceId,
+        settlement_batch_id: vendorBatch1.id,
+        call_commercial_id: comm.id,
+        participant_type: SettlementParticipantType.VENDOR,
+        amount: new Prisma.Decimal('60.0000'),
+        currency: 'USD',
+      },
+    });
+    expect(vendorItem1.id).toBeDefined();
+
+    // 3. Second BUYER SettlementItem for SAME CallCommercial -> REJECT
     await expect(
       prisma.settlementItem.create({
         data: {
           workspace_id: workspaceId,
-          settlement_batch_id: batch2.id,
+          settlement_batch_id: buyerBatch2.id,
           call_commercial_id: comm.id,
+          participant_type: SettlementParticipantType.BUYER,
           amount: new Prisma.Decimal('100.0000'),
           currency: 'USD',
         },
       }),
     ).rejects.toThrow();
+
+    // 4. Second VENDOR SettlementItem for SAME CallCommercial -> REJECT
+    await expect(
+      prisma.settlementItem.create({
+        data: {
+          workspace_id: workspaceId,
+          settlement_batch_id: vendorBatch2.id,
+          call_commercial_id: comm.id,
+          participant_type: SettlementParticipantType.VENDOR,
+          amount: new Prisma.Decimal('60.0000'),
+          currency: 'USD',
+        },
+      }),
+    ).rejects.toThrow();
+
+    // 5. Different CallCommercial with BUYER and VENDOR -> PASS
+    const comm2 = await createCallCommercial({ revenue: '200.0000', payout: '120.0000' });
+    const diffBuyerItem = await prisma.settlementItem.create({
+      data: {
+        workspace_id: workspaceId,
+        settlement_batch_id: buyerBatch1.id,
+        call_commercial_id: comm2.id,
+        participant_type: SettlementParticipantType.BUYER,
+        amount: new Prisma.Decimal('200.0000'),
+        currency: 'USD',
+      },
+    });
+    expect(diffBuyerItem.id).toBeDefined();
+
+    const diffVendorItem = await prisma.settlementItem.create({
+      data: {
+        workspace_id: workspaceId,
+        settlement_batch_id: vendorBatch1.id,
+        call_commercial_id: comm2.id,
+        participant_type: SettlementParticipantType.VENDOR,
+        amount: new Prisma.Decimal('120.0000'),
+        currency: 'USD',
+      },
+    });
+    expect(diffVendorItem.id).toBeDefined();
   });
 
   it('7. should enforce onDelete: Restrict on CallCommercial when referenced by SettlementItem', async () => {
@@ -360,6 +443,7 @@ describe('COMM-13 Settlement Schema Implementation E2E', () => {
         workspace_id: workspaceId,
         settlement_batch_id: batch.id,
         call_commercial_id: comm.id,
+        participant_type: SettlementParticipantType.BUYER,
         amount: new Prisma.Decimal('100.0000'),
         currency: 'USD',
       },
@@ -393,6 +477,7 @@ describe('COMM-13 Settlement Schema Implementation E2E', () => {
         workspace_id: workspaceId,
         settlement_batch_id: batch.id,
         call_commercial_id: comm.id,
+        participant_type: SettlementParticipantType.BUYER,
         amount: new Prisma.Decimal('100.0000'),
         currency: 'USD',
       },

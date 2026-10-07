@@ -121,12 +121,13 @@ The atomic join table linking a single `CallCommercial` record to a `SettlementB
 - `workspace_id`: UUID (Foreign Key $\to$ `workspaces.id`, `onDelete: Cascade`)
 - `settlement_batch_id`: UUID (Foreign Key $\to$ `settlement_batches.id`, `onDelete: Restrict`)
 - `call_commercial_id`: UUID (Foreign Key $\to$ `call_commercials.id`, `onDelete: Restrict`)
+- `participant_type`: Enum `SettlementParticipantType` (`BUYER` | `VENDOR`)
 - `amount`: Decimal(12, 4) — Historical snapshot: `CallCommercial.revenue` (for Buyer) or `CallCommercial.payout` (for Vendor)
 - `currency`: String (ISO 4217)
 - `created_at`: Timestamp
 
 ### Database Constraints & Invariants
-- `@unique([call_commercial_id])`: Guarantees a `CallCommercial` can appear in **at most one** settlement item (INV-1).
+- `@@unique([call_commercial_id, participant_type])`: Guarantees a `CallCommercial` can appear in **at most one** settlement item per settlement participant side (INV-1). Each commercially eligible call may thus have one BUYER SettlementItem and one VENDOR SettlementItem.
 - `onDelete: Restrict`: Prevents deleting a `CallCommercial` or `SettlementBatch` that has active settlement items.
 
 ---
@@ -359,7 +360,7 @@ Every settlement entity directly contains a mandatory `workspace_id` foreign key
 
 | ID | Invariant Definition | Enforcement Level |
 | :--- | :--- | :--- |
-| **INV-1** | A `CallCommercial` may appear in at most one `SettlementItem` for a given settlement side. | **DATABASE** (`@unique([call_commercial_id])`) |
+| **INV-1** | A `CallCommercial` may appear in at most one `SettlementItem` for a given settlement side (one BUYER SettlementItem and one VENDOR SettlementItem). | **DATABASE** (`@@unique([call_commercial_id, participant_type])`) |
 | **INV-2** | A `SettlementItem` must belong to the same `workspace_id` as its `CallCommercial`. | **APPLICATION** (Validated at batch creation) |
 | **INV-3** | `SettlementItem.currency` must equal `SettlementBatch.currency`. | **APPLICATION** (Partitioned query validation) |
 | **INV-4** | `SettlementBatch.gross_amount` equals sum of immutable `SettlementItem.amount`. | **APPLICATION / AUDIT** (Verified during reconciliation) |
@@ -495,18 +496,20 @@ model SettlementBatch {
 }
 
 model SettlementItem {
-  id                  String          @id @default(uuid())
+  id                  String                    @id @default(uuid())
   workspace_id        String
   settlement_batch_id String
-  call_commercial_id  String          @unique
-  amount              Decimal         @db.Decimal(12, 4)
+  call_commercial_id  String
+  participant_type    SettlementParticipantType
+  amount              Decimal                   @db.Decimal(12, 4)
   currency            String
-  created_at          DateTime        @default(now())
+  created_at          DateTime                  @default(now())
 
-  workspace           Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  batch               SettlementBatch @relation(fields: [settlement_batch_id], references: [id], onDelete: Restrict)
-  commercial          CallCommercial  @relation(fields: [call_commercial_id], references: [id], onDelete: Restrict)
+  workspace           Workspace                 @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  batch               SettlementBatch           @relation(fields: [settlement_batch_id], references: [id], onDelete: Restrict)
+  commercial          CallCommercial            @relation(fields: [call_commercial_id], references: [id], onDelete: Restrict)
 
+  @@unique([call_commercial_id, participant_type])
   @@index([workspace_id])
   @@index([settlement_batch_id])
   @@map("settlement_items")
