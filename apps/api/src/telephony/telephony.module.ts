@@ -17,6 +17,7 @@ import { RoutingModule } from '../routing/routing.module.js';
 import { UsageModule } from '../usage/usage.module.js';
 import { WebhooksModule } from '../webhooks/webhooks.module.js';
 import { BillingModule } from '../billing/billing.module.js';
+import { CommercialModule } from '../commercial/commercial.module.js';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { BillingModule } from '../billing/billing.module.js';
     UsageModule,
     WebhooksModule,
     BillingModule,
+    CommercialModule,
   ],
   providers: [
     WebhookIdempotencyService,

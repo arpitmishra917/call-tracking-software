@@ -1,4 +1,4 @@
-import { Injectable, Inject, forwardRef, Logger } from '@nestjs/common';
+import { Injectable, Inject, forwardRef, Logger, Optional } from '@nestjs/common';
 import type { TelephonyProvider } from './telephony.provider.js';
 import { CallEventType, NormalizedCallEvent } from './telephony.events.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -7,6 +7,7 @@ import { UsageService } from '../usage/usage.service.js';
 import { UsageBillingService } from '../billing/usage-billing.service.js';
 import { WalletService } from '../billing/wallet.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
+import { CommercialEvaluatorService } from '../commercial/commercial-evaluator.service.js';
 import { CallState, CallAttemptState } from '@prisma/client';
 
 export const TELEPHONY_PROVIDER = 'TELEPHONY_PROVIDER';
@@ -25,6 +26,8 @@ export class CallController {
     private readonly usageBillingService: UsageBillingService,
     private readonly webhooksService: WebhooksService,
     private readonly walletService: WalletService,
+    @Optional()
+    private readonly commercialEvaluatorService?: CommercialEvaluatorService,
   ) {}
 
   private scheduleAuthorizationExtension(
@@ -387,6 +390,19 @@ export class CallController {
             );
           });
         console.log('BILL_USAGE_RESULT:', rrr, 'DUR:', talkDurationSecs);
+        if (
+          this.commercialEvaluatorService &&
+          updatedCall.state === CallState.COMPLETED
+        ) {
+          await this.commercialEvaluatorService
+            .evaluateCall(updatedCall.id)
+            .catch((err) => {
+              this.logger.error(
+                `Commercial evaluation failed for call ${updatedCall.id}: ${err.message}`,
+                err.stack,
+              );
+            });
+        }
         // ---------------------------
         const activeAttempts =
           updatedCall.attempts?.filter(
