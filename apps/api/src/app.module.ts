@@ -19,6 +19,7 @@ import { ApiKeysModule } from './api-keys/api-keys.module.js';
 import { PublicApiModule } from './public-api/public-api.module.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
 import { CommercialModule } from './commercial/commercial.module.js';
+import { SettlementModule } from './settlement/settlement.module.js';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { CommercialModule } from './commercial/commercial.module.js';
     WebhooksModule,
     AuditLogsModule,
     CommercialModule,
+    SettlementModule,
   ],
   controllers: [AppController],
   providers: [AppService],
