@@ -733,6 +733,7 @@ model CallCommercial {
   duplicate            Boolean          @default(false)
   duplicate_of_call_id String?
 
+  currency             String
   revenue              Decimal          @default(0.0000) @db.Decimal(12, 4)
   payout               Decimal          @default(0.0000) @db.Decimal(12, 4)
   cost                 Decimal          @default(0.0000) @db.Decimal(12, 4)
