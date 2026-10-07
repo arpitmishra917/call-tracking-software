@@ -745,7 +745,7 @@ model CallCommercial {
   updated_at           DateTime         @updatedAt
 
   workspace            Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  call                 Call             @relation(fields: [call_id], references: [id], onDelete: Cascade)
+  call                 Call             @relation(fields: [call_id], references: [id], onDelete: Restrict)
   campaign             Campaign         @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
   duplicate_of_call    Call?            @relation("DuplicateOfCall", fields: [duplicate_of_call_id], references: [id], onDelete: SetNull)
   vendor               Vendor?          @relation(fields: [vendor_id], references: [id], onDelete: SetNull)
