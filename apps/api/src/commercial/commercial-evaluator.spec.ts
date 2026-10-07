@@ -10,7 +10,7 @@ import {
   Prisma,
 } from '@prisma/client';
 
-describe('CommercialEvaluatorService (COMM-4)', () => {
+describe('CommercialEvaluatorService (COMM-4 Financial Correction)', () => {
   let service: CommercialEvaluatorService;
   let prisma: any;
 
@@ -59,6 +59,7 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
       call: {
         findUnique: vi.fn().mockImplementation(() => Promise.resolve(getBaseCall())),
         findMany: vi.fn().mockResolvedValue([]),
+        update: vi.fn().mockImplementation((args) => Promise.resolve(args.data)),
       },
       phoneNumber: {
         findFirst: vi.fn().mockResolvedValue({ vendor_id: 'vendor-1' }),
@@ -118,6 +119,7 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
 
     const result = await service.evaluateCall('call-1');
     expect(result?.converted).toBe(true);
+    expect(result?.qualified).toBe(true);
   });
 
   // Case 4: Duration < threshold -> converted=false
@@ -129,6 +131,7 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
 
     const result = await service.evaluateCall('call-1');
     expect(result?.converted).toBe(false);
+    expect(result?.qualified).toBe(false);
   });
 
   // Case 5: qualified equals converted
@@ -221,26 +224,57 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
     expect(result?.duplicate_of_call_id).toBeNull();
   });
 
-  // Case 11: Duplicate does not automatically zero revenue
-  it('11. Duplicate does not automatically zero revenue', async () => {
-    const priorCall = {
-      id: 'call-prior',
-      workspace_id: 'ws-1',
-      campaign_id: 'camp-1',
-      from_number: '+15551234567',
-      state: CallState.COMPLETED,
-      created_at: new Date('2026-10-06T12:00:00.000Z'),
-      commercial: { id: 'comm-prior' },
-    };
-    prisma.call.findMany.mockResolvedValueOnce([priorCall]);
+  // Blocker 1 tests:
+  // 11. Converted call gets revenue
+  it('11. Converted call gets revenue', async () => {
+    const call = getBaseCall();
+    call.duration_secs = 120; // >= 90 -> converted
+    prisma.call.findUnique.mockResolvedValueOnce(call);
 
     const result = await service.evaluateCall('call-1');
-    expect(result?.duplicate).toBe(true);
+    expect(result?.converted).toBe(true);
     expect(result?.revenue.toString()).toBe('45');
   });
 
-  // Case 12: Duplicate does not automatically zero payout
-  it('12. Duplicate does not automatically zero payout', async () => {
+  // 12. Converted call gets payout
+  it('12. Converted call gets payout', async () => {
+    const call = getBaseCall();
+    call.duration_secs = 120; // >= 90 -> converted
+    prisma.call.findUnique.mockResolvedValueOnce(call);
+
+    const result = await service.evaluateCall('call-1');
+    expect(result?.converted).toBe(true);
+    expect(result?.payout.toString()).toBe('30');
+  });
+
+  // 13. Non-converted call gets revenue 0
+  it('13. Non-converted call gets revenue 0', async () => {
+    const call = getBaseCall();
+    call.duration_secs = 30; // < 90 -> not converted
+    prisma.call.findUnique.mockResolvedValueOnce(call);
+
+    const result = await service.evaluateCall('call-1');
+    expect(result?.converted).toBe(false);
+    expect(result?.qualified).toBe(false);
+    expect(result?.revenue.toString()).toBe('0');
+  });
+
+  // 14. Non-converted call gets payout 0
+  it('14. Non-converted call gets payout 0', async () => {
+    const call = getBaseCall();
+    call.duration_secs = 30; // < 90 -> not converted
+    prisma.call.findUnique.mockResolvedValueOnce(call);
+
+    const result = await service.evaluateCall('call-1');
+    expect(result?.converted).toBe(false);
+    expect(result?.qualified).toBe(false);
+    expect(result?.payout.toString()).toBe('0');
+    // cost is 0.15, profit = 0 - 0 - 0.15 = -0.15
+    expect(result?.profit.toString()).toBe('-0.15');
+  });
+
+  // 15. Duplicate converted call still follows normal revenue/payout rule
+  it('15. Duplicate converted call still follows normal revenue/payout rule', async () => {
     const priorCall = {
       id: 'call-prior',
       workspace_id: 'ws-1',
@@ -252,35 +286,68 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
     };
     prisma.call.findMany.mockResolvedValueOnce([priorCall]);
 
+    const call = getBaseCall();
+    call.duration_secs = 120; // converted
+    prisma.call.findUnique.mockResolvedValueOnce(call);
+
     const result = await service.evaluateCall('call-1');
     expect(result?.duplicate).toBe(true);
+    expect(result?.converted).toBe(true);
+    expect(result?.revenue.toString()).toBe('45');
     expect(result?.payout.toString()).toBe('30');
   });
 
-  // Case 13: Vendor comes from PhoneNumber.vendor_id
-  it('13. Vendor comes from PhoneNumber.vendor_id', async () => {
+  // Case 16: Vendor comes from PhoneNumber.vendor_id
+  it('16. Vendor comes from PhoneNumber.vendor_id', async () => {
     prisma.phoneNumber.findFirst.mockResolvedValueOnce({ vendor_id: 'vendor-specific' });
 
     const result = await service.evaluateCall('call-1');
     expect(result?.vendor_id).toBe('vendor-specific');
   });
 
-  // Case 14: Missing vendor remains NULL
-  it('14. Missing vendor remains NULL', async () => {
+  // Case 17: Missing vendor remains NULL
+  it('17. Missing vendor remains NULL', async () => {
     prisma.phoneNumber.findFirst.mockResolvedValueOnce(null);
 
     const result = await service.evaluateCall('call-1');
     expect(result?.vendor_id).toBeNull();
   });
 
-  // Case 15: Winning buyer comes from existing CallAttempt semantics
-  it('15. Winning buyer comes from existing CallAttempt semantics', async () => {
+  // Case 18: Winning buyer comes from existing CallAttempt semantics
+  it('18. Winning buyer comes from existing CallAttempt semantics', async () => {
     const result = await service.evaluateCall('call-1');
     expect(result?.buyer_id).toBe('buyer-1');
   });
 
-  // Case 16: No winning buyer remains NULL
-  it('16. No winning buyer remains NULL', async () => {
+  // Buyer attribution verification: multiple answered attempts picks earliest deterministically
+  it('19. Winning buyer with multiple answered attempts selects earliest answered attempt deterministically', async () => {
+    const call = getBaseCall();
+    call.attempts = [
+      {
+        id: 'attempt-2',
+        call_id: 'call-1',
+        buyer_id: 'buyer-late',
+        state: CallAttemptState.COMPLETED,
+        answered_at: new Date('2026-10-07T12:00:25.000Z'),
+        created_at: new Date(mockDate),
+      },
+      {
+        id: 'attempt-1',
+        call_id: 'call-1',
+        buyer_id: 'buyer-early',
+        state: CallAttemptState.COMPLETED,
+        answered_at: new Date('2026-10-07T12:00:05.000Z'),
+        created_at: new Date(mockDate),
+      },
+    ];
+    prisma.call.findUnique.mockResolvedValueOnce(call);
+
+    const result = await service.evaluateCall('call-1');
+    expect(result?.buyer_id).toBe('buyer-early');
+  });
+
+  // Case 20: No winning buyer remains NULL
+  it('20. No winning buyer remains NULL', async () => {
     const call = getBaseCall();
     call.attempts = [
       {
@@ -298,21 +365,24 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
     expect(result?.buyer_id).toBeNull();
   });
 
-  // Case 17: Profit = revenue - payout - cost
-  it('17. Profit = revenue - payout - cost', async () => {
+  // Case 21: Profit = revenue - payout - cost
+  it('21. Profit = revenue - payout - cost', async () => {
     // revenue: 45.0000, payout: 30.0000, cost: 0.1500 (from 150000n)
     // profit = 45 - 30 - 0.15 = 14.8500
     const result = await service.evaluateCall('call-1');
     expect(result?.profit.toString()).toBe('14.85');
   });
 
-  // Case 18: Decimal arithmetic does not use floating point
-  it('18. Decimal arithmetic does not use floating point', async () => {
+  // Case 22: Decimal arithmetic does not use floating point
+  it('22. Decimal arithmetic does not use floating point', async () => {
     const call = getBaseCall();
     call.campaign.default_revenue_amount = new Prisma.Decimal('0.1000');
     call.campaign.default_payout_amount = new Prisma.Decimal('0.2000');
     prisma.call.findUnique.mockResolvedValueOnce(call);
-    prisma.walletTransaction.findFirst.mockResolvedValueOnce(null); // cost = 0
+    prisma.walletTransaction.findFirst.mockResolvedValueOnce({
+      amount_micro: 0n,
+      type: TransactionType.DEBIT,
+    }); // cost = 0
 
     // In JS float: 0.1 - 0.2 = -0.09999999999999998
     // In Decimal: -0.1
@@ -321,8 +391,8 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
     expect(result?.profit.toString()).toBe('-0.1');
   });
 
-  // Case 19: Existing CallCommercial -> idempotent/no duplicate
-  it('19. Existing CallCommercial -> idempotent/no duplicate', async () => {
+  // Case 23: Existing CallCommercial -> idempotent/no duplicate
+  it('23. Existing CallCommercial -> idempotent/no duplicate', async () => {
     const existingRecord = { id: 'existing-comm-id', call_id: 'call-1' };
     prisma.callCommercial.findUnique.mockResolvedValueOnce(existingRecord);
 
@@ -331,8 +401,8 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
     expect(prisma.callCommercial.create).not.toHaveBeenCalled();
   });
 
-  // Case 20: Concurrent/retry evaluation cannot create two commercial rows
-  it('20. Concurrent/retry evaluation cannot create two commercial rows (P2002 conflict handled)', async () => {
+  // Case 24: Concurrent/retry evaluation cannot create two commercial rows
+  it('24. Concurrent/retry evaluation cannot create two commercial rows (P2002 conflict handled)', async () => {
     const existingOnConflict = { id: 'race-won-comm', call_id: 'call-1' };
     prisma.callCommercial.create.mockRejectedValueOnce({ code: 'P2002' });
     prisma.callCommercial.findUnique
@@ -343,29 +413,24 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
     expect(result).toBe(existingOnConflict);
   });
 
-  // Case 21: Historical snapshot remains unchanged after campaign config changes
-  it('21. Historical snapshot remains unchanged after campaign config changes', async () => {
+  // Blocker 3: Currency snapshot test
+  it('25. Historical currency snapshot remains unchanged after campaign currency changes', async () => {
     const callData = getBaseCall();
+    callData.campaign.currency = 'USD';
     prisma.call.findUnique.mockResolvedValueOnce(callData);
 
     const snapshot = await service.evaluateCall('call-1');
-    expect(snapshot?.revenue.toString()).toBe('45');
-    expect(snapshot?.payout.toString()).toBe('30');
     expect(snapshot?.currency).toBe('USD');
 
-    // Mutate campaign configuration afterward
-    callData.campaign.default_revenue_amount = new Prisma.Decimal('999.0000');
-    callData.campaign.default_payout_amount = new Prisma.Decimal('888.0000');
+    // Mutate campaign configuration afterward to EUR
     callData.campaign.currency = 'EUR';
 
-    // The created snapshot retains the evaluated values
-    expect(snapshot?.revenue.toString()).toBe('45');
-    expect(snapshot?.payout.toString()).toBe('30');
+    // The created snapshot retains the historical snapshot USD
     expect(snapshot?.currency).toBe('USD');
   });
 
-  // Case 22: Blocked call does not create commercial record
-  it('22. Blocked call does not create commercial record', async () => {
+  // Case 26: Blocked call does not create commercial record
+  it('26. Blocked call does not create commercial record', async () => {
     const call = getBaseCall();
     call.state = CallState.FAILED; // blocked callers have state FAILED
     prisma.call.findUnique.mockResolvedValueOnce(call);
@@ -375,8 +440,8 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
     expect(prisma.callCommercial.create).not.toHaveBeenCalled();
   });
 
-  // Case 23: Non-eligible terminal states do not create commercial record
-  it('23. Non-eligible terminal states do not create commercial record (NO_ANSWER, CANCELED, FAILED)', async () => {
+  // Case 27: Non-eligible terminal states do not create commercial record
+  it('27. Non-eligible terminal states do not create commercial record (NO_ANSWER, CANCELED, FAILED)', async () => {
     for (const nonEligibleState of [
       CallState.NO_ANSWER,
       CallState.CANCELED,
@@ -394,31 +459,25 @@ describe('CommercialEvaluatorService (COMM-4)', () => {
     }
   });
 
-  // Case 24: Cost mapping uses authoritative existing UsageBillingService/UsageRecord data
-  it('24. Cost mapping uses authoritative existing UsageBillingService/UsageRecord data (WalletTransaction settlement)', async () => {
-    prisma.walletTransaction.findFirst.mockResolvedValueOnce({
-      amount_micro: 500000n, // $0.5000
-      type: TransactionType.DEBIT,
-    });
+  // Blocker 2: Never silently use zero for unknown cost
+  it('28. Missing CALL_SETTLEMENT aborts evaluation without persisting CallCommercial; completed Call remains unchanged', async () => {
+    const call = getBaseCall();
+    prisma.call.findUnique.mockResolvedValueOnce(call);
+    prisma.walletTransaction.findFirst.mockResolvedValueOnce(null); // Missing settlement
 
     const result = await service.evaluateCall('call-1');
-    expect(result?.cost.toString()).toBe('0.5');
-    // Profit = 45 - 30 - 0.5 = 14.5
-    expect(result?.profit.toString()).toBe('14.5');
-    expect(prisma.walletTransaction.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          workspace_id: 'ws-1',
-          reference_type: 'CALL_SETTLEMENT',
-          reference_id: 'call-1',
-          type: TransactionType.DEBIT,
-        }),
-      }),
-    );
+
+    // Aborts without persisting
+    expect(result).toBeNull();
+    expect(prisma.callCommercial.create).not.toHaveBeenCalled();
+
+    // Completed Call state is never mutated/rolled back
+    expect(prisma.call.update).not.toHaveBeenCalled();
+    expect(call.state).toBe(CallState.COMPLETED);
   });
 
-  // Case 25: Tenant isolation for duplicate lookup
-  it('25. Tenant isolation for duplicate lookup', async () => {
+  // Case 29: Tenant isolation for duplicate lookup
+  it('29. Tenant isolation for duplicate lookup', async () => {
     await service.evaluateCall('call-1');
     expect(prisma.call.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

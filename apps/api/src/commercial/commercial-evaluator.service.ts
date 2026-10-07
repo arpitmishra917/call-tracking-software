@@ -85,12 +85,18 @@ export class CommercialEvaluatorService {
 
       // 6. Winning buyer attribution:
       // Resolved from CallAttempt: attempt that was answered (answered_at != null)
-      // and reached COMPLETED (or ANSWERED) state.
-      const winningAttempt = call.attempts.find(
-        (a) =>
-          a.answered_at !== null &&
-          (a.state === CallAttemptState.COMPLETED || a.state === CallAttemptState.ANSWERED),
-      );
+      // and reached COMPLETED (or ANSWERED) state, deterministically ordered.
+      const winningAttempt = call.attempts
+        .filter(
+          (a) =>
+            a.answered_at !== null &&
+            (a.state === CallAttemptState.COMPLETED || a.state === CallAttemptState.ANSWERED),
+        )
+        .sort(
+          (a, b) =>
+            (a.answered_at?.getTime() ?? 0) - (b.answered_at?.getTime() ?? 0) ||
+            a.created_at.getTime() - b.created_at.getTime(),
+        )[0];
       const buyerId = winningAttempt?.buyer_id ?? null;
 
       // 7. Conversion rule: duration-only check
@@ -137,17 +143,22 @@ export class CommercialEvaluatorService {
       const isDuplicate = !!priorCall;
       const duplicateOfCallId = priorCall?.id ?? null;
 
-      // 10. Revenue snapshot (Decimal 12,4)
-      const revenue = new Prisma.Decimal(campaign.default_revenue_amount);
+      // 10. Revenue snapshot: depends on conversion (Decimal 12,4)
+      const revenue = converted
+        ? new Prisma.Decimal(campaign.default_revenue_amount)
+        : new Prisma.Decimal('0.0000');
 
-      // 11. Payout snapshot (Decimal 12,4)
-      const payout = new Prisma.Decimal(campaign.default_payout_amount);
+      // 11. Payout snapshot: depends on conversion (Decimal 12,4)
+      const payout = converted
+        ? new Prisma.Decimal(campaign.default_payout_amount)
+        : new Prisma.Decimal('0.0000');
 
       // 12. Currency snapshot: CallCommercial.currency = Campaign.currency
       const currency = campaign.currency;
 
       // 13. Operational cost resolution:
-      // Authoritative cost from settlement WalletTransaction
+      // Authoritative cost from settlement WalletTransaction.
+      // Must NOT assume zero or arbitrary defaults if settlement transaction is missing.
       const settlementTx = await tx.walletTransaction.findFirst({
         where: {
           workspace_id: call.workspace_id,
@@ -158,9 +169,14 @@ export class CommercialEvaluatorService {
         select: { amount_micro: true },
       });
 
-      const cost = settlementTx
-        ? new Prisma.Decimal(settlementTx.amount_micro.toString()).div(1_000_000)
-        : new Prisma.Decimal(0);
+      if (!settlementTx) {
+        this.logger.error(
+          `Operational cost missing: No CALL_SETTLEMENT WalletTransaction found for call ${call.id} in workspace ${call.workspace_id}. Aborting commercial persistence without estimating cost.`,
+        );
+        return null;
+      }
+
+      const cost = new Prisma.Decimal(settlementTx.amount_micro.toString()).div(1_000_000);
 
       // 14. Profit calculation: exact Decimal arithmetic: profit = revenue - payout - cost
       const profit = revenue.sub(payout).sub(cost);
