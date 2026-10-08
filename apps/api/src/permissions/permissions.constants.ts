@@ -42,8 +42,22 @@ export const PERMISSIONS_LIST = [
 
   { key: 'usage:read', group: 'USAGE', description: 'Read usage metrics' },
 
-  { key: 'audit_log:read', group: 'SECURITY', description: 'Read security audit logs' }
+  { key: 'audit_log:read', group: 'SECURITY', description: 'Read security audit logs' },
+
+  // COMMERCIAL (AD-04)
+  { key: 'commercial:read', group: 'COMMERCIAL', description: 'Read commercial and financial call data' },
+  { key: 'commercial:export', group: 'COMMERCIAL', description: 'Export commercial reports and data' },
+  { key: 'dispute:create', group: 'COMMERCIAL', description: 'Create commercial disputes' },
+  { key: 'dispute:manage', group: 'COMMERCIAL', description: 'Manage and resolve commercial disputes' },
+
+  // SETTLEMENT (AD-04)
+  { key: 'settlement:read', group: 'SETTLEMENT', description: 'Read settlement batches and items' },
+  { key: 'settlement:generate', group: 'SETTLEMENT', description: 'Generate settlement batches' }
 ];
 
 // Admin has comprehensive access baseline identical to legacy ADMIN role.
-export const ADMIN_BASELINE_PERMISSIONS = PERMISSIONS_LIST.map(p => p.key);
+// Under AD-04, settlement:generate is strictly excluded (OWNER-only by default).
+export const ADMIN_BASELINE_PERMISSIONS = PERMISSIONS_LIST
+  .map(p => p.key)
+  .filter(key => key !== 'settlement:generate');
+

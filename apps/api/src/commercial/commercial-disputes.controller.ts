@@ -9,13 +9,15 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission } from '../authorization/permissions.decorator.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole, DisputeStatus } from '@prisma/client';
 import { CommercialDisputesService } from './commercial-disputes.service.js';
 
 @Controller('workspaces/:workspaceId')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CommercialDisputesController {
   constructor(private readonly disputesService: CommercialDisputesService) {}
 
@@ -23,6 +25,7 @@ export class CommercialDisputesController {
    * Buyer creates a dispute on a CallCommercial record.
    */
   @Post('call-commercials/:callCommercialId/dispute')
+  @RequirePermission('dispute:create')
   async createDispute(
     @Param('workspaceId') workspaceId: string,
     @Param('callCommercialId') callCommercialId: string,
@@ -48,6 +51,7 @@ export class CommercialDisputesController {
   @Post('disputes/:disputeId/resolve')
   @UseGuards(WorkspaceRolesGuard)
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('dispute:manage')
   async resolveDispute(
     @Param('workspaceId') workspaceId: string,
     @Param('disputeId') disputeId: string,
@@ -73,6 +77,7 @@ export class CommercialDisputesController {
   @Post('disputes/:disputeId/accept')
   @UseGuards(WorkspaceRolesGuard)
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('dispute:manage')
   async acceptDispute(
     @Param('workspaceId') workspaceId: string,
     @Param('disputeId') disputeId: string,
@@ -94,6 +99,7 @@ export class CommercialDisputesController {
   @Post('disputes/:disputeId/reject')
   @UseGuards(WorkspaceRolesGuard)
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('dispute:manage')
   async rejectDispute(
     @Param('workspaceId') workspaceId: string,
     @Param('disputeId') disputeId: string,
@@ -113,6 +119,7 @@ export class CommercialDisputesController {
    * Retrieve a dispute by dispute ID.
    */
   @Get('disputes/:disputeId')
+  @RequirePermission('commercial:read')
   async getDispute(
     @Param('workspaceId') workspaceId: string,
     @Param('disputeId') disputeId: string,
@@ -125,6 +132,7 @@ export class CommercialDisputesController {
    * Retrieve a dispute by CallCommercial ID.
    */
   @Get('call-commercials/:callCommercialId/dispute')
+  @RequirePermission('commercial:read')
   async getDisputeByCommercial(
     @Param('workspaceId') workspaceId: string,
     @Param('callCommercialId') callCommercialId: string,
