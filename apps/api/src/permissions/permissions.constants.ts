@@ -52,12 +52,22 @@ export const PERMISSIONS_LIST = [
 
   // SETTLEMENT (AD-04)
   { key: 'settlement:read', group: 'SETTLEMENT', description: 'Read settlement batches and items' },
-  { key: 'settlement:generate', group: 'SETTLEMENT', description: 'Generate settlement batches' }
+  { key: 'settlement:generate', group: 'SETTLEMENT', description: 'Generate settlement batches' },
+
+  // PAYMENT (COMM-INTEGRATION-8B)
+  { key: 'payment:read', group: 'PAYMENT', description: 'Read payment instructions and executions' },
+  { key: 'payment:manage', group: 'PAYMENT', description: 'Manage and execute settlement payments' },
+
+  // RECONCILIATION (COMM-INTEGRATION-8B)
+  { key: 'reconciliation:read', group: 'RECONCILIATION', description: 'Read reconciliation runs and issues' },
+  { key: 'reconciliation:run', group: 'RECONCILIATION', description: 'Run settlement and workspace reconciliation audits' }
 ];
 
 // Admin has comprehensive access baseline identical to legacy ADMIN role.
 // Under AD-04, settlement:generate is strictly excluded (OWNER-only by default).
+// Under COMM-INTEGRATION-8B, payment:manage and reconciliation:run are strictly excluded (OWNER-only by default).
 export const ADMIN_BASELINE_PERMISSIONS = PERMISSIONS_LIST
   .map(p => p.key)
-  .filter(key => key !== 'settlement:generate');
+  .filter(key => key !== 'settlement:generate' && key !== 'payment:manage' && key !== 'reconciliation:run');
+
 
