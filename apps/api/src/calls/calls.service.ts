@@ -404,6 +404,363 @@ export class CallsService {
     return VALID_CALL_TRANSITIONS[state].length === 0;
   }
 
+  async getParticipantContext(workspaceId: string, userId: string = '') {
+    if (!userId) {
+      return {
+        isOwnerOrAdmin: true,
+        isBuyer: false,
+        buyerId: undefined as string | undefined,
+        isVendor: false,
+        vendorId: undefined as string | undefined,
+        isInternalMember: false,
+      };
+    }
+
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
+    });
+
+    if (!member) {
+      throw new ForbiddenException('User is not a member of this workspace');
+    }
+
+    if (member.role === 'OWNER' || member.role === 'ADMIN') {
+      return {
+        isOwnerOrAdmin: true,
+        isBuyer: false,
+        buyerId: undefined as string | undefined,
+        isVendor: false,
+        vendorId: undefined as string | undefined,
+        isInternalMember: false,
+      };
+    }
+
+    if (member.participant_type === 'BUYER' && member.buyer_id) {
+      return {
+        isOwnerOrAdmin: false,
+        isBuyer: true,
+        buyerId: member.buyer_id,
+        isVendor: false,
+        vendorId: undefined as string | undefined,
+        isInternalMember: false,
+      };
+    }
+
+    if (member.participant_type === 'VENDOR' && member.vendor_id) {
+      return {
+        isOwnerOrAdmin: false,
+        isBuyer: false,
+        buyerId: undefined as string | undefined,
+        isVendor: true,
+        vendorId: member.vendor_id,
+        isInternalMember: false,
+      };
+    }
+
+    return {
+      isOwnerOrAdmin: false,
+      isBuyer: false,
+      buyerId: undefined as string | undefined,
+      isVendor: false,
+      vendorId: undefined as string | undefined,
+      isInternalMember: true,
+    };
+  }
+
+  sanitizeCommercial(rawCommercial: any, ctx: { isOwnerOrAdmin: boolean; isBuyer: boolean; isVendor: boolean; isInternalMember: boolean }) {
+    if (!rawCommercial) return null;
+
+    if (ctx.isOwnerOrAdmin) {
+      return {
+        id: rawCommercial.id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        revenue: Number(rawCommercial.revenue),
+        payout: Number(rawCommercial.payout),
+        cost: Number(rawCommercial.cost),
+        profit: Number(rawCommercial.profit),
+        currency: rawCommercial.currency,
+        vendor: rawCommercial.vendor ? { id: rawCommercial.vendor.id, name: rawCommercial.vendor.name } : null,
+        buyer: rawCommercial.buyer ? { id: rawCommercial.buyer.id, name: rawCommercial.buyer.name } : null,
+        disputeStatus: rawCommercial.dispute?.status || null,
+        disputeReason: rawCommercial.dispute?.reason || null,
+      };
+    }
+
+    if (ctx.isBuyer) {
+      return {
+        id: rawCommercial.id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        revenue: Number(rawCommercial.revenue),
+        currency: rawCommercial.currency,
+        buyer: rawCommercial.buyer ? { id: rawCommercial.buyer.id, name: rawCommercial.buyer.name } : null,
+        disputeStatus: rawCommercial.dispute?.status || null,
+        disputeReason: rawCommercial.dispute?.reason || null,
+      };
+    }
+
+    if (ctx.isVendor) {
+      return {
+        id: rawCommercial.id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        payout: Number(rawCommercial.payout),
+        currency: rawCommercial.currency,
+        vendor: rawCommercial.vendor ? { id: rawCommercial.vendor.id, name: rawCommercial.vendor.name } : null,
+      };
+    }
+
+    // isInternalMember (or other non-commercial member)
+    return {
+      id: rawCommercial.id,
+      status: rawCommercial.status,
+      qualified: rawCommercial.qualified,
+      converted: rawCommercial.converted,
+      duplicate: rawCommercial.duplicate,
+      currency: rawCommercial.currency,
+    };
+  }
+
+  sanitizeCommercialDetail(rawCommercial: any, ctx: { isOwnerOrAdmin: boolean; isBuyer: boolean; isVendor: boolean; isInternalMember: boolean }) {
+    if (!rawCommercial) return null;
+
+    if (ctx.isOwnerOrAdmin) {
+      return rawCommercial;
+    }
+
+    if (ctx.isBuyer) {
+      const comm: any = {
+        id: rawCommercial.id,
+        workspace_id: rawCommercial.workspace_id,
+        call_id: rawCommercial.call_id,
+        campaign_id: rawCommercial.campaign_id,
+        buyer_id: rawCommercial.buyer_id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        duplicate_of_call_id: rawCommercial.duplicate_of_call_id,
+        evaluated_at: rawCommercial.evaluated_at,
+        revenue: Number(rawCommercial.revenue),
+        currency: rawCommercial.currency,
+        created_at: rawCommercial.created_at,
+        buyer: rawCommercial.buyer,
+      };
+
+      if (rawCommercial.dispute) {
+        comm.dispute = {
+          id: rawCommercial.dispute.id,
+          workspace_id: rawCommercial.dispute.workspace_id,
+          call_commercial_id: rawCommercial.dispute.call_commercial_id,
+          buyer_id: rawCommercial.dispute.buyer_id,
+          reason: rawCommercial.dispute.reason,
+          description: rawCommercial.dispute.description,
+          status: rawCommercial.dispute.status,
+          created_by_user_id: rawCommercial.dispute.created_by_user_id,
+          resolved_by_user_id: rawCommercial.dispute.resolved_by_user_id,
+          resolution_notes: rawCommercial.dispute.resolution_notes,
+          resolved_at: rawCommercial.dispute.resolved_at,
+          created_at: rawCommercial.dispute.created_at,
+          updated_at: rawCommercial.dispute.updated_at,
+        };
+      }
+
+      if (rawCommercial.adjustment) {
+        comm.adjustment = {
+          id: rawCommercial.adjustment.id,
+          workspace_id: rawCommercial.adjustment.workspace_id,
+          call_commercial_id: rawCommercial.adjustment.call_commercial_id,
+          dispute_id: rawCommercial.adjustment.dispute_id,
+          original_revenue: Number(rawCommercial.adjustment.original_revenue),
+          adjusted_revenue: Number(rawCommercial.adjustment.adjusted_revenue),
+          reason: rawCommercial.adjustment.reason,
+          created_at: rawCommercial.adjustment.created_at,
+        };
+      }
+
+      return comm;
+    }
+
+    if (ctx.isVendor) {
+      return {
+        id: rawCommercial.id,
+        workspace_id: rawCommercial.workspace_id,
+        call_id: rawCommercial.call_id,
+        campaign_id: rawCommercial.campaign_id,
+        vendor_id: rawCommercial.vendor_id,
+        status: rawCommercial.status,
+        qualified: rawCommercial.qualified,
+        converted: rawCommercial.converted,
+        duplicate: rawCommercial.duplicate,
+        duplicate_of_call_id: rawCommercial.duplicate_of_call_id,
+        evaluated_at: rawCommercial.evaluated_at,
+        payout: Number(rawCommercial.payout),
+        currency: rawCommercial.currency,
+        created_at: rawCommercial.created_at,
+        vendor: rawCommercial.vendor,
+      };
+    }
+
+    // isInternalMember
+    return {
+      id: rawCommercial.id,
+      workspace_id: rawCommercial.workspace_id,
+      call_id: rawCommercial.call_id,
+      campaign_id: rawCommercial.campaign_id,
+      status: rawCommercial.status,
+      qualified: rawCommercial.qualified,
+      converted: rawCommercial.converted,
+      duplicate: rawCommercial.duplicate,
+      duplicate_of_call_id: rawCommercial.duplicate_of_call_id,
+      evaluated_at: rawCommercial.evaluated_at,
+      currency: rawCommercial.currency,
+      created_at: rawCommercial.created_at,
+    };
+  }
+
+  private getEmptyMetrics() {
+    return {
+      total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, answerRate: 0, avgDuration: 0, tclSecs: null, aclSecs: null,
+      revenue: 0, payout: 0, profit: 0, cost: 0, converted: 0, qualified: 0, duplicate: 0, conversionRate: 0, commercialCalls: 0, currency: 'USD',
+      campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: []
+    };
+  }
+
+  sanitizeMetrics(metrics: any, ctx: { isOwnerOrAdmin: boolean; isBuyer: boolean; buyerId?: string; isVendor: boolean; isInternalMember: boolean }) {
+    if (ctx.isOwnerOrAdmin) {
+      return metrics;
+    }
+
+    if (ctx.isBuyer) {
+      delete metrics.payout;
+      delete metrics.cost;
+      delete metrics.profit;
+
+      if (metrics.campaigns) {
+        for (const k of Object.keys(metrics.campaigns)) {
+          delete metrics.campaigns[k].payout;
+          delete metrics.campaigns[k].cost;
+          delete metrics.campaigns[k].profit;
+        }
+      }
+
+      if (metrics.buyers) {
+        for (const k of Object.keys(metrics.buyers)) {
+          if (k !== ctx.buyerId) {
+            delete metrics.buyers[k];
+          } else {
+            delete metrics.buyers[k].payout;
+            delete metrics.buyers[k].cost;
+            delete metrics.buyers[k].profit;
+          }
+        }
+      }
+
+      if (metrics.trackingNumbers) {
+        for (const k of Object.keys(metrics.trackingNumbers)) {
+          delete metrics.trackingNumbers[k].payout;
+          delete metrics.trackingNumbers[k].cost;
+          delete metrics.trackingNumbers[k].profit;
+        }
+      }
+
+      if (metrics.buckets) {
+        for (const b of metrics.buckets) {
+          delete b.payout;
+          delete b.cost;
+          delete b.profit;
+        }
+      }
+
+      return metrics;
+    }
+
+    if (ctx.isVendor) {
+      delete metrics.revenue;
+      delete metrics.cost;
+      delete metrics.profit;
+
+      if (metrics.campaigns) {
+        for (const k of Object.keys(metrics.campaigns)) {
+          delete metrics.campaigns[k].revenue;
+          delete metrics.campaigns[k].cost;
+          delete metrics.campaigns[k].profit;
+        }
+      }
+
+      metrics.buyers = {};
+
+      if (metrics.trackingNumbers) {
+        for (const k of Object.keys(metrics.trackingNumbers)) {
+          delete metrics.trackingNumbers[k].revenue;
+          delete metrics.trackingNumbers[k].cost;
+          delete metrics.trackingNumbers[k].profit;
+        }
+      }
+
+      if (metrics.buckets) {
+        for (const b of metrics.buckets) {
+          delete b.revenue;
+          delete b.cost;
+          delete b.profit;
+        }
+      }
+
+      return metrics;
+    }
+
+    // isInternalMember
+    delete metrics.revenue;
+    delete metrics.payout;
+    delete metrics.cost;
+    delete metrics.profit;
+
+    if (metrics.campaigns) {
+      for (const k of Object.keys(metrics.campaigns)) {
+        delete metrics.campaigns[k].revenue;
+        delete metrics.campaigns[k].payout;
+        delete metrics.campaigns[k].cost;
+        delete metrics.campaigns[k].profit;
+      }
+    }
+
+    if (metrics.buyers) {
+      for (const k of Object.keys(metrics.buyers)) {
+        delete metrics.buyers[k].revenue;
+        delete metrics.buyers[k].payout;
+        delete metrics.buyers[k].cost;
+        delete metrics.buyers[k].profit;
+      }
+    }
+
+    if (metrics.trackingNumbers) {
+      for (const k of Object.keys(metrics.trackingNumbers)) {
+        delete metrics.trackingNumbers[k].revenue;
+        delete metrics.trackingNumbers[k].payout;
+        delete metrics.trackingNumbers[k].cost;
+        delete metrics.trackingNumbers[k].profit;
+      }
+    }
+
+    if (metrics.buckets) {
+      for (const b of metrics.buckets) {
+        delete b.revenue;
+        delete b.payout;
+        delete b.cost;
+        delete b.profit;
+      }
+    }
+
+    return metrics;
+  }
+
   async getCalls(
     workspaceId: string,
     userId: string = '',
@@ -501,7 +858,21 @@ export class CallsService {
       durationIds = results.map(r => r.id);
     }
 
+    const ctx = await this.getParticipantContext(workspaceId, userId);
+
+    if (ctx.isBuyer) {
+      if (filters.buyerId && filters.buyerId !== ctx.buyerId) {
+        return { items: [], total: 0 };
+      }
+    }
+
     const where: any = { workspace_id: workspaceId };
+
+    if (ctx.isBuyer) {
+      where.commercial = { buyer_id: ctx.buyerId };
+    } else if (ctx.isVendor) {
+      where.commercial = { vendor_id: ctx.vendorId };
+    }
 
     if (authOrConditions.length > 0) {
       where.AND = [{ OR: authOrConditions }];
@@ -514,7 +885,7 @@ export class CallsService {
     if (filters.campaignId) {
       where.campaign_id = filters.campaignId;
     }
-    if (filters.buyerId) {
+    if (filters.buyerId && !ctx.isBuyer) {
       where.attempts = {
         some: { buyer_id: filters.buyerId },
       };
@@ -553,6 +924,19 @@ export class CallsService {
             orderBy: { created_at: 'asc' },
           },
           recordings: true,
+          commercial: {
+            include: {
+              dispute: {
+                select: {
+                  status: true,
+                  reason: true,
+                  resolved_at: true,
+                },
+              },
+              buyer: { select: { id: true, name: true } },
+              vendor: { select: { id: true, name: true } },
+            },
+          },
         },
         orderBy: { created_at: 'desc' },
         skip: filters.offset || 0,
@@ -573,10 +957,22 @@ export class CallsService {
           totalDurationSecs = Math.floor((call.ended_at.getTime() - call.started_at.getTime()) / 1000);
        }
 
+       const commercial = this.sanitizeCommercial(call.commercial, ctx);
+
+       let attempts = call.attempts;
+       if (ctx.isVendor && attempts) {
+         attempts = attempts.map((a: any) => {
+           const { buyer, buyer_id, ...rest } = a;
+           return rest;
+         });
+       }
+
        return {
           ...call,
           talkDurationSecs,
           totalDurationSecs,
+          attempts,
+          commercial,
           recordings: call.recordings ? call.recordings.map((r: any) => ({
              id: r.id,
              status: r.status
@@ -598,7 +994,9 @@ export class CallsService {
     return { liveCalls: count };
   }
 
-  async getCallDetail(workspaceId: string, callId: string) {
+  async getCallDetail(workspaceId: string, callId: string, userId: string = '') {
+    const ctx = await this.getParticipantContext(workspaceId, userId);
+
     const call = await this.prisma.call.findUnique({
       where: { id: callId, workspace_id: workspaceId },
       include: {
@@ -608,11 +1006,46 @@ export class CallsService {
           orderBy: { created_at: 'asc' },
         },
         recordings: true,
+        commercial: {
+          include: {
+            dispute: true,
+            adjustment: true,
+            buyer: { select: { id: true, name: true } },
+            vendor: { select: { id: true, name: true } },
+          },
+        },
       },
     });
 
     if (!call) throw new NotFoundException(`Call ${callId} not found`);
-    return call;
+
+    if (ctx.isBuyer) {
+      if (!call.commercial || call.commercial.buyer_id !== ctx.buyerId) {
+        throw new ForbiddenException('Access denied to call');
+      }
+    }
+
+    if (ctx.isVendor) {
+      if (!call.commercial || call.commercial.vendor_id !== ctx.vendorId) {
+        throw new ForbiddenException('Access denied to call');
+      }
+    }
+
+    const sanitizedCommercial = this.sanitizeCommercialDetail(call.commercial, ctx);
+
+    let attempts = call.attempts;
+    if (ctx.isVendor && attempts) {
+      attempts = attempts.map((a: any) => {
+        const { buyer, buyer_id, ...rest } = a;
+        return rest;
+      });
+    }
+
+    return {
+      ...call,
+      attempts,
+      commercial: sanitizedCommercial,
+    };
   }
 
   async getMetrics(
@@ -646,7 +1079,14 @@ export class CallsService {
       }
     }
     
-    
+    const ctx = await this.getParticipantContext(workspaceId, userId);
+
+    if (ctx.isBuyer) {
+      if (filters.buyerId && filters.buyerId !== ctx.buyerId) {
+        return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
+      }
+    }
+
     const permissions = await this.permissionsService.getPermissionsForUser(workspaceId, userId);
     const readPerms = permissions.filter((p: any) => p.key === 'call:read');
     if (readPerms.length === 0) throw new ForbiddenException('Missing call:read permission');
@@ -657,13 +1097,19 @@ export class CallsService {
     if (!hasAll && hasAssigned) {
       const member = await this.prisma.workspaceMember.findUnique({ where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }});
       assignedBuyerId = member?.buyer_id;
-      if (!assignedBuyerId) {
-         return { total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, avgDuration: 0, tclSecs: null, aclSecs: null, campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: [] };
+      if (!assignedBuyerId && !ctx.isVendor) {
+         return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
       }
     }
 
 
     const conditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
+
+    if (ctx.isBuyer) {
+      conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_b WHERE ccom_b.call_id = c.id AND ccom_b.buyer_id = ${ctx.buyerId})`);
+    } else if (ctx.isVendor) {
+      conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_v WHERE ccom_v.call_id = c.id AND ccom_v.vendor_id = ${ctx.vendorId})`);
+    }
     
     if (!hasAll) {
       let authOrConditionsRaw: any[] = [];
@@ -687,11 +1133,13 @@ export class CallsService {
         authOrConditionsRaw.push(Prisma.sql`EXISTS(SELECT 1 FROM call_attempts a3 WHERE a3.call_id = c.id AND a3.buyer_id IN (${Prisma.join(buyerIds)}))`);
       }
 
-      if (authOrConditionsRaw.length === 0) {
-         return { total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, avgDuration: 0, tclSecs: null, aclSecs: null, campaigns: {}, buyers: {}, trackingNumbers: {}, buckets: [] };
+      if (authOrConditionsRaw.length === 0 && !ctx.isBuyer && !ctx.isVendor) {
+         return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
       }
       
-      conditions.push(Prisma.sql`(${Prisma.join(authOrConditionsRaw, ' OR ')})`);
+      if (authOrConditionsRaw.length > 0) {
+        conditions.push(Prisma.sql`(${Prisma.join(authOrConditionsRaw, ' OR ')})`);
+      }
     }
   
   
@@ -715,8 +1163,14 @@ export class CallsService {
         COUNT(*)::int as total,
         SUM(CASE WHEN c.state = 'COMPLETED' THEN 1 ELSE 0 END)::int as answered,
         SUM(CASE WHEN c.state IN ('NO_ANSWER', 'CANCELED') THEN 1 ELSE 0 END)::int as missed,
-        SUM(CASE WHEN c.state = 'FAILED' THEN 1 ELSE 0 END)::int as failed,
-        SUM(CASE WHEN c.state = 'FAILED' THEN 1 ELSE 0 END)::int as blocked,
+        SUM(CASE WHEN c.state = 'FAILED' AND NOT EXISTS (
+          SELECT 1 FROM blocked_callers bc 
+          WHERE bc.workspace_id = c.workspace_id AND bc.phone_number = c.from_number
+        ) THEN 1 ELSE 0 END)::int as failed,
+        SUM(CASE WHEN c.state = 'FAILED' AND EXISTS (
+          SELECT 1 FROM blocked_callers bc 
+          WHERE bc.workspace_id = c.workspace_id AND bc.phone_number = c.from_number
+        ) THEN 1 ELSE 0 END)::int as blocked,
         SUM(c.duration_secs)::int as total_duration,
         SUM(CASE WHEN c.answered_at IS NOT NULL AND c.ended_at IS NOT NULL 
                  THEN EXTRACT(EPOCH FROM (c.ended_at - c.answered_at)) ELSE 0 END)::int as talk_duration,
@@ -725,6 +1179,23 @@ export class CallsService {
         SUM(CASE WHEN c.state = 'COMPLETED' AND c.ended_at IS NOT NULL AND c.started_at IS NOT NULL THEN 1 ELSE 0 END)::int as eligible_calls,
         SUM(CASE WHEN c.state = 'COMPLETED' THEN c.duration_secs ELSE 0 END)::int as answered_duration
       FROM calls c
+      ${whereClause}
+    `;
+
+    const commercialMainQuery = Prisma.sql`
+      SELECT 
+        COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+        COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+        COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+        COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+        SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+        SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+        SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+        COUNT(ccom.id)::int as commercial_total,
+        COUNT(DISTINCT ccom.currency)::int as currency_count,
+        MAX(ccom.currency) as currency
+      FROM call_commercials ccom
+      JOIN calls c ON c.id = ccom.call_id
       ${whereClause}
     `;
 
@@ -743,6 +1214,23 @@ export class CallsService {
       GROUP BY c.campaign_id, camp.name
     `;
 
+    const commercialCampaignQuery = Prisma.sql`
+      SELECT 
+        c.campaign_id,
+        COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+        COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+        COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+        COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+        SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+        SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+        SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+        COUNT(ccom.id)::int as commercial_total
+      FROM calls c
+      JOIN call_commercials ccom ON ccom.call_id = c.id
+      ${whereClause} AND c.campaign_id IS NOT NULL
+      GROUP BY c.campaign_id
+    `;
+
     const trackingQuery = Prisma.sql`
       SELECT 
         c.to_number as phone_number,
@@ -757,8 +1245,30 @@ export class CallsService {
       GROUP BY c.to_number, pn.id, pn.name, pn.number_type
     `;
 
+    const commercialTrackingQuery = Prisma.sql`
+      SELECT 
+        c.to_number as phone_number,
+        COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+        COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+        COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+        COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+        SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+        SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+        SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+        COUNT(ccom.id)::int as commercial_total
+      FROM calls c
+      JOIN call_commercials ccom ON ccom.call_id = c.id
+      ${whereClause}
+      GROUP BY c.to_number
+    `;
+
     const buyerConditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
-    if (!hasAll && hasAssigned && assignedBuyerId) {
+    if (ctx.isBuyer) {
+      buyerConditions.push(Prisma.sql`a.buyer_id = ${ctx.buyerId}`);
+      buyerConditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_bb WHERE ccom_bb.call_id = c.id AND ccom_bb.buyer_id = ${ctx.buyerId})`);
+    } else if (ctx.isVendor) {
+      buyerConditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_vv WHERE ccom_vv.call_id = c.id AND ccom_vv.vendor_id = ${ctx.vendorId})`);
+    } else if (!hasAll && hasAssigned && assignedBuyerId) {
       buyerConditions.push(Prisma.sql`a.buyer_id = ${assignedBuyerId}`);
     }
     if (filters.startDate) buyerConditions.push(Prisma.sql`c.created_at >= ${new Date(filters.startDate)}`);
@@ -789,17 +1299,57 @@ export class CallsService {
       GROUP BY a.buyer_id, b.name
     `;
 
-    const [mainRes, campRes, buyerRes, trackingRes] = await Promise.all([
+    const commercialBuyerQuery = Prisma.sql`
+      SELECT 
+        ccom.buyer_id,
+        COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+        COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+        COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+        COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+        SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+        SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+        SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+        COUNT(ccom.id)::int as commercial_total
+      FROM calls c
+      JOIN call_commercials ccom ON ccom.call_id = c.id
+      ${whereClause} AND ccom.buyer_id IS NOT NULL
+      GROUP BY ccom.buyer_id
+    `;
+
+    const [
+      mainRes,
+      commercialMainRes,
+      campRes,
+      commercialCampRes,
+      buyerRes,
+      commercialBuyerRes,
+      trackingRes,
+      commercialTrackingRes,
+    ] = await Promise.all([
       this.prisma.$queryRaw(mainQuery) as any,
+      this.prisma.$queryRaw(commercialMainQuery) as any,
       this.prisma.$queryRaw(campaignQuery) as any,
+      this.prisma.$queryRaw(commercialCampaignQuery) as any,
       this.prisma.$queryRaw(buyerQuery) as any,
+      this.prisma.$queryRaw(commercialBuyerQuery) as any,
       this.prisma.$queryRaw(trackingQuery) as any,
+      this.prisma.$queryRaw(commercialTrackingQuery) as any,
     ]);
 
     const main = mainRes[0] || {
       total: 0, answered: 0, missed: 0, failed: 0, blocked: 0, 
       total_duration: 0, talk_duration: 0, tcl_secs: 0, eligible_calls: 0, answered_duration: 0
     };
+
+    const commMain = commercialMainRes?.[0] || {
+      revenue: 0, payout: 0, cost: 0, profit: 0,
+      converted: 0, qualified: 0, duplicate: 0, commercial_total: 0,
+      currency_count: 0, currency: 'USD'
+    };
+
+    if ((commMain.currency_count || 0) > 1) {
+      throw new BadRequestException('Workspace contains commercial records with multiple currencies. Please filter by campaign to isolate currency.');
+    }
 
     let buckets: any[] = [];
     if (filters.bucket) {
@@ -811,8 +1361,24 @@ export class CallsService {
           COUNT(*)::int as total,
           SUM(CASE WHEN c.state = 'COMPLETED' THEN 1 ELSE 0 END)::int as answered,
           SUM(CASE WHEN c.state IN ('NO_ANSWER', 'CANCELED') THEN 1 ELSE 0 END)::int as missed,
-          SUM(CASE WHEN c.state = 'FAILED' THEN 1 ELSE 0 END)::int as failed
+          SUM(CASE WHEN c.state = 'FAILED' AND NOT EXISTS (
+            SELECT 1 FROM blocked_callers bc 
+            WHERE bc.workspace_id = c.workspace_id AND bc.phone_number = c.from_number
+          ) THEN 1 ELSE 0 END)::int as failed,
+          SUM(CASE WHEN c.state = 'FAILED' AND EXISTS (
+            SELECT 1 FROM blocked_callers bc 
+            WHERE bc.workspace_id = c.workspace_id AND bc.phone_number = c.from_number
+          ) THEN 1 ELSE 0 END)::int as blocked,
+          COALESCE(SUM(ccom.revenue), 0)::numeric(12, 4) as revenue,
+          COALESCE(SUM(ccom.payout), 0)::numeric(12, 4) as payout,
+          COALESCE(SUM(ccom.profit), 0)::numeric(12, 4) as profit,
+          COALESCE(SUM(ccom.cost), 0)::numeric(12, 4) as cost,
+          SUM(CASE WHEN ccom.converted = true THEN 1 ELSE 0 END)::int as converted,
+          SUM(CASE WHEN ccom.qualified = true THEN 1 ELSE 0 END)::int as qualified,
+          SUM(CASE WHEN ccom.duplicate = true THEN 1 ELSE 0 END)::int as duplicate,
+          COUNT(ccom.id)::int as commercial_total
         FROM calls c
+        LEFT JOIN call_commercials ccom ON ccom.call_id = c.id
         ${whereClause}
         GROUP BY bucket_time
         ORDER BY bucket_time ASC
@@ -820,8 +1386,16 @@ export class CallsService {
       buckets = await this.prisma.$queryRaw(tsQuery) as any;
     }
 
+    const commercialCampMap = new Map<string, any>();
+    for (const row of commercialCampRes || []) {
+      commercialCampMap.set(row.campaign_id, row);
+    }
+
     const campaigns: Record<string, any> = {};
     for (const row of campRes) {
+      const comm = commercialCampMap.get(row.campaign_id);
+      const commTotal = comm?.commercial_total || 0;
+      const converted = comm?.converted || 0;
       campaigns[row.campaign_id] = {
         id: row.campaign_id,
         name: row.campaign_name,
@@ -829,11 +1403,28 @@ export class CallsService {
         answered: row.answered || 0,
         tclSecs: row.tcl_secs || 0,
         aclSecs: row.eligible_calls > 0 ? Math.round(row.tcl_secs / row.eligible_calls) : null,
+        revenue: Number(comm?.revenue || 0),
+        payout: Number(comm?.payout || 0),
+        profit: Number(comm?.profit || 0),
+        cost: Number(comm?.cost || 0),
+        converted,
+        qualified: comm?.qualified || 0,
+        duplicate: comm?.duplicate || 0,
+        conversionRate: commTotal > 0 ? Number(((converted / commTotal) * 100).toFixed(2)) : 0,
+        commercialCalls: commTotal,
       };
+    }
+
+    const commercialBuyerMap = new Map<string, any>();
+    for (const row of commercialBuyerRes || []) {
+      commercialBuyerMap.set(row.buyer_id, row);
     }
 
     const buyers: Record<string, any> = {};
     for (const row of buyerRes) {
+      const comm = commercialBuyerMap.get(row.buyer_id);
+      const commTotal = comm?.commercial_total || 0;
+      const converted = comm?.converted || 0;
       buyers[row.buyer_id] = {
         id: row.buyer_id,
         name: row.buyer_name,
@@ -841,11 +1432,28 @@ export class CallsService {
         answered: row.answered || 0,
         tclSecs: row.tcl_secs || 0,
         aclSecs: row.eligible_attempts > 0 ? Math.round(row.tcl_secs / row.eligible_attempts) : null,
+        revenue: Number(comm?.revenue || 0),
+        payout: Number(comm?.payout || 0),
+        profit: Number(comm?.profit || 0),
+        cost: Number(comm?.cost || 0),
+        converted,
+        qualified: comm?.qualified || 0,
+        duplicate: comm?.duplicate || 0,
+        conversionRate: commTotal > 0 ? Number(((converted / commTotal) * 100).toFixed(2)) : 0,
+        commercialCalls: commTotal,
       };
+    }
+
+    const commercialTrackingMap = new Map<string, any>();
+    for (const row of commercialTrackingRes || []) {
+      commercialTrackingMap.set(row.phone_number, row);
     }
     
     const trackingNumbers: Record<string, any> = {};
     for (const row of trackingRes) {
+      const comm = commercialTrackingMap.get(row.phone_number);
+      const commTotal = comm?.commercial_total || 0;
+      const converted = comm?.converted || 0;
       trackingNumbers[row.phone_number] = {
         id: row.tracking_number_id,
         phone_number: row.phone_number,
@@ -853,18 +1461,45 @@ export class CallsService {
         number_type: row.number_type,
         total: row.total || 0,
         answered: row.answered || 0,
+        revenue: Number(comm?.revenue || 0),
+        payout: Number(comm?.payout || 0),
+        profit: Number(comm?.profit || 0),
+        cost: Number(comm?.cost || 0),
+        converted,
+        qualified: comm?.qualified || 0,
+        duplicate: comm?.duplicate || 0,
+        conversionRate: commTotal > 0 ? Number(((converted / commTotal) * 100).toFixed(2)) : 0,
+        commercialCalls: commTotal,
       };
     }
 
+    const totalCalls = main.total || 0;
+    const answeredCalls = main.answered || 0;
+    const answerRate = totalCalls > 0 ? Number(((answeredCalls / totalCalls) * 100).toFixed(2)) : 0;
+    const commercialCalls = commMain.commercial_total || 0;
+    const commercialConverted = commMain.converted || 0;
+    const conversionRate = commercialCalls > 0 ? Number(((commercialConverted / commercialCalls) * 100).toFixed(2)) : 0;
+
     const metrics = {
-      total: main.total || 0,
-      answered: main.answered || 0,
+      total: totalCalls,
+      answered: answeredCalls,
       missed: main.missed || 0,
       failed: main.failed || 0,
       blocked: main.blocked || 0,
-      avgDuration: main.answered > 0 ? Math.round((main.answered_duration || 0) / main.answered) : 0,
+      answerRate,
+      avgDuration: answeredCalls > 0 ? Math.round((main.answered_duration || 0) / answeredCalls) : 0,
       tclSecs: main.eligible_calls > 0 ? (main.tcl_secs || 0) : null,
       aclSecs: main.eligible_calls > 0 ? Math.round((main.tcl_secs || 0) / main.eligible_calls) : null,
+      revenue: Number(commMain.revenue || 0),
+      payout: Number(commMain.payout || 0),
+      profit: Number(commMain.profit || 0),
+      cost: Number(commMain.cost || 0),
+      converted: commercialConverted,
+      qualified: commMain.qualified || 0,
+      duplicate: commMain.duplicate || 0,
+      conversionRate,
+      commercialCalls,
+      currency: commMain.currency || 'USD',
       campaigns,
       buyers,
       trackingNumbers,
@@ -873,11 +1508,21 @@ export class CallsService {
         total: b.total || 0,
         answered: b.answered || 0,
         missed: b.missed || 0,
-        failed: b.failed || 0
+        failed: b.failed || 0,
+        blocked: b.blocked || 0,
+        revenue: Number(b.revenue || 0),
+        payout: Number(b.payout || 0),
+        profit: Number(b.profit || 0),
+        cost: Number(b.cost || 0),
+        converted: b.converted || 0,
+        qualified: b.qualified || 0,
+        duplicate: b.duplicate || 0,
+        conversionRate: (b.commercial_total || 0) > 0 ? Number(((b.converted / b.commercial_total) * 100).toFixed(2)) : 0,
+        commercialCalls: b.commercial_total || 0,
       }))
     };
 
-    return metrics;
+    return this.sanitizeMetrics(metrics, ctx);
   }
 
   async commitBuyerDial(attemptId: string, providerCallId: string): Promise<boolean> {

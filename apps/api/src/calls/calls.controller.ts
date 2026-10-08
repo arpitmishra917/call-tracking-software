@@ -112,7 +112,11 @@ export class CallsController {
   async getCallDetail(
     @Param('workspaceId') workspaceId: string,
     @Param('callId') callId: string,
+    @Request() req?: any,
   ) {
+    if (req?.user?.userId) {
+      return this.callsService.getCallDetail(workspaceId, callId, req.user.userId);
+    }
     return this.callsService.getCallDetail(workspaceId, callId);
   }
 }

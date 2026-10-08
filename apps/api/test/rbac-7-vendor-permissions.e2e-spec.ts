@@ -51,6 +51,9 @@ describe('RBAC-7 Vendor Permissions (e2e)', () => {
 
     // CLEANUP OLD TEST DATA
     await prisma.workspaceMemberPermission.deleteMany({});
+    await prisma.callFinancialAdjustment.deleteMany({});
+    await prisma.callDispute.deleteMany({});
+    await prisma.callCommercial.deleteMany({});
     await prisma.callAttempt.deleteMany({});
     await prisma.call.deleteMany({});
     await prisma.phoneNumber.deleteMany({});
@@ -144,6 +147,24 @@ describe('RBAC-7 Vendor Permissions (e2e)', () => {
     
     await prisma.callAttempt.create({
       data: { call_id: call1.id, buyer_id: buyer1.id, state: 'COMPLETED' }
+    });
+
+    await prisma.callCommercial.create({
+      data: {
+        workspace_id: ws1.id,
+        call_id: call1.id,
+        campaign_id: campaign1.id,
+        vendor_id: vendor1.id,
+        revenue: 50,
+        payout: 25,
+        cost: 1,
+        profit: 24,
+        converted: true,
+        qualified: true,
+        duplicate: false,
+        status: 'FINAL',
+        currency: 'USD',
+      }
     });
 
     // Seed missing permissions for testing

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, apiDownload } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart, Pie, Cell 
 } from 'recharts';
 import { 
-  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2, Download, Loader2
+  PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2, Download, Loader2, Percent, Timer, Radio, DollarSign, TrendingUp, CheckCircle, Copy, AlertTriangle
 } from 'lucide-react';
 
 function formatDurationHms(seconds: number | null | undefined): string {
@@ -26,6 +26,66 @@ function formatDurationHms(seconds: number | null | undefined): string {
   const s = Math.floor(seconds % 60);
   if (h > 0) return `${h}h ${m}m ${s}s`;
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function formatPercent(value: number): string {
+  if (isNaN(value) || !isFinite(value)) return '0%';
+  const rounded = Number(value.toFixed(1));
+  return `${rounded}%`;
+}
+
+function formatCurrency(amount: number | null | undefined, currency: string = 'USD'): string {
+  if (amount === null || amount === undefined || isNaN(amount)) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency || 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(amount);
+}
+
+export interface ReportingMetrics {
+  total: number;
+  answered: number;
+  missed: number;
+  failed: number;
+  blocked?: number;
+  avgDuration: number | null;
+  tclSecs: number | null;
+  aclSecs: number | null;
+  revenue?: number;
+  payout?: number;
+  profit?: number;
+  cost?: number;
+  converted?: number;
+  qualified?: number;
+  duplicate?: number;
+  conversionRate?: number;
+  commercialCalls?: number;
+  currency?: string;
+  campaigns?: Record<string, any>;
+  buyers?: Record<string, any>;
+  trackingNumbers?: Record<string, any>;
+  buckets?: Array<{
+    bucket: string;
+    total: number;
+    answered: number;
+    missed: number;
+    failed: number;
+    revenue?: number;
+    payout?: number;
+    profit?: number;
+    cost?: number;
+    converted?: number;
+    qualified?: number;
+    duplicate?: number;
+    conversionRate?: number;
+    commercialCalls?: number;
+  }>;
+}
+
+export interface LiveCallsResponse {
+  liveCalls: number;
 }
 
 
@@ -84,7 +144,8 @@ export default function ReportingDashboard() {
     setDraftFilters({ startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration });
   }, [startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration]);
 
-  const [metrics, setMetrics] = useState<Record<string, any> | null>(null);
+  const [metrics, setMetrics] = useState<ReportingMetrics | null>(null);
+  const [liveCalls, setLiveCalls] = useState<number>(0);
   const [calls, setCalls] = useState<any[]>([]);
   const [callsTotal, setCallsTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -102,10 +163,8 @@ export default function ReportingDashboard() {
   const fetchSavedReports = useCallback(async () => {
     if (!workspaceId) return;
     try {
-      const res = await apiFetch(`/workspaces/${workspaceId}/reports`);
-      if (res.ok) {
-        setSavedReports(await res.json());
-      }
+      const data = await apiFetch(`/workspaces/${workspaceId}/reports`);
+      setSavedReports(data || []);
     } catch (e) {
       console.error(e);
     }
@@ -125,12 +184,11 @@ export default function ReportingDashboard() {
     };
     
     try {
-      const res = await apiFetch(`/workspaces/${workspaceId}/reports`, {
+      await apiFetch(`/workspaces/${workspaceId}/reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: reportName, visibility: reportVisibility, configuration: config })
       });
-      if (!res.ok) throw new Error('Failed to save report');
       setReportName('');
       setIsSavingReport(false);
       fetchSavedReports();
@@ -170,8 +228,7 @@ export default function ReportingDashboard() {
     e.stopPropagation();
     if (!confirm('Delete this saved report?')) return;
     try {
-      const res = await apiFetch(`/workspaces/${workspaceId}/reports/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete report');
+      await apiFetch(`/workspaces/${workspaceId}/reports/${id}`, { method: 'DELETE' });
       fetchSavedReports();
     } catch(err: any) {
       alert(err.message);
@@ -280,34 +337,24 @@ export default function ReportingDashboard() {
         columns
       };
 
-      const res = await apiFetch(`/workspaces/${workspaceId}/reports/export`, {
+      const { blob, filename: serverFilename } = await apiDownload(`/workspaces/${workspaceId}/reports/export`, {
         method: 'POST',
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert(err.message || 'Export failed.');
-        return;
-      }
+      const fallbackFilename = `callflow-report-${new Date().toISOString().split('T')[0]}.${format}`;
+      const filename = serverFilename || fallbackFilename;
 
-      const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      let filename = `callflow-report-${new Date().toISOString().split('T')[0]}.${format}`;
-      const disp = res.headers.get('content-disposition');
-      if (disp && disp.includes('filename=')) {
-        const matches = /filename="([^"]+)"/.exec(disp);
-        if (matches && matches[1]) filename = matches[1];
-      }
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
-      alert('An unexpected error occurred during export.');
+    } catch (err: any) {
+      alert(err?.message || 'An unexpected error occurred during export.');
     } finally {
       setIsExporting(false);
     }
@@ -321,24 +368,26 @@ export default function ReportingDashboard() {
     try {
       const q = new URLSearchParams(searchParams.toString());
       
-      // Fetch Aggregated Metrics
-      const metricsRes = await apiFetch(`/workspaces/${workspaceId}/calls/metrics?${q.toString()}`);
-      if (!metricsRes.ok) throw new Error('Failed to load reporting metrics');
-      const metricsData = await metricsRes.json();
-      setMetrics(metricsData);
-      
       // Fetch Paginated Detailed Calls
       const callsQ = new URLSearchParams(q.toString());
       if (minDuration) callsQ.set('minDurationSecs', minDuration);
       if (maxDuration) callsQ.set('maxDurationSecs', maxDuration);
+      if ((minDuration || maxDuration) && !callsQ.get('durationType')) {
+        callsQ.set('durationType', 'total');
+      }
       callsQ.set('limit', limit.toString());
       callsQ.set('offset', ((page - 1) * limit).toString());
       
-      const callsRes = await apiFetch(`/workspaces/${workspaceId}/calls?${callsQ.toString()}`);
-      if (!callsRes.ok) throw new Error('Failed to load detailed calls');
-      const callsData = await callsRes.json();
-      setCalls(callsData.items || []);
-      setCallsTotal(callsData.total || 0);
+      const [metricsData, callsData, liveCallsData] = await Promise.all([
+        apiFetch(`/workspaces/${workspaceId}/calls/metrics?${q.toString()}`),
+        apiFetch(`/workspaces/${workspaceId}/calls?${callsQ.toString()}`),
+        apiFetch(`/workspaces/${workspaceId}/calls/live-calls`),
+      ]);
+
+      setMetrics(metricsData);
+      setCalls(callsData?.items || []);
+      setCallsTotal(callsData?.total || 0);
+      setLiveCalls(typeof liveCallsData?.liveCalls === 'number' ? liveCallsData.liveCalls : 0);
       
     } catch (err: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Unable to load reporting data');
@@ -421,6 +470,10 @@ export default function ReportingDashboard() {
     { name: 'Missed', value: metrics.missed || 0, color: '#f97316' }, 
     { name: 'Failed', value: metrics.failed || 0, color: '#ef4444' }, 
   ].filter(d => d.value > 0) : [];
+
+  const answerRate = metrics && metrics.total > 0
+    ? (metrics.answered / metrics.total) * 100
+    : 0;
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -624,8 +677,8 @@ export default function ReportingDashboard() {
         </Card>
       ) : loading ? (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Skeleton className="h-[350px] col-span-2 rounded-xl" />
@@ -637,14 +690,14 @@ export default function ReportingDashboard() {
         <EmptyState title="No matching calls" description="Try adjusting your filters or clearing them." />
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                   <PhoneCall className="h-4 w-4" />
                   <span className="text-sm font-medium">Total Calls</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{metrics.total.toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(metrics.total ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -653,7 +706,7 @@ export default function ReportingDashboard() {
                   <PhoneIncoming className="h-4 w-4 text-emerald-600" />
                   <span className="text-sm font-medium">Answered</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{metrics.answered.toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(metrics.answered ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -662,7 +715,7 @@ export default function ReportingDashboard() {
                   <PhoneMissed className="h-4 w-4 text-orange-500" />
                   <span className="text-sm font-medium">Missed</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{metrics.missed.toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(metrics.missed ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -671,14 +724,32 @@ export default function ReportingDashboard() {
                   <PhoneOff className="h-4 w-4 text-red-500" />
                   <span className="text-sm font-medium">Failed</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{metrics.failed.toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(metrics.failed ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <Clock className="h-4 w-4 text-blue-500" />
-                  <span className="text-sm font-medium">ACL</span>
+                  <Percent className="h-4 w-4 text-emerald-500" />
+                  <span className="text-sm font-medium">Answer Rate</span>
+                </div>
+                <div className="text-3xl font-bold text-foreground">{formatPercent(answerRate)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Timer className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm font-medium">Average Talk Time</span>
+                </div>
+                <div className="text-3xl font-bold text-foreground">{formatDurationHms(metrics.avgDuration)}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Clock className="h-4 w-4 text-indigo-500" />
+                  <span className="text-sm font-medium">Average Total Time</span>
                 </div>
                 <div className="text-3xl font-bold text-foreground">{formatDurationHms(metrics.aclSecs)}</div>
               </CardContent>
@@ -686,12 +757,93 @@ export default function ReportingDashboard() {
             <Card>
               <CardContent className="p-5">
                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <BarChart3 className="h-4 w-4 text-indigo-500" />
-                  <span className="text-sm font-medium">TCL</span>
+                  <Radio className="h-4 w-4 text-emerald-600 animate-pulse" />
+                  <span className="text-sm font-medium">Live Calls</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{formatDurationHms(metrics.tclSecs)}</div>
+                <div className="text-3xl font-bold text-foreground">{(liveCalls ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
+          </div>
+
+          {/* Commercial Economics KPI Cards */}
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Commercial Economics</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <DollarSign className="h-4 w-4 text-emerald-600" />
+                    <span className="text-sm font-medium">Revenue</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.revenue, metrics.currency)}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <DollarSign className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm font-medium">Payout</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.payout, metrics.currency)}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <TrendingUp className={`h-4 w-4 ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`} />
+                    <span className="text-sm font-medium">Profit</span>
+                  </div>
+                  <div className={`text-2xl font-bold ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {formatCurrency(metrics.profit, metrics.currency)}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <DollarSign className="h-4 w-4 text-orange-500" />
+                    <span className="text-sm font-medium">Cost</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.cost, metrics.currency)}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <CheckCircle className="h-4 w-4 text-emerald-600" />
+                    <span className="text-sm font-medium">Converted</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{(metrics.converted ?? 0).toLocaleString()}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <Percent className="h-4 w-4 text-indigo-500" />
+                    <span className="text-sm font-medium">Qualified</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{(metrics.qualified ?? 0).toLocaleString()}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <Copy className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Duplicate</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{(metrics.duplicate ?? 0).toLocaleString()}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <Percent className="h-4 w-4 text-emerald-500" />
+                    <span className="text-sm font-medium">Conv. Rate</span>
+                  </div>
+                  <div className="text-2xl font-bold text-foreground">{formatPercent(metrics.conversionRate ?? 0)}</div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -863,6 +1015,12 @@ export default function ReportingDashboard() {
                       <TableHead className="text-right">Answered</TableHead>
                       <TableHead className="text-right">Failed</TableHead>
                       <TableHead className="text-right">TCL</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Payout</TableHead>
+                      <TableHead className="text-right">Cost</TableHead>
+                      <TableHead className="text-right">Profit</TableHead>
+                      <TableHead className="text-right">Converted</TableHead>
+                      <TableHead className="text-right">Conv. Rate</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -873,6 +1031,14 @@ export default function ReportingDashboard() {
                         <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
                         <TableCell className="text-right">{stats.failed.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>
+                        <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {formatCurrency(stats.profit, metrics.currency)}
+                        </TableCell>
+                        <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -890,16 +1056,30 @@ export default function ReportingDashboard() {
                       <TableHead className="text-right">Answered</TableHead>
                       <TableHead className="text-right">ACL</TableHead>
                       <TableHead className="text-right">TCL</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Payout</TableHead>
+                      <TableHead className="text-right">Cost</TableHead>
+                      <TableHead className="text-right">Profit</TableHead>
+                      <TableHead className="text-right">Converted</TableHead>
+                      <TableHead className="text-right">Conv. Rate</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {Object.values(metrics.trackingNumbers as Record<string, any>).map((stats: any, index: number) => (
                       <TableRow key={index}>
-                        <TableCell className="font-medium font-mono text-xs whitespace-nowrap">{stats.tracking_number || 'Unknown'}</TableCell>
+                        <TableCell className="font-medium font-mono text-xs whitespace-nowrap">{stats.tracking_number || stats.phone_number || 'Unknown'}</TableCell>
                         <TableCell className="text-right">{stats.total.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>
+                        <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {formatCurrency(stats.profit, metrics.currency)}
+                        </TableCell>
+                        <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

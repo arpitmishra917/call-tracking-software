@@ -1,0 +1,694 @@
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import {
+  Prisma,
+  SettlementParticipantType,
+  SettlementStatus,
+  PaymentStatus,
+  ReconciliationStatus,
+  CommercialStatus,
+  DisputeStatus,
+} from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service.js';
+
+export interface GenerateSettlementOptions {
+  workspace_id: string;
+  period_start: Date;
+  period_end: Date;
+  buyer_id?: string;
+  vendor_id?: string;
+  created_by_user_id?: string;
+}
+
+export interface GeneratedBatchResult {
+  batch_id: string;
+  batch_number: string;
+  workspace_id: string;
+  participant_type: SettlementParticipantType;
+  buyer_id: string | null;
+  vendor_id: string | null;
+  currency: string;
+  period_start: Date;
+  period_end: Date;
+  gross_amount: string;
+  adjustments_amount: string;
+  net_amount: string;
+  item_count: number;
+  settlement_status: SettlementStatus;
+  payment_status: PaymentStatus;
+  reconciliation_status: ReconciliationStatus;
+  is_existing: boolean;
+}
+
+export interface SettlementGenerationSummary {
+  workspace_id: string;
+  period_start: Date;
+  period_end: Date;
+  participant_type: SettlementParticipantType;
+  batches: GeneratedBatchResult[];
+  skipped_calls_count: number;
+}
+
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries = 5,
+  initialDelayMs = 25,
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await operation();
+    } catch (err: any) {
+      attempt++;
+      const isRetryable =
+        err?.code === 'P2034' || // Transaction failed due to a write conflict or a deadlock
+        err?.code === 'P2002' || // Unique constraint violation (e.g. concurrent batch or item creation)
+        err?.code === '40001' || // serialization_failure
+        err?.code === '40P01' || // deadlock_detected
+        (typeof err?.message === 'string' &&
+          (err.message.includes('write conflict') ||
+            err.message.includes('deadlock') ||
+            err.message.includes('could not serialize access')));
+
+      if (attempt >= maxRetries || !isRetryable) {
+        throw err;
+      }
+      const delay = initialDelayMs * Math.pow(2, attempt - 1) + Math.random() * 20;
+      await new Promise((res) => setTimeout(res, delay));
+    }
+  }
+}
+
+@Injectable()
+export class SettlementBatchService {
+  private readonly logger = new Logger(SettlementBatchService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Generates deterministic human-readable batch numbers:
+   * Format: SB-<TYPE>-<PARTICIPANT_ID_PREFIX>-<CURRENCY>-<YYYYMMDD_START>-<YYYYMMDD_END>
+   */
+  private generateBatchNumber(
+    type: SettlementParticipantType,
+    participantId: string,
+    currency: string,
+    periodStart: Date,
+    periodEnd: Date,
+  ): string {
+    const pStartStr = periodStart.toISOString().slice(0, 10).replace(/-/g, '');
+    const pEndStr = periodEnd.toISOString().slice(0, 10).replace(/-/g, '');
+    const partPrefix = participantId.slice(0, 8);
+    return `SB-${type}-${partPrefix}-${currency}-${pStartStr}-${pEndStr}`;
+  }
+
+  /**
+   * Evaluates settlement eligibility and generates Buyer Settlement Batches.
+   * Partitions by (buyer_id, currency) for eligible calls within [period_start, period_end).
+   */
+  async generateBuyerSettlement(
+    options: GenerateSettlementOptions,
+  ): Promise<SettlementGenerationSummary> {
+    const { workspace_id, period_start, period_end, buyer_id, created_by_user_id } = options;
+
+    if (!period_start || !period_end) {
+      throw new BadRequestException('period_start and period_end are required');
+    }
+    if (period_start >= period_end) {
+      throw new BadRequestException('period_start must be strictly before period_end');
+    }
+
+    // Verify workspace exists
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspace_id },
+    });
+    if (!workspace) {
+      throw new NotFoundException(`Workspace ${workspace_id} not found`);
+    }
+
+    // If specific buyer requested, verify existence and workspace ownership
+    if (buyer_id) {
+      const buyer = await this.prisma.buyer.findFirst({
+        where: { id: buyer_id, workspace_id },
+      });
+      if (!buyer) {
+        throw new NotFoundException(
+          `Buyer ${buyer_id} not found in workspace ${workspace_id}`,
+        );
+      }
+    }
+
+    const now = new Date();
+
+    // 1. Identify any existing batches already generated for this period & buyer
+    const existingBatches = await this.prisma.settlementBatch.findMany({
+      where: {
+        workspace_id,
+        participant_type: SettlementParticipantType.BUYER,
+        period_start,
+        period_end,
+        ...(buyer_id ? { buyer_id } : {}),
+      },
+    });
+
+    const partitions = new Map<
+      string,
+      {
+        participantId: string;
+        currency: string;
+        newItems: any[];
+      }
+    >();
+
+    for (const eb of existingBatches) {
+      if (eb.buyer_id && eb.currency) {
+        const key = `${eb.buyer_id}::${eb.currency.toUpperCase()}`;
+        partitions.set(key, {
+          participantId: eb.buyer_id,
+          currency: eb.currency.toUpperCase(),
+          newItems: [],
+        });
+      }
+    }
+
+    // 2. Query commercially finalized records matching criteria
+    // Period condition: period_start <= finalizes_at < period_end
+    // Maturity condition: finalizes_at <= NOW()
+    const candidates = await this.prisma.callCommercial.findMany({
+      where: {
+        workspace_id,
+        status: CommercialStatus.FINAL,
+        finalizes_at: {
+          not: null,
+          gte: period_start,
+          lt: period_end,
+          lte: now,
+        },
+        revenue: {
+          gt: 0,
+        },
+        ...(buyer_id ? { buyer_id } : {}),
+      },
+      include: {
+        dispute: true,
+        settlement_items: {
+          where: {
+            participant_type: SettlementParticipantType.BUYER,
+          },
+        },
+      },
+      orderBy: {
+        finalizes_at: 'asc',
+      },
+    });
+
+    let skippedCallsCount = 0;
+
+    for (const comm of candidates) {
+      // Missing buyer check
+      if (!comm.buyer_id) {
+        this.logger.warn(
+          `Skipping Buyer settlement for CallCommercial ${comm.id}: buyer_id is null`,
+        );
+        skippedCallsCount++;
+        continue;
+      }
+
+      // Pending dispute check
+      if (comm.dispute && comm.dispute.status === DisputeStatus.PENDING) {
+        this.logger.debug(
+          `Skipping Buyer settlement for CallCommercial ${comm.id}: active PENDING dispute`,
+        );
+        skippedCallsCount++;
+        continue;
+      }
+
+      // Currency check
+      if (!comm.currency) {
+        this.logger.warn(
+          `Skipping CallCommercial ${comm.id}: missing currency snapshot`,
+        );
+        skippedCallsCount++;
+        continue;
+      }
+
+      const partitionKey = `${comm.buyer_id}::${comm.currency.toUpperCase()}`;
+
+      // If already settled on BUYER side, do not re-add to newItems, but preserve partition
+      if (comm.settlement_items.length > 0) {
+        if (!partitions.has(partitionKey)) {
+          partitions.set(partitionKey, {
+            participantId: comm.buyer_id,
+            currency: comm.currency.toUpperCase(),
+            newItems: [],
+          });
+        }
+        continue;
+      }
+
+      // Eligible new item
+      if (!partitions.has(partitionKey)) {
+        partitions.set(partitionKey, {
+          participantId: comm.buyer_id,
+          currency: comm.currency.toUpperCase(),
+          newItems: [],
+        });
+      }
+      partitions.get(partitionKey)!.newItems.push(comm);
+    }
+
+    const createdBatches: GeneratedBatchResult[] = [];
+
+    // Process each partition atomically with concurrency retry
+    for (const [, partition] of partitions.entries()) {
+      const { participantId, currency: currentCurrency, newItems } = partition;
+      const batchNumber = this.generateBatchNumber(
+        SettlementParticipantType.BUYER,
+        participantId,
+        currentCurrency,
+        period_start,
+        period_end,
+      );
+
+      const batchResult = await withRetry(async () => {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            let batch = await tx.settlementBatch.findUnique({
+              where: {
+                workspace_id_batch_number: {
+                  workspace_id,
+                  batch_number: batchNumber,
+                },
+              },
+            });
+
+            let isExisting = false;
+
+            if (!batch) {
+              // If there are no items to insert and batch does not exist, do not create an empty batch
+              if (newItems.length === 0) {
+                return null;
+              }
+
+              batch = await tx.settlementBatch.create({
+                data: {
+                  workspace_id,
+                  batch_number: batchNumber,
+                  participant_type: SettlementParticipantType.BUYER,
+                  buyer_id: participantId,
+                  currency: currentCurrency,
+                  period_start,
+                  period_end,
+                  gross_amount: new Prisma.Decimal('0.0000'),
+                  adjustments_amount: new Prisma.Decimal('0.0000'),
+                  net_amount: new Prisma.Decimal('0.0000'),
+                  item_count: 0,
+                  settlement_status: SettlementStatus.DRAFT,
+                  payment_status: PaymentStatus.UNPROCESSED,
+                  reconciliation_status: ReconciliationStatus.UNRECONCILED,
+                  created_by_user_id: created_by_user_id ?? 'system',
+                },
+              });
+            } else {
+              isExisting = true;
+            }
+
+            if (newItems.length > 0) {
+              const itemsToCreate = newItems.map((comm) => ({
+                workspace_id,
+                settlement_batch_id: batch!.id,
+                call_commercial_id: comm.id,
+                participant_type: SettlementParticipantType.BUYER,
+                amount: comm.revenue,
+                currency: currentCurrency,
+              }));
+
+              await tx.settlementItem.createMany({
+                data: itemsToCreate,
+                skipDuplicates: true,
+              });
+
+              const aggregate = await tx.settlementItem.aggregate({
+                where: {
+                  settlement_batch_id: batch!.id,
+                },
+                _sum: {
+                  amount: true,
+                },
+                _count: {
+                  id: true,
+                },
+              });
+
+              const gross = aggregate._sum.amount ?? new Prisma.Decimal('0.0000');
+              const count = aggregate._count.id;
+              const net = gross.add(batch!.adjustments_amount);
+
+              batch = await tx.settlementBatch.update({
+                where: { id: batch!.id },
+                data: {
+                  gross_amount: gross,
+                  net_amount: net,
+                  item_count: count,
+                },
+              });
+            }
+
+            return {
+              batch_id: batch!.id,
+              batch_number: batch!.batch_number,
+              workspace_id: batch!.workspace_id,
+              participant_type: batch!.participant_type,
+              buyer_id: batch!.buyer_id,
+              vendor_id: batch!.vendor_id,
+              currency: batch!.currency,
+              period_start: batch!.period_start,
+              period_end: batch!.period_end,
+              gross_amount: batch!.gross_amount.toString(),
+              adjustments_amount: batch!.adjustments_amount.toString(),
+              net_amount: batch!.net_amount.toString(),
+              item_count: batch!.item_count,
+              settlement_status: batch!.settlement_status,
+              payment_status: batch!.payment_status,
+              reconciliation_status: batch!.reconciliation_status,
+              is_existing: isExisting,
+            };
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+      });
+
+      if (batchResult && batchResult.item_count > 0) {
+        createdBatches.push(batchResult);
+      }
+    }
+
+    return {
+      workspace_id,
+      period_start,
+      period_end,
+      participant_type: SettlementParticipantType.BUYER,
+      batches: createdBatches,
+      skipped_calls_count: skippedCallsCount,
+    };
+  }
+
+  /**
+   * Evaluates settlement eligibility and generates Vendor Settlement Batches.
+   * Partitions by (vendor_id, currency) for eligible calls within [period_start, period_end).
+   */
+  async generateVendorSettlement(
+    options: GenerateSettlementOptions,
+  ): Promise<SettlementGenerationSummary> {
+    const { workspace_id, period_start, period_end, vendor_id, created_by_user_id } = options;
+
+    if (!period_start || !period_end) {
+      throw new BadRequestException('period_start and period_end are required');
+    }
+    if (period_start >= period_end) {
+      throw new BadRequestException('period_start must be strictly before period_end');
+    }
+
+    // Verify workspace exists
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspace_id },
+    });
+    if (!workspace) {
+      throw new NotFoundException(`Workspace ${workspace_id} not found`);
+    }
+
+    // If specific vendor requested, verify existence and workspace ownership
+    if (vendor_id) {
+      const vendor = await this.prisma.vendor.findFirst({
+        where: { id: vendor_id, workspace_id },
+      });
+      if (!vendor) {
+        throw new NotFoundException(
+          `Vendor ${vendor_id} not found in workspace ${workspace_id}`,
+        );
+      }
+    }
+
+    const now = new Date();
+
+    // 1. Identify any existing batches already generated for this period & vendor
+    const existingBatches = await this.prisma.settlementBatch.findMany({
+      where: {
+        workspace_id,
+        participant_type: SettlementParticipantType.VENDOR,
+        period_start,
+        period_end,
+        ...(vendor_id ? { vendor_id } : {}),
+      },
+    });
+
+    const partitions = new Map<
+      string,
+      {
+        participantId: string;
+        currency: string;
+        newItems: any[];
+      }
+    >();
+
+    for (const eb of existingBatches) {
+      if (eb.vendor_id && eb.currency) {
+        const key = `${eb.vendor_id}::${eb.currency.toUpperCase()}`;
+        partitions.set(key, {
+          participantId: eb.vendor_id,
+          currency: eb.currency.toUpperCase(),
+          newItems: [],
+        });
+      }
+    }
+
+    // 2. Query commercially finalized records matching criteria
+    // Period condition: period_start <= finalizes_at < period_end
+    // Maturity condition: finalizes_at <= NOW()
+    const candidates = await this.prisma.callCommercial.findMany({
+      where: {
+        workspace_id,
+        status: CommercialStatus.FINAL,
+        finalizes_at: {
+          not: null,
+          gte: period_start,
+          lt: period_end,
+          lte: now,
+        },
+        payout: {
+          gt: 0,
+        },
+        ...(vendor_id ? { vendor_id } : {}),
+      },
+      include: {
+        dispute: true,
+        settlement_items: {
+          where: {
+            participant_type: SettlementParticipantType.VENDOR,
+          },
+        },
+      },
+      orderBy: {
+        finalizes_at: 'asc',
+      },
+    });
+
+    let skippedCallsCount = 0;
+
+    for (const comm of candidates) {
+      // Missing vendor check
+      if (!comm.vendor_id) {
+        this.logger.warn(
+          `Skipping Vendor settlement for CallCommercial ${comm.id}: vendor_id is null`,
+        );
+        skippedCallsCount++;
+        continue;
+      }
+
+      // Pending dispute check
+      if (comm.dispute && comm.dispute.status === DisputeStatus.PENDING) {
+        this.logger.debug(
+          `Skipping Vendor settlement for CallCommercial ${comm.id}: active PENDING dispute`,
+        );
+        skippedCallsCount++;
+        continue;
+      }
+
+      // Currency check
+      if (!comm.currency) {
+        this.logger.warn(
+          `Skipping CallCommercial ${comm.id}: missing currency snapshot`,
+        );
+        skippedCallsCount++;
+        continue;
+      }
+
+      const partitionKey = `${comm.vendor_id}::${comm.currency.toUpperCase()}`;
+
+      // If already settled on VENDOR side, do not re-add to newItems, but preserve partition
+      if (comm.settlement_items.length > 0) {
+        if (!partitions.has(partitionKey)) {
+          partitions.set(partitionKey, {
+            participantId: comm.vendor_id,
+            currency: comm.currency.toUpperCase(),
+            newItems: [],
+          });
+        }
+        continue;
+      }
+
+      // Eligible new item
+      if (!partitions.has(partitionKey)) {
+        partitions.set(partitionKey, {
+          participantId: comm.vendor_id,
+          currency: comm.currency.toUpperCase(),
+          newItems: [],
+        });
+      }
+      partitions.get(partitionKey)!.newItems.push(comm);
+    }
+
+    const createdBatches: GeneratedBatchResult[] = [];
+
+    // Process each partition atomically with concurrency retry
+    for (const [, partition] of partitions.entries()) {
+      const { participantId, currency: currentCurrency, newItems } = partition;
+      const batchNumber = this.generateBatchNumber(
+        SettlementParticipantType.VENDOR,
+        participantId,
+        currentCurrency,
+        period_start,
+        period_end,
+      );
+
+      const batchResult = await withRetry(async () => {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            let batch = await tx.settlementBatch.findUnique({
+              where: {
+                workspace_id_batch_number: {
+                  workspace_id,
+                  batch_number: batchNumber,
+                },
+              },
+            });
+
+            let isExisting = false;
+
+            if (!batch) {
+              // If there are no items to insert and batch does not exist, do not create an empty batch
+              if (newItems.length === 0) {
+                return null;
+              }
+
+              batch = await tx.settlementBatch.create({
+                data: {
+                  workspace_id,
+                  batch_number: batchNumber,
+                  participant_type: SettlementParticipantType.VENDOR,
+                  vendor_id: participantId,
+                  currency: currentCurrency,
+                  period_start,
+                  period_end,
+                  gross_amount: new Prisma.Decimal('0.0000'),
+                  adjustments_amount: new Prisma.Decimal('0.0000'),
+                  net_amount: new Prisma.Decimal('0.0000'),
+                  item_count: 0,
+                  settlement_status: SettlementStatus.DRAFT,
+                  payment_status: PaymentStatus.UNPROCESSED,
+                  reconciliation_status: ReconciliationStatus.UNRECONCILED,
+                  created_by_user_id: created_by_user_id ?? 'system',
+                },
+              });
+            } else {
+              isExisting = true;
+            }
+
+            if (newItems.length > 0) {
+              const itemsToCreate = newItems.map((comm) => ({
+                workspace_id,
+                settlement_batch_id: batch!.id,
+                call_commercial_id: comm.id,
+                participant_type: SettlementParticipantType.VENDOR,
+                amount: comm.payout,
+                currency: currentCurrency,
+              }));
+
+              await tx.settlementItem.createMany({
+                data: itemsToCreate,
+                skipDuplicates: true,
+              });
+
+              const aggregate = await tx.settlementItem.aggregate({
+                where: {
+                  settlement_batch_id: batch!.id,
+                },
+                _sum: {
+                  amount: true,
+                },
+                _count: {
+                  id: true,
+                },
+              });
+
+              const gross = aggregate._sum.amount ?? new Prisma.Decimal('0.0000');
+              const count = aggregate._count.id;
+              const net = gross.add(batch!.adjustments_amount);
+
+              batch = await tx.settlementBatch.update({
+                where: { id: batch!.id },
+                data: {
+                  gross_amount: gross,
+                  net_amount: net,
+                  item_count: count,
+                },
+              });
+            }
+
+            return {
+              batch_id: batch!.id,
+              batch_number: batch!.batch_number,
+              workspace_id: batch!.workspace_id,
+              participant_type: batch!.participant_type,
+              buyer_id: batch!.buyer_id,
+              vendor_id: batch!.vendor_id,
+              currency: batch!.currency,
+              period_start: batch!.period_start,
+              period_end: batch!.period_end,
+              gross_amount: batch!.gross_amount.toString(),
+              adjustments_amount: batch!.adjustments_amount.toString(),
+              net_amount: batch!.net_amount.toString(),
+              item_count: batch!.item_count,
+              settlement_status: batch!.settlement_status,
+              payment_status: batch!.payment_status,
+              reconciliation_status: batch!.reconciliation_status,
+              is_existing: isExisting,
+            };
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+      });
+
+      if (batchResult && batchResult.item_count > 0) {
+        createdBatches.push(batchResult);
+      }
+    }
+
+    return {
+      workspace_id,
+      period_start,
+      period_end,
+      participant_type: SettlementParticipantType.VENDOR,
+      batches: createdBatches,
+      skipped_calls_count: skippedCallsCount,
+    };
+  }
+}

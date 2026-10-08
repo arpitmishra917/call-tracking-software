@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Phone, Calendar, Clock, Hash, MapPin, Play, Download, AlertCircle, Info, FileAudio } from 'lucide-react';
+import { ArrowLeft, Phone, Calendar, Clock, Hash, MapPin, Play, Download, AlertCircle, Info, FileAudio, DollarSign, TrendingUp, CheckCircle, Copy } from 'lucide-react';
 
 interface Attempt {
   id: string;
@@ -36,6 +36,50 @@ interface CallDetail {
   buyer?: { name: string } | null;
   recordings?: { id: string; status: string }[];
   attempts: Attempt[];
+  commercial?: {
+    id: string;
+    status: string;
+    qualified: boolean;
+    converted: boolean;
+    duplicate: boolean;
+    duplicate_of_call_id?: string | null;
+    revenue: number | string;
+    payout: number | string;
+    cost: number | string;
+    profit: number | string;
+    currency: string;
+    vendor?: { id: string; name: string } | null;
+    buyer?: { id: string; name: string } | null;
+    dispute?: {
+      id: string;
+      status: string;
+      reason: string;
+      description?: string | null;
+      resolved_at?: string | null;
+      resolution_notes?: string | null;
+    } | null;
+    adjustment?: {
+      id: string;
+      original_revenue: number | string;
+      original_payout: number | string;
+      adjusted_revenue: number | string;
+      adjusted_payout: number | string;
+      reason: string;
+      created_at: string;
+    } | null;
+  } | null;
+}
+
+function formatCurrency(amount: number | string | null | undefined, currency: string = 'USD'): string {
+  if (amount === null || amount === undefined) return '$0.00';
+  const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+  if (isNaN(num)) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency || 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(num);
 }
 
 export default function CallDetailPage({ params }: { params: Promise<{ callId: string }> | { callId: string } }) {
@@ -259,6 +303,120 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                   </p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Commercial Economics Snapshot */}
+          <Card>
+            <CardHeader className="pb-3 border-b border-border">
+              <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-emerald-600" />
+                  Commercial Economics
+                </div>
+                {call.commercial && (
+                  <Badge variant={call.commercial.status === 'ADJUSTED' ? 'warning' : 'outline'} className="text-[10px]">
+                    Status: {call.commercial.status}
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {!call.commercial ? (
+                <div className="text-sm text-muted-foreground text-center py-4 bg-secondary/50 rounded-md border border-dashed border-border">
+                  Commercial evaluation not available for this call.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <span className="text-xs text-muted-foreground uppercase font-medium">Revenue</span>
+                      <p className="text-lg font-bold text-foreground mt-1">
+                        {formatCurrency(call.commercial.revenue, call.commercial.currency)}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <span className="text-xs text-muted-foreground uppercase font-medium">Payout</span>
+                      <p className="text-lg font-bold text-foreground mt-1">
+                        {formatCurrency(call.commercial.payout, call.commercial.currency)}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <span className="text-xs text-muted-foreground uppercase font-medium">Cost</span>
+                      <p className="text-lg font-bold text-foreground mt-1">
+                        {formatCurrency(call.commercial.cost, call.commercial.currency)}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <span className="text-xs text-muted-foreground uppercase font-medium">Profit</span>
+                      <p className={`text-lg font-bold mt-1 ${Number(call.commercial.profit) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {formatCurrency(call.commercial.profit, call.commercial.currency)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 border-t pt-4 text-sm">
+                    <div>
+                      <span className="text-xs text-muted-foreground">Currency</span>
+                      <p className="font-semibold text-foreground">{call.commercial.currency}</p>
+                    </div>
+                    <div>
+                      <span className="text-xs text-muted-foreground">Classification</span>
+                      <div className="flex gap-1 mt-0.5">
+                        {call.commercial.converted ? (
+                          <Badge variant="success" className="text-[10px]">Converted</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">Unconverted</Badge>
+                        )}
+                        {call.commercial.duplicate && (
+                          <Badge variant="warning" className="text-[10px]">Duplicate</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-xs text-muted-foreground">Commercial Buyer</span>
+                      <p className="font-semibold text-foreground">{call.commercial.buyer?.name || '—'}</p>
+                    </div>
+                  </div>
+
+                  {call.commercial.dispute && (
+                    <div className="border border-border/80 rounded-md p-4 bg-muted/20 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Buyer Dispute</span>
+                        <Badge variant={call.commercial.dispute.status === 'ACCEPTED' ? 'error' : call.commercial.dispute.status === 'PENDING' ? 'warning' : 'outline'} className="text-[10px]">
+                          {call.commercial.dispute.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-foreground"><span className="text-muted-foreground">Reason:</span> {call.commercial.dispute.reason}</p>
+                      {call.commercial.dispute.resolution_notes && (
+                        <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Resolution Notes:</span> {call.commercial.dispute.resolution_notes}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {call.commercial.adjustment && (
+                    <div className="border border-emerald-500/30 rounded-md p-4 bg-emerald-50/20 dark:bg-emerald-950/20 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase text-emerald-700 dark:text-emerald-400 tracking-wider">Financial Adjustment</span>
+                        <Badge variant="success" className="text-[10px]">Reversed</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-muted-foreground">Original Rev / Payout:</span>
+                          <p className="font-mono">{formatCurrency(call.commercial.adjustment.original_revenue, call.commercial.currency)} / {formatCurrency(call.commercial.adjustment.original_payout, call.commercial.currency)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Adjusted Rev / Payout:</span>
+                          <p className="font-mono text-emerald-600">{formatCurrency(call.commercial.adjustment.adjusted_revenue, call.commercial.currency)} / {formatCurrency(call.commercial.adjustment.adjusted_payout, call.commercial.currency)}</p>
+                        </div>
+                      </div>
+                      {call.commercial.adjustment.reason && (
+                        <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Reason:</span> {call.commercial.adjustment.reason}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 

@@ -257,6 +257,7 @@ describe('CallsService (Stage 13)', () => {
         expect(metrics.answered).toBe(1);
         expect(metrics.missed).toBe(2);
         expect(metrics.blocked).toBe(1);
+        expect(metrics.answerRate).toBe(33.33);
         expect(metrics.avgDuration).toBe(60);
         expect(metrics.campaigns['camp_1'].total).toBe(2);
         expect(metrics.campaigns['camp_1'].answered).toBe(1);

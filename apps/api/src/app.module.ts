@@ -18,6 +18,8 @@ import { BillingModule } from './billing/billing.module.js';
 import { ApiKeysModule } from './api-keys/api-keys.module.js';
 import { PublicApiModule } from './public-api/public-api.module.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
+import { CommercialModule } from './commercial/commercial.module.js';
+import { SettlementModule } from './settlement/settlement.module.js';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import { WebhooksModule } from './webhooks/webhooks.module.js';
     PublicApiModule,
     WebhooksModule,
     AuditLogsModule,
+    CommercialModule,
+    SettlementModule,
   ],
   controllers: [AppController],
   providers: [AppService],
