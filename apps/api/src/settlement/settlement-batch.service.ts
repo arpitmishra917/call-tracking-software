@@ -769,4 +769,114 @@ export class SettlementBatchService {
       skipped_calls_count: skippedCallsCount,
     };
   }
+
+  /**
+   * Retrieves a paginated list of settlement batches for a workspace with optional filters.
+   */
+  async getBatches(
+    workspaceId: string,
+    filters?: {
+      participant_type?: SettlementParticipantType;
+      buyer_id?: string;
+      vendor_id?: string;
+      settlement_status?: SettlementStatus;
+      payment_status?: PaymentStatus;
+      reconciliation_status?: ReconciliationStatus;
+      period_start?: Date;
+      period_end?: Date;
+      limit?: number;
+      offset?: number;
+    },
+  ) {
+    const where: Prisma.SettlementBatchWhereInput = {
+      workspace_id: workspaceId,
+    };
+
+    if (filters?.participant_type) {
+      where.participant_type = filters.participant_type;
+    }
+    if (filters?.buyer_id) {
+      where.buyer_id = filters.buyer_id;
+    }
+    if (filters?.vendor_id) {
+      where.vendor_id = filters.vendor_id;
+    }
+    if (filters?.settlement_status) {
+      where.settlement_status = filters.settlement_status;
+    }
+    if (filters?.payment_status) {
+      where.payment_status = filters.payment_status;
+    }
+    if (filters?.reconciliation_status) {
+      where.reconciliation_status = filters.reconciliation_status;
+    }
+    if (filters?.period_start) {
+      where.period_start = { gte: filters.period_start };
+    }
+    if (filters?.period_end) {
+      where.period_end = { lte: filters.period_end };
+    }
+
+    const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 100);
+    const offset = Math.max(filters?.offset ?? 0, 0);
+
+    const [batches, total] = await Promise.all([
+      this.prisma.settlementBatch.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip: offset,
+        take: limit,
+      }),
+      this.prisma.settlementBatch.count({ where }),
+    ]);
+
+    return { batches, total, limit, offset };
+  }
+
+  /**
+   * Retrieves a settlement batch by ID scoped strictly to workspace.
+   */
+  async getBatchById(workspaceId: string, batchId: string) {
+    return this.prisma.settlementBatch.findFirst({
+      where: {
+        id: batchId,
+        workspace_id: workspaceId,
+      },
+    });
+  }
+
+  /**
+   * Retrieves line items for a settlement batch scoped to workspace with pagination.
+   */
+  async getBatchItems(
+    workspaceId: string,
+    batchId: string,
+    options?: { limit?: number; offset?: number },
+  ) {
+    const limit = Math.min(Math.max(options?.limit ?? 50, 1), 100);
+    const offset = Math.max(options?.offset ?? 0, 0);
+
+    const [items, total] = await Promise.all([
+      this.prisma.settlementItem.findMany({
+        where: {
+          settlement_batch_id: batchId,
+          workspace_id: workspaceId,
+        },
+        include: {
+          commercial: true,
+        },
+        orderBy: { created_at: 'asc' },
+        skip: offset,
+        take: limit,
+      }),
+      this.prisma.settlementItem.count({
+        where: {
+          settlement_batch_id: batchId,
+          workspace_id: workspaceId,
+        },
+      }),
+    ]);
+
+    return { items, total, limit, offset };
+  }
 }
