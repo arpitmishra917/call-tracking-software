@@ -132,6 +132,26 @@ export default function CallsPage() {
     maxDurationSecs: '',
   });
 
+  const [isVendor, setIsVendor] = useState(false);
+
+  useEffect(() => {
+    async function checkVendorRole() {
+      if (!workspaceId) return;
+      try {
+        const workspaces = await apiFetch('/workspaces');
+        const currentWs = Array.isArray(workspaces)
+          ? workspaces.find((w: any) => w.id === workspaceId)
+          : null;
+        if (currentWs) {
+          setIsVendor(currentWs.participant_type === 'VENDOR');
+        }
+      } catch {
+        // Continue if workspace query fails
+      }
+    }
+    checkVendorRole();
+  }, [workspaceId]);
+
   useEffect(() => {
     async function loadDropdowns() {
       if (!workspaceId) return;
@@ -221,7 +241,6 @@ export default function CallsPage() {
   const hasRevenue = calls.some(c => c.commercial?.revenue !== undefined);
   const hasPayout = calls.some(c => c.commercial?.payout !== undefined);
   const hasProfit = calls.some(c => c.commercial?.profit !== undefined);
-  const isVendor = !hasRevenue && hasPayout && !hasProfit;
   const colSpanCount = 10 + (hasRevenue ? 1 : 0) + (hasPayout ? 1 : 0) + (hasProfit ? 1 : 0);
 
   return (

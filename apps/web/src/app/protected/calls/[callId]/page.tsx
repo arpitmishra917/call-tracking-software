@@ -129,8 +129,8 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
         const currentWs = Array.isArray(workspaces)
           ? workspaces.find((w: any) => w.id === workspaceId)
           : null;
-        if (currentWs && currentWs.participant_type === 'VENDOR') {
-          setIsVendorWorkspace(true);
+        if (currentWs) {
+          setIsVendorWorkspace(currentWs.participant_type === 'VENDOR');
         }
       } catch {
         // Continue if workspace query fails
@@ -139,11 +139,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
     checkVendorRole();
   }, [workspaceId]);
 
-  const isVendor = isVendorWorkspace || Boolean(
-    call?.commercial &&
-    call.commercial.payout !== undefined &&
-    call.commercial.revenue === undefined
-  );
+  const isVendor = isVendorWorkspace;
 
   async function loadCall() {
     setLoading(true);

@@ -239,4 +239,185 @@ describe('COMM-INTEGRATION-6: Vendor Portal UI Integration Suite', () => {
       expect(screen.queryByText('Generate Settlement Batch')).toBeNull();
     });
   });
+
+  describe('5. Authoritative Workspace Context Verification (No payload heuristic)', () => {
+    const buyerWorkspace = {
+      id: 'ws-buyer-1',
+      name: 'Premier Buyer Corp',
+      role: 'MEMBER',
+      participant_type: 'BUYER',
+    };
+
+    it('does NOT classify Buyer/Owner as Vendor in CallDetailPage even if payload only has payout and lacks revenue/profit', async () => {
+      (useSearchParams as any).mockReturnValue(new URLSearchParams('workspace=ws-buyer-1'));
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([buyerWorkspace]);
+        }
+        if (url.includes('/calls/call-buyer-1')) {
+          return Promise.resolve({
+            id: 'call-buyer-1',
+            from_number: '+15551112222',
+            to_number: '+15553334444',
+            state: 'COMPLETED',
+            started_at: '2026-10-08T12:00:00Z',
+            answered_at: '2026-10-08T12:00:05Z',
+            ended_at: '2026-10-08T12:02:05Z',
+            campaign: { name: 'Health Insurance Inbound' },
+            attempts: [
+              {
+                id: 'att-1',
+                state: 'COMPLETED',
+                buyer: { id: 'b-1', name: 'Authorized Buyer LLC' },
+                started_at: '2026-10-08T12:00:05Z',
+                answered_at: '2026-10-08T12:00:08Z',
+                ended_at: '2026-10-08T12:02:05Z',
+              },
+            ],
+            commercial: {
+              id: 'comm-b-1',
+              status: 'FINAL',
+              qualified: true,
+              converted: true,
+              duplicate: false,
+              payout: 35.0,
+              // revenue and profit omitted to simulate payload edge case
+              currency: 'USD',
+              buyer: { id: 'b-1', name: 'Authorized Buyer LLC' },
+              vendor: { id: 'v-1', name: 'Vendor 1' },
+            },
+          });
+        }
+        return Promise.resolve({});
+      });
+
+      render(<CallDetailPage params={{ callId: 'call-buyer-1' }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Commercial Economics')).toBeDefined();
+      });
+
+      // Because workspace is BUYER, it is NOT treated as vendor.
+      // Buyer details and timeline are NOT masked as anonymous vendor attempts
+      expect(screen.getByText('Commercial Buyer')).toBeDefined();
+      expect(screen.getAllByText('Authorized Buyer LLC').length).toBeGreaterThan(0);
+      expect(screen.getByText('Sequence of buyer attempts.')).toBeDefined();
+
+      // Dispute filing section is available to non-vendor Buyer
+      expect(screen.getByText('File Dispute')).toBeDefined();
+    });
+
+    it('does NOT classify Buyer as Vendor in CallsPage even if rows only have payout', async () => {
+      (useSearchParams as any).mockReturnValue(new URLSearchParams('workspace=ws-buyer-1'));
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([buyerWorkspace]);
+        }
+        if (url.includes('/calls?')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'call-b-1',
+                created_at: '2026-10-08T12:00:00Z',
+                from_number: '+15551112222',
+                to_number: '+15553334444',
+                state: 'COMPLETED',
+                talkDurationSecs: 120,
+                totalDurationSecs: 135,
+                campaign: { name: 'Health Insurance Inbound' },
+                recordings: [],
+                commercial: {
+                  id: 'comm-b-1',
+                  status: 'FINAL',
+                  qualified: true,
+                  converted: true,
+                  duplicate: false,
+                  payout: 35.0,
+                  disputeStatus: 'PENDING',
+                  currency: 'USD',
+                },
+              },
+            ],
+          });
+        }
+        return Promise.resolve([]);
+      });
+
+      render(<CallsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Dispute: PENDING')).toBeDefined();
+      });
+
+      // Dispute badge is rendered because workspace is NOT a Vendor
+      expect(screen.getByText('Dispute: PENDING')).toBeDefined();
+    });
+  });
+
+  describe('6. Vendor IDOR Rejection & Forbidden Handling', () => {
+    it('renders error state when Vendor A attempts to access Vendor B call detail (403 Forbidden)', async () => {
+      (useSearchParams as any).mockReturnValue(new URLSearchParams('workspace=ws-vendor-1'));
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([vendorWorkspace]);
+        }
+        if (url.includes('/calls/call-vendor-b')) {
+          return Promise.reject(new Error('Access denied to call'));
+        }
+        return Promise.resolve({});
+      });
+
+      render(<CallDetailPage params={{ callId: 'call-vendor-b' }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Access denied to call')).toBeDefined();
+      });
+
+      // Commercial economics and attempts should NOT be displayed
+      expect(screen.queryByText('Commercial Economics')).toBeNull();
+      expect(screen.queryByText('Call Timeline')).toBeNull();
+      expect(screen.getByText('Back to Call Logs')).toBeDefined();
+    });
+
+    it('renders error state when Vendor A attempts to access cross-workspace call detail (404/403)', async () => {
+      (useSearchParams as any).mockReturnValue(new URLSearchParams('workspace=ws-vendor-1'));
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([vendorWorkspace]);
+        }
+        if (url.includes('/calls/call-cross-ws')) {
+          return Promise.reject(new Error('Call not found'));
+        }
+        return Promise.resolve({});
+      });
+
+      render(<CallDetailPage params={{ callId: 'call-cross-ws' }} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Call not found')).toBeDefined();
+      });
+
+      expect(screen.queryByText('Commercial Economics')).toBeNull();
+    });
+
+    it('renders error banner when Vendor attempts unauthorized settlement batch query (403 Forbidden)', async () => {
+      (useSearchParams as any).mockReturnValue(new URLSearchParams('workspace=ws-vendor-1'));
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([vendorWorkspace]);
+        }
+        if (url.includes('/settlements/batches?')) {
+          return Promise.reject(new Error('Access denied to settlement batches'));
+        }
+        return Promise.resolve({});
+      });
+
+      render(<SettlementsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Access denied to settlement batches')).toBeDefined();
+      });
+    });
+  });
 });
+

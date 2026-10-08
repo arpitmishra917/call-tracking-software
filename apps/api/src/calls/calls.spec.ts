@@ -4,8 +4,8 @@ import { CallsService } from './calls.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { UsageService } from '../usage/usage.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
+import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CallState, CallAttemptState, Call, CallAttempt } from '@prisma/client';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { vi } from 'vitest';
 
 describe('CallsService (Stage 13)', () => {
@@ -17,6 +17,9 @@ describe('CallsService (Stage 13)', () => {
     prisma = {
       $transaction: vi.fn((cb) => cb(prisma)),
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'call_1', state: CallState.ROUTING }]),
+      workspaceMember: {
+        findUnique: vi.fn(),
+      },
       call: {
         create: vi.fn(),
         update: vi.fn(),
@@ -444,6 +447,100 @@ describe('CallsService (Stage 13)', () => {
             })
           })
         );
+      });
+    });
+
+    describe('Vendor IDOR Security & Scoping (COMM-INTEGRATION-6)', () => {
+      const vendorMemberA = {
+        workspace_id: 'ws_1',
+        user_id: 'user_vendor_a',
+        role: 'MEMBER',
+        participant_type: 'VENDOR',
+        vendor_id: 'vendor_a',
+      };
+
+      beforeEach(() => {
+        prisma.workspaceMember.findUnique.mockImplementation(({ where }: any) => {
+          if (where.workspace_id_user_id?.user_id === 'user_vendor_a') {
+            return Promise.resolve(vendorMemberA);
+          }
+          return Promise.resolve(null);
+        });
+      });
+
+      it('Vendor A -> Vendor B calls: getCalls strictly forces commercial.vendor_id = vendor_a', async () => {
+        prisma.call.findMany.mockResolvedValue([]);
+        prisma.call.count.mockResolvedValue(0);
+
+        await service.getCalls('ws_1', 'user_vendor_a', {});
+
+        expect(prisma.call.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              workspace_id: 'ws_1',
+              commercial: { vendor_id: 'vendor_a' },
+            }),
+          }),
+        );
+      });
+
+      it('Vendor A -> Vendor B call detail: getCallDetail rejects with 403 Forbidden', async () => {
+        prisma.call.findUnique.mockResolvedValue({
+          id: 'call_b',
+          workspace_id: 'ws_1',
+          attempts: [],
+          recordings: [],
+          commercial: {
+            id: 'comm_b',
+            vendor_id: 'vendor_b', // Belongs to Vendor B
+            payout: 50,
+          },
+        });
+
+        await expect(
+          service.getCallDetail('ws_1', 'call_b', 'user_vendor_a'),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('Vendor A -> cross-workspace call detail: getCallDetail rejects with 404 Not Found', async () => {
+        // Querying for a call that belongs to another workspace returns null in findUnique
+        prisma.call.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.getCallDetail('ws_1', 'call_cross_ws', 'user_vendor_a'),
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('Vendor A receives sanitized call detail on their own call without buyer identity', async () => {
+        prisma.call.findUnique.mockResolvedValue({
+          id: 'call_a',
+          workspace_id: 'ws_1',
+          attempts: [
+            { id: 'att_1', buyer_id: 'buyer_secret', buyer: { name: 'Secret Buyer Inc' } },
+          ],
+          recordings: [],
+          commercial: {
+            id: 'comm_a',
+            vendor_id: 'vendor_a',
+            payout: 45,
+            revenue: 100,
+            cost: 20,
+            profit: 80,
+            currency: 'USD',
+          },
+        });
+
+        const result = await service.getCallDetail('ws_1', 'call_a', 'user_vendor_a');
+
+        // Payout present
+        expect(result.commercial.payout).toBe(45);
+        // Revenue, Cost, Profit strictly stripped
+        expect((result.commercial as any).revenue).toBeUndefined();
+        expect((result.commercial as any).cost).toBeUndefined();
+        expect((result.commercial as any).profit).toBeUndefined();
+        // Buyer stripped from attempts
+        expect(result.attempts[0].buyer).toBeUndefined();
+        expect(result.attempts[0].buyer_id).toBeUndefined();
       });
     });
   });
