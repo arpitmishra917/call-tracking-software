@@ -7,7 +7,10 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Phone, Calendar, Clock, Hash, MapPin, Play, Download, AlertCircle, Info, FileAudio, DollarSign, TrendingUp, CheckCircle, Copy } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ArrowLeft, Phone, Calendar, Clock, Hash, MapPin, Play, Download, AlertCircle, Info, FileAudio, DollarSign, TrendingUp, CheckCircle, Copy, Scale, Check, X } from 'lucide-react';
 
 interface Attempt {
   id: string;
@@ -104,24 +107,95 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [showPlayer, setShowPlayer] = useState(false);
 
-  useEffect(() => {
-    async function loadCall() {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await apiFetch(`/workspaces/${workspaceId}/calls/${callId}`);
-        setCall(data);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Call not found or access denied.');
-      } finally {
-        setLoading(false);
-      }
-    }
+  // Dispute actions state
+  const [showDisputeForm, setShowDisputeForm] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeDescription, setDisputeDescription] = useState('');
+  const [disputeSubmitting, setDisputeSubmitting] = useState(false);
+  const [disputeActionError, setDisputeActionError] = useState<string | null>(null);
+  const [disputeActionSuccess, setDisputeActionSuccess] = useState<string | null>(null);
 
+  // Resolution actions state
+  const [showResolveModal, setShowResolveModal] = useState<'ACCEPTED' | 'REJECTED' | null>(null);
+  const [resolutionNotes, setResolutionNotes] = useState('');
+  const [resolvingDispute, setResolvingDispute] = useState(false);
+
+  async function loadCall() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch(`/workspaces/${workspaceId}/calls/${callId}`);
+      setCall(data);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Call not found or access denied.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
     if (workspaceId && callId) {
       loadCall();
     }
   }, [workspaceId, callId]);
+
+  async function handleCreateDispute(e: React.FormEvent) {
+    e.preventDefault();
+    if (!workspaceId || !call?.commercial?.id) return;
+    if (!disputeReason.trim()) {
+      setDisputeActionError('Dispute reason is required.');
+      return;
+    }
+
+    setDisputeSubmitting(true);
+    setDisputeActionError(null);
+    setDisputeActionSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/call-commercials/${call.commercial.id}/dispute`, {
+        method: 'POST',
+        body: JSON.stringify({
+          reason: disputeReason.trim(),
+          description: disputeDescription.trim() || undefined,
+        }),
+      });
+      setDisputeActionSuccess('Dispute submitted successfully.');
+      setShowDisputeForm(false);
+      setDisputeReason('');
+      setDisputeDescription('');
+      await loadCall();
+    } catch (err: any) {
+      setDisputeActionError(err?.message || 'Failed to submit dispute.');
+    } finally {
+      setDisputeSubmitting(false);
+    }
+  }
+
+  async function handleResolveDispute(status: 'ACCEPTED' | 'REJECTED') {
+    if (!workspaceId || !call?.commercial?.dispute?.id) return;
+
+    setResolvingDispute(true);
+    setDisputeActionError(null);
+    setDisputeActionSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/disputes/${call.commercial.dispute.id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({
+          status,
+          resolution_notes: resolutionNotes.trim() || undefined,
+        }),
+      });
+      setDisputeActionSuccess(`Dispute ${status.toLowerCase()} successfully.`);
+      setShowResolveModal(null);
+      setResolutionNotes('');
+      await loadCall();
+    } catch (err: any) {
+      setDisputeActionError(err?.message || `Failed to ${status.toLowerCase()} dispute.`);
+    } finally {
+      setResolvingDispute(false);
+    }
+  }
 
   async function handleFetchRecordingUrl(action: 'play' | 'download') {
     if (!workspaceId || !call?.recordings?.[0]?.id) return;
@@ -401,18 +475,152 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                     )}
                   </div>
 
-                  {call.commercial.dispute && (
-                    <div className="border border-border/80 rounded-md p-4 bg-muted/20 space-y-2">
+                  {/* Dispute Section */}
+                  {call.commercial.dispute ? (
+                    <div className="border border-border/80 rounded-md p-4 bg-muted/20 space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Buyer Dispute</span>
                         <Badge variant={call.commercial.dispute.status === 'ACCEPTED' ? 'error' : call.commercial.dispute.status === 'PENDING' ? 'warning' : 'outline'} className="text-[10px]">
                           {call.commercial.dispute.status}
                         </Badge>
                       </div>
-                      <p className="text-xs text-foreground"><span className="text-muted-foreground">Reason:</span> {call.commercial.dispute.reason}</p>
+                      <p className="text-xs text-foreground"><span className="text-muted-foreground font-medium">Reason:</span> {call.commercial.dispute.reason}</p>
+                      {call.commercial.dispute.description && (
+                        <p className="text-xs text-foreground"><span className="text-muted-foreground font-medium">Description:</span> {call.commercial.dispute.description}</p>
+                      )}
                       {call.commercial.dispute.resolution_notes && (
                         <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Resolution Notes:</span> {call.commercial.dispute.resolution_notes}</p>
                       )}
+
+                      {call.commercial.dispute.status === 'PENDING' && (
+                        <div className="pt-2 border-t border-border flex flex-wrap gap-2 justify-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs text-emerald-600 border-emerald-500/30 hover:bg-emerald-50"
+                            onClick={() => {
+                              setShowResolveModal('ACCEPTED');
+                              setResolutionNotes('');
+                              setDisputeActionError(null);
+                            }}
+                            disabled={resolvingDispute}
+                          >
+                            <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                            Accept Dispute
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs text-rose-600 border-rose-500/30 hover:bg-rose-50"
+                            onClick={() => {
+                              setShowResolveModal('REJECTED');
+                              setResolutionNotes('');
+                              setDisputeActionError(null);
+                            }}
+                            disabled={resolvingDispute}
+                          >
+                            <X className="w-3.5 h-3.5 mr-1 text-rose-600" />
+                            Reject Dispute
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="pt-2 flex justify-end">
+                      {!showDisputeForm ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs"
+                          onClick={() => {
+                            setShowDisputeForm(true);
+                            setDisputeActionError(null);
+                            setDisputeActionSuccess(null);
+                          }}
+                        >
+                          <Scale className="w-3.5 h-3.5 mr-1" />
+                          File Dispute
+                        </Button>
+                      ) : (
+                        <form onSubmit={handleCreateDispute} className="w-full border border-border rounded-md p-4 bg-muted/10 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">File Buyer Dispute</span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 text-muted-foreground"
+                              onClick={() => {
+                                setShowDisputeForm(false);
+                                setDisputeActionError(null);
+                              }}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <Label htmlFor="dispute-reason" className="text-xs font-medium">Reason *</Label>
+                            <Input
+                              id="dispute-reason"
+                              placeholder="e.g. Call dropped under qualified threshold, invalid lead"
+                              value={disputeReason}
+                              onChange={(e) => setDisputeReason(e.target.value)}
+                              disabled={disputeSubmitting}
+                              required
+                              className="h-8 text-xs"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label htmlFor="dispute-desc" className="text-xs font-medium">Description (Optional)</Label>
+                            <Input
+                              id="dispute-desc"
+                              placeholder="Additional details regarding the dispute"
+                              value={disputeDescription}
+                              onChange={(e) => setDisputeDescription(e.target.value)}
+                              disabled={disputeSubmitting}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 pt-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={disputeSubmitting}
+                              onClick={() => setShowDisputeForm(false)}
+                              className="h-8 text-xs"
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="submit"
+                              size="sm"
+                              isLoading={disputeSubmitting}
+                              disabled={disputeSubmitting || !disputeReason.trim()}
+                              className="h-8 text-xs"
+                            >
+                              Submit Dispute
+                            </Button>
+                          </div>
+                        </form>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Feedback message banner */}
+                  {disputeActionError && (
+                    <div className="bg-error-muted text-error-muted-foreground p-3 rounded-md text-xs flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{disputeActionError}</span>
+                    </div>
+                  )}
+                  {disputeActionSuccess && (
+                    <div className="bg-success-muted text-success-muted-foreground p-3 rounded-md text-xs flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 shrink-0" />
+                      <span>{disputeActionSuccess}</span>
                     </div>
                   )}
 
@@ -606,6 +814,47 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
           </Card>
         </div>
       </div>
+
+      {/* Resolve Dispute Confirmation Dialog */}
+      <ConfirmDialog
+        open={showResolveModal !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowResolveModal(null);
+            setResolutionNotes('');
+          }
+        }}
+        title={showResolveModal === 'ACCEPTED' ? 'Accept Dispute' : 'Reject Dispute'}
+        description={
+          <div className="space-y-3 pt-2">
+            <p className="text-sm text-foreground">
+              {showResolveModal === 'ACCEPTED'
+                ? 'Are you sure you want to accept this dispute? A financial adjustment will automatically be recorded to reverse revenue and payout.'
+                : 'Are you sure you want to reject this dispute? No financial adjustment will be made and the dispute will be marked as rejected.'}
+            </p>
+            <div className="space-y-1">
+              <Label htmlFor="resolution-notes" className="text-xs font-medium">Resolution Notes (Optional)</Label>
+              <Input
+                id="resolution-notes"
+                placeholder="Add optional internal context or explanation"
+                value={resolutionNotes}
+                onChange={(e) => setResolutionNotes(e.target.value)}
+                disabled={resolvingDispute}
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+        }
+        confirmText={showResolveModal === 'ACCEPTED' ? 'Accept Dispute' : 'Reject Dispute'}
+        cancelText="Cancel"
+        onConfirm={() => {
+          if (showResolveModal) {
+            handleResolveDispute(showResolveModal);
+          }
+        }}
+        isLoading={resolvingDispute}
+        destructive={showResolveModal === 'REJECTED'}
+      />
     </div>
   );
 }
