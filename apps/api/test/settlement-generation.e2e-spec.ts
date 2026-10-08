@@ -200,12 +200,12 @@ describe('COMM-14 Settlement Eligibility & Batch Generation E2E', () => {
     expect(res.batches.length).toBe(0);
   });
 
-  it('3. non-FINAL (PENDING) -> not eligible', async () => {
+  it('3. matured PENDING + no dispute -> JIT finalized to FINAL and included in settlement', async () => {
     const pStart = new Date('2026-10-01T00:00:00Z');
     const pEnd = new Date('2026-10-08T00:00:00Z');
     const finalizesAt = new Date('2026-10-05T12:00:00Z');
 
-    await createCallCommercial({
+    const comm = await createCallCommercial({
       status: CommercialStatus.PENDING,
       finalizesAt,
       revenue: '100.0000',
@@ -218,7 +218,41 @@ describe('COMM-14 Settlement Eligibility & Batch Generation E2E', () => {
       buyer_id: buyerA,
     });
 
+    expect(res.batches.length).toBe(1);
+    expect(res.batches[0].gross_amount).toBe('100');
+    expect(res.batches[0].item_count).toBe(1);
+
+    // Verify CallCommercial status was transitioned to FINAL
+    const updated = await prisma.callCommercial.findUnique({
+      where: { id: comm.id },
+    });
+    expect(updated?.status).toBe(CommercialStatus.FINAL);
+  });
+
+  it('3b. unmatured PENDING -> remains PENDING and not eligible for settlement', async () => {
+    const pStart = new Date();
+    const pEnd = new Date(Date.now() + 10 * 86400 * 1000);
+    const futureFinalizesAt = new Date(Date.now() + 3 * 86400 * 1000); // 3 days in future
+
+    const comm = await createCallCommercial({
+      status: CommercialStatus.PENDING,
+      finalizesAt: futureFinalizesAt,
+      revenue: '100.0000',
+    });
+
+    const res = await settlementService.generateBuyerSettlement({
+      workspace_id: workspaceA,
+      period_start: pStart,
+      period_end: pEnd,
+      buyer_id: buyerA,
+    });
+
     expect(res.batches.length).toBe(0);
+
+    const check = await prisma.callCommercial.findUnique({
+      where: { id: comm.id },
+    });
+    expect(check?.status).toBe(CommercialStatus.PENDING);
   });
 
   it('4. PENDING dispute -> not eligible (blocked)', async () => {

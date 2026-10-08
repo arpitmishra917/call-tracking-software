@@ -107,6 +107,76 @@ export class SettlementBatchService {
   }
 
   /**
+   * AD-02 Secondary Guard: JIT Finalization Sweep
+   * Atomically transitions matured, undisputed PENDING CallCommercial records to FINAL
+   * immediately before querying settlement candidates.
+   */
+  public async sweepMaturedPendingToFinal(
+    prismaClient: PrismaService | Prisma.TransactionClient,
+    workspace_id: string,
+    now: Date = new Date(),
+  ): Promise<number> {
+    const executeSweep = async (tx: Prisma.TransactionClient) => {
+      // Find matured PENDING records in this workspace
+      const pendingCandidates = await tx.callCommercial.findMany({
+        where: {
+          workspace_id,
+          status: CommercialStatus.PENDING,
+          finalizes_at: {
+            not: null,
+            lte: now,
+          },
+        },
+        select: {
+          id: true,
+          dispute: {
+            select: { status: true },
+          },
+        },
+      });
+
+      if (pendingCandidates.length === 0) {
+        return 0;
+      }
+
+      // Filter out records with active PENDING disputes
+      const eligibleIds = pendingCandidates
+        .filter((c) => !c.dispute || c.dispute.status !== DisputeStatus.PENDING)
+        .map((c) => c.id);
+
+      if (eligibleIds.length === 0) {
+        return 0;
+      }
+
+      // Atomically transition PENDING -> FINAL
+      // status: PENDING in where predicate ensures concurrency safety
+      const result = await tx.callCommercial.updateMany({
+        where: {
+          id: { in: eligibleIds },
+          status: CommercialStatus.PENDING,
+        },
+        data: {
+          status: CommercialStatus.FINAL,
+        },
+      });
+
+      if (result.count > 0) {
+        this.logger.log(
+          `JIT finalization sweep: transitioned ${result.count} matured CallCommercial record(s) to FINAL in workspace ${workspace_id}`,
+        );
+      }
+
+      return result.count;
+    };
+
+    if ('$transaction' in prismaClient) {
+      return await (prismaClient as PrismaService).$transaction(executeSweep);
+    } else {
+      return await executeSweep(prismaClient as Prisma.TransactionClient);
+    }
+  }
+
+  /**
    * Evaluates settlement eligibility and generates Buyer Settlement Batches.
    * Partitions by (buyer_id, currency) for eligible calls within [period_start, period_end).
    */
@@ -175,7 +245,11 @@ export class SettlementBatchService {
       }
     }
 
-    // 2. Query commercially finalized records matching criteria
+    // 2. JIT finalization sweep (AD-02 secondary guard):
+    // Atomically transition matured, undisputed PENDING records in this workspace to FINAL
+    await this.sweepMaturedPendingToFinal(this.prisma, workspace_id, now);
+
+    // Query commercially finalized records matching criteria
     // Period condition: period_start <= finalizes_at < period_end
     // Maturity condition: finalizes_at <= NOW()
     const candidates = await this.prisma.callCommercial.findMany({
@@ -468,7 +542,11 @@ export class SettlementBatchService {
       }
     }
 
-    // 2. Query commercially finalized records matching criteria
+    // 2. JIT finalization sweep (AD-02 secondary guard):
+    // Atomically transition matured, undisputed PENDING records in this workspace to FINAL
+    await this.sweepMaturedPendingToFinal(this.prisma, workspace_id, now);
+
+    // Query commercially finalized records matching criteria
     // Period condition: period_start <= finalizes_at < period_end
     // Maturity condition: finalizes_at <= NOW()
     const candidates = await this.prisma.callCommercial.findMany({
