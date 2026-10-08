@@ -16,10 +16,12 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { PermissionsGuard } from '../authorization/permissions.guard.js';
 import { RequirePermission } from '../authorization/permissions.decorator.js';
+import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
+import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SettlementBatchService } from './settlement-batch.service.js';
 import { GenerateSettlementBatchDto, ListSettlementBatchesDto } from './dto/index.js';
-import { SettlementParticipantType } from '@prisma/client';
+import { SettlementParticipantType, WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/settlements')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -51,14 +53,22 @@ export class SettlementController {
 
   /**
    * Financial sanitization for settlement batch records.
+   * Ensures Buyer never receives vendor economics (payout, cost, profit, vendor_id).
+   * Ensures Vendor never receives buyer economics (revenue, cost, profit, buyer_id).
    */
   private sanitizeBatch(batch: any, participantType: string): any {
     if (!batch) return batch;
     const sanitized = { ...batch };
     if (participantType === 'BUYER') {
       delete sanitized.vendor_id;
+      delete sanitized.payout;
+      delete sanitized.cost;
+      delete sanitized.profit;
     } else if (participantType === 'VENDOR') {
       delete sanitized.buyer_id;
+      delete sanitized.revenue;
+      delete sanitized.cost;
+      delete sanitized.profit;
     }
     return sanitized;
   }
@@ -101,9 +111,11 @@ export class SettlementController {
   /**
    * POST /workspaces/:workspaceId/settlements/batches/generate
    * Generates settlement batches for a given period.
-   * Requires settlement:generate permission (OWNER-only baseline).
+   * Requires settlement:generate permission AND authenticated workspace role == OWNER.
    */
   @Post('batches/generate')
+  @UseGuards(WorkspaceRolesGuard)
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER)
   @RequirePermission('settlement:generate')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async generateBatch(
@@ -111,7 +123,10 @@ export class SettlementController {
     @Request() req: any,
     @Body() dto: GenerateSettlementBatchDto,
   ) {
-    await this.getMemberContext(workspaceId, req.user.userId);
+    const member = await this.getMemberContext(workspaceId, req.user.userId);
+    if (member.role !== WorkspaceRole.OWNER) {
+      throw new ForbiddenException('Only workspace owners can generate settlement batches');
+    }
 
     const start = new Date(dto.period_start);
     const end = new Date(dto.period_end);

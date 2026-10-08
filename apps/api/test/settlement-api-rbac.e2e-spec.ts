@@ -47,6 +47,7 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
   let adminUserId: string;
   let adminWithGenUserId: string;
   let memberNoPermUserId: string;
+  let memberWithGenUserId: string;
   let buyerAUserId: string;
   let buyerBUserId: string;
   let vendorAUserId: string;
@@ -129,6 +130,7 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
     adminUserId = `u_admin_${suffix}`;
     adminWithGenUserId = `u_admingen_${suffix}`;
     memberNoPermUserId = `u_noperm_${suffix}`;
+    memberWithGenUserId = `u_memgen_${suffix}`;
     buyerAUserId = `u_buyerA_${suffix}`;
     buyerBUserId = `u_buyerB_${suffix}`;
     vendorAUserId = `u_vendorA_${suffix}`;
@@ -139,6 +141,7 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       adminUserId,
       adminWithGenUserId,
       memberNoPermUserId,
+      memberWithGenUserId,
       buyerAUserId,
       buyerBUserId,
       vendorAUserId,
@@ -175,6 +178,19 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
 
     await prisma.workspaceMember.create({
       data: { workspace_id: ws1Id, user_id: memberNoPermUserId, role: 'MEMBER', participant_type: 'INTERNAL' },
+    });
+
+    const memGen = await prisma.workspaceMember.create({
+      data: { workspace_id: ws1Id, user_id: memberWithGenUserId, role: 'MEMBER', participant_type: 'INTERNAL' },
+    });
+    // Grant explicit settlement:generate to memberWithGenUserId
+    await prisma.workspaceMemberPermission.create({
+      data: {
+        workspace_id: ws1Id,
+        workspace_member_id: memGen.id,
+        permission_id: permSettleGen!.id,
+        scope_type: 'ALL',
+      },
     });
 
     // Buyer A Member
@@ -601,7 +617,7 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       expect(res.status).toBe(403);
     });
 
-    it('3.4 Admin WITH explicit settlement:generate can generate batches', async () => {
+    it('3.4 Admin WITH explicit settlement:generate is still rejected because settlement generation is OWNER-only', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${ws1Id}/settlements/batches/generate`)
         .set('Authorization', `Bearer ${adminWithGenUserId}`)
@@ -611,9 +627,20 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
           period_end: '2026-08-02T00:00:00.000Z',
         });
 
-      expect(res.status).toBe(201);
-      expect(res.body.participant_type).toBe('VENDOR');
-      expect(Array.isArray(res.body.batches)).toBe(true);
+      expect(res.status).toBe(403);
+    });
+
+    it('3.4b Member WITH explicit settlement:generate is still rejected because settlement generation is OWNER-only', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/workspaces/${ws1Id}/settlements/batches/generate`)
+        .set('Authorization', `Bearer ${memberWithGenUserId}`)
+        .send({
+          participant_type: 'BUYER',
+          period_start: '2026-08-01T00:00:00.000Z',
+          period_end: '2026-08-02T00:00:00.000Z',
+        });
+
+      expect(res.status).toBe(403);
     });
 
     it('3.5 Rejects invalid period range where period_start >= period_end (400 Bad Request)', async () => {
@@ -686,7 +713,7 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       expect(batchIds).toContain(vendorBatchAId);
     });
 
-    it('4.3 Buyer is automatically scoped to their own buyer batches', async () => {
+    it('4.3 Buyer is automatically scoped to their own buyer batches with financial sanitization', async () => {
       const res = await request(app.getHttpServer())
         .get(`/workspaces/${ws1Id}/settlements/batches`)
         .set('Authorization', `Bearer ${buyerAUserId}`);
@@ -696,8 +723,11 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       for (const batch of res.body.batches) {
         expect(batch.participant_type).toBe('BUYER');
         expect(batch.buyer_id).toBe(buyerAId);
-        // Financial sanitization: never sees vendor_id
+        // Financial sanitization: never sees vendor economics
         expect(batch.vendor_id).toBeUndefined();
+        expect(batch.payout).toBeUndefined();
+        expect(batch.cost).toBeUndefined();
+        expect(batch.profit).toBeUndefined();
       }
     });
 
@@ -719,7 +749,7 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       expect(res.body.message).toMatch(/Buyer can only access batches for their own account/i);
     });
 
-    it('4.6 Vendor is automatically scoped to their own vendor batches', async () => {
+    it('4.6 Vendor is automatically scoped to their own vendor batches with financial sanitization', async () => {
       const res = await request(app.getHttpServer())
         .get(`/workspaces/${ws1Id}/settlements/batches`)
         .set('Authorization', `Bearer ${vendorAUserId}`);
@@ -729,8 +759,11 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       for (const batch of res.body.batches) {
         expect(batch.participant_type).toBe('VENDOR');
         expect(batch.vendor_id).toBe(vendorAId);
-        // Financial sanitization: never sees buyer_id
+        // Financial sanitization: never sees buyer economics
         expect(batch.buyer_id).toBeUndefined();
+        expect(batch.revenue).toBeUndefined();
+        expect(batch.cost).toBeUndefined();
+        expect(batch.profit).toBeUndefined();
       }
     });
 
@@ -776,7 +809,7 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       expect(res.status).toBe(404);
     });
 
-    it('5.3 Buyer can access their own batch with sanitization (no vendor_id)', async () => {
+    it('5.3 Buyer can access their own batch with sanitization (no vendor_id or vendor economics)', async () => {
       const res = await request(app.getHttpServer())
         .get(`/workspaces/${ws1Id}/settlements/batches/${buyerBatchAId}`)
         .set('Authorization', `Bearer ${buyerAUserId}`);
@@ -785,6 +818,9 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       expect(res.body.id).toBe(buyerBatchAId);
       expect(res.body.buyer_id).toBe(buyerAId);
       expect(res.body.vendor_id).toBeUndefined();
+      expect(res.body.payout).toBeUndefined();
+      expect(res.body.cost).toBeUndefined();
+      expect(res.body.profit).toBeUndefined();
     });
 
     it('5.4 Buyer attempting to access another buyer batch gets 403 Forbidden', async () => {
@@ -805,7 +841,7 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       expect(res.body.message).toMatch(/Access denied to this settlement batch/i);
     });
 
-    it('5.6 Vendor can access their own batch with sanitization (no buyer_id)', async () => {
+    it('5.6 Vendor can access their own batch with sanitization (no buyer_id or buyer economics)', async () => {
       const res = await request(app.getHttpServer())
         .get(`/workspaces/${ws1Id}/settlements/batches/${vendorBatchAId}`)
         .set('Authorization', `Bearer ${vendorAUserId}`);
@@ -814,6 +850,9 @@ describe('COMM-INTEGRATION-2: RBAC & Settlement API Integration (e2e)', () => {
       expect(res.body.id).toBe(vendorBatchAId);
       expect(res.body.vendor_id).toBe(vendorAId);
       expect(res.body.buyer_id).toBeUndefined();
+      expect(res.body.revenue).toBeUndefined();
+      expect(res.body.cost).toBeUndefined();
+      expect(res.body.profit).toBeUndefined();
     });
 
     it('5.7 Vendor attempting to access buyer batch gets 403 Forbidden', async () => {
