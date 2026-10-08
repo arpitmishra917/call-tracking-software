@@ -929,4 +929,218 @@ describe('COMM-14 Settlement Eligibility & Batch Generation E2E', () => {
     expect(runCount).toBe(0);
     expect(issueCount).toBe(0);
   });
+
+  // ==========================================
+  // COMM-14B: PERIOD INPUT CONTRACT & BOUNDARY TESTS
+  // ==========================================
+
+  it('COMM-14B.1 & 8. rejects invalid period (period_start >= period_end)', async () => {
+    const pStart = new Date('2026-10-08T00:00:00Z');
+    const pEnd = new Date('2026-10-01T00:00:00Z');
+
+    await expect(
+      settlementService.generateBuyerSettlement({
+        workspace_id: workspaceA,
+        period_start: pStart,
+        period_end: pEnd,
+        buyer_id: buyerA,
+      }),
+    ).rejects.toThrow('period_start must be strictly before period_end');
+
+    // Equal timestamps also rejected
+    await expect(
+      settlementService.generateBuyerSettlement({
+        workspace_id: workspaceA,
+        period_start: pStart,
+        period_end: pStart,
+        buyer_id: buyerA,
+      }),
+    ).rejects.toThrow('period_start must be strictly before period_end');
+  });
+
+  it('COMM-14B.9 & 10. rejects missing period_start or missing period_end', async () => {
+    const validDate = new Date('2026-10-01T00:00:00Z');
+
+    await expect(
+      settlementService.generateBuyerSettlement({
+        workspace_id: workspaceA,
+        period_start: null as any,
+        period_end: validDate,
+        buyer_id: buyerA,
+      }),
+    ).rejects.toThrow('period_start and period_end are required');
+
+    await expect(
+      settlementService.generateBuyerSettlement({
+        workspace_id: workspaceA,
+        period_start: validDate,
+        period_end: null as any,
+        buyer_id: buyerA,
+      }),
+    ).rejects.toThrow('period_start and period_end are required');
+  });
+
+  it('COMM-14B.2, 3, 4, 5, 6, 11. exact boundary semantics: [period_start, period_end) preserved without alteration', async () => {
+    const pStart = new Date('2026-10-01T00:00:00.000Z');
+    const pEnd = new Date('2026-10-08T00:00:00.000Z');
+
+    // 1 millisecond before period_start -> EXCLUDED
+    await createCallCommercial({
+      finalizesAt: new Date(pStart.getTime() - 1),
+      revenue: '11.0000',
+    });
+
+    // Exactly at period_start -> INCLUDED
+    await createCallCommercial({
+      finalizesAt: pStart,
+      revenue: '22.0000',
+    });
+
+    // 1 millisecond before period_end -> INCLUDED
+    await createCallCommercial({
+      finalizesAt: new Date(pEnd.getTime() - 1),
+      revenue: '33.0000',
+    });
+
+    // Exactly at period_end -> EXCLUDED
+    await createCallCommercial({
+      finalizesAt: pEnd,
+      revenue: '44.0000',
+    });
+
+    // 1 millisecond after period_end -> EXCLUDED
+    await createCallCommercial({
+      finalizesAt: new Date(pEnd.getTime() + 1),
+      revenue: '55.0000',
+    });
+
+    const res = await settlementService.generateBuyerSettlement({
+      workspace_id: workspaceA,
+      period_start: pStart,
+      period_end: pEnd,
+      buyer_id: buyerA,
+    });
+
+    expect(res.batches.length).toBe(1);
+    const batch = res.batches[0];
+
+    // Included: 22.0000 + 33.0000 = 55
+    expect(batch.gross_amount).toBe('55');
+    expect(batch.item_count).toBe(2);
+
+    // Persisted boundaries match input exactly (not altered or defaulted)
+    expect(batch.period_start.toISOString()).toBe(pStart.toISOString());
+    expect(batch.period_end.toISOString()).toBe(pEnd.toISOString());
+
+    // Verify DB persisted batch record directly
+    const persisted = await prisma.settlementBatch.findUnique({
+      where: { id: batch.batch_id },
+    });
+    expect(persisted?.period_start.toISOString()).toBe(pStart.toISOString());
+    expect(persisted?.period_end.toISOString()).toBe(pEnd.toISOString());
+  });
+
+  it('COMM-14B.7. future finalizes_at excluded even if within requested period', async () => {
+    const now = new Date();
+    const pStart = new Date(now.getTime() - 86400 * 1000);
+    const pEnd = new Date(now.getTime() + 86400 * 1000); // requested period extends into future
+    const futureFinalizesAt = new Date(now.getTime() + 3600 * 1000); // 1 hour in future (inside period, but unmatured)
+
+    await createCallCommercial({
+      finalizesAt: futureFinalizesAt,
+      revenue: '99.0000',
+    });
+
+    const res = await settlementService.generateBuyerSettlement({
+      workspace_id: workspaceA,
+      period_start: pStart,
+      period_end: pEnd,
+      buyer_id: buyerA,
+    });
+
+    expect(res.batches.length).toBe(0);
+  });
+
+  it('COMM-14B.13. different settlement periods produce distinct logical settlement batches', async () => {
+    const pStart1 = new Date('2026-09-01T00:00:00Z');
+    const pEnd1 = new Date('2026-09-08T00:00:00Z');
+
+    const pStart2 = new Date('2026-09-08T00:00:00Z');
+    const pEnd2 = new Date('2026-09-15T00:00:00Z');
+
+    await createCallCommercial({
+      finalizesAt: new Date('2026-09-04T12:00:00Z'),
+      revenue: '100.0000',
+    });
+    await createCallCommercial({
+      finalizesAt: new Date('2026-09-11T12:00:00Z'),
+      revenue: '200.0000',
+    });
+
+    const res1 = await settlementService.generateBuyerSettlement({
+      workspace_id: workspaceA,
+      period_start: pStart1,
+      period_end: pEnd1,
+      buyer_id: buyerA,
+    });
+    const res2 = await settlementService.generateBuyerSettlement({
+      workspace_id: workspaceA,
+      period_start: pStart2,
+      period_end: pEnd2,
+      buyer_id: buyerA,
+    });
+
+    expect(res1.batches.length).toBe(1);
+    expect(res2.batches.length).toBe(1);
+    expect(res1.batches[0].batch_id).not.toBe(res2.batches[0].batch_id);
+    expect(res1.batches[0].batch_number).not.toBe(res2.batches[0].batch_number);
+    expect(res1.batches[0].gross_amount).toBe('100');
+    expect(res2.batches[0].gross_amount).toBe('200');
+  });
+
+  it('COMM-14B.16. Buyer and Vendor can be generated using independent explicit periods', async () => {
+    // Asymmetric periods: Buyer weekly (e.g. Sep 1 - Sep 8), Vendor bi-weekly (e.g. Sep 1 - Sep 15)
+    const buyerPStart = new Date('2026-09-01T00:00:00Z');
+    const buyerPEnd = new Date('2026-09-08T00:00:00Z');
+
+    const vendorPStart = new Date('2026-09-01T00:00:00Z');
+    const vendorPEnd = new Date('2026-09-15T00:00:00Z');
+
+    // Call 1: finalized Sep 4 (falls in both buyer and vendor periods)
+    await createCallCommercial({
+      finalizesAt: new Date('2026-09-04T12:00:00Z'),
+      revenue: '100.0000',
+      payout: '60.0000',
+    });
+
+    // Call 2: finalized Sep 10 (falls outside buyer period, but inside vendor period)
+    await createCallCommercial({
+      finalizesAt: new Date('2026-09-10T12:00:00Z'),
+      revenue: '150.0000',
+      payout: '90.0000',
+    });
+
+    const buyerRes = await settlementService.generateBuyerSettlement({
+      workspace_id: workspaceA,
+      period_start: buyerPStart,
+      period_end: buyerPEnd,
+      buyer_id: buyerA,
+    });
+
+    const vendorRes = await settlementService.generateVendorSettlement({
+      workspace_id: workspaceA,
+      period_start: vendorPStart,
+      period_end: vendorPEnd,
+      vendor_id: vendorA,
+    });
+
+    expect(buyerRes.batches.length).toBe(1);
+    expect(buyerRes.batches[0].gross_amount).toBe('100'); // only Call 1
+    expect(buyerRes.batches[0].item_count).toBe(1);
+
+    expect(vendorRes.batches.length).toBe(1);
+    expect(vendorRes.batches[0].gross_amount).toBe('150'); // Call 1 (60) + Call 2 (90)
+    expect(vendorRes.batches[0].item_count).toBe(2);
+  });
 });
+
