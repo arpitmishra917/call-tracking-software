@@ -16,7 +16,8 @@ import {
   CreditCard,
   Settings,
   Users2,
-  Scale
+  Scale,
+  Receipt
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -56,7 +57,10 @@ export default function Sidebar({
           <NavItem href="/protected/calls" icon={PhoneCall} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Calls</NavItem>
           <NavItem href="/protected/reporting" icon={BarChart} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Reporting</NavItem>
           {role !== 'VIEWER' && (
-            <NavItem href="/protected/disputes" icon={Scale} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Disputes</NavItem>
+            <>
+              <NavItem href="/protected/disputes" icon={Scale} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Disputes</NavItem>
+              <NavItem href="/protected/settlements" icon={Receipt} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Settlements</NavItem>
+            </>
           )}
         </NavGroup>
 
