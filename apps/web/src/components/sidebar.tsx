@@ -17,14 +17,16 @@ import {
   Settings,
   Users2,
   Scale,
-  Receipt
+  Receipt,
+  BadgeDollarSign,
+  FileCheck2
 } from 'lucide-react';
 
 export default function Sidebar({
   workspaces,
   onNavClick
 }: {
-  workspaces: { id: string; name: string; role: string; participant_type?: string }[];
+  workspaces: { id: string; name: string; role: string; participant_type?: string; permissions?: string[] }[];
   onNavClick?: () => void;
 }) {
   const searchParams = useSearchParams();
@@ -39,6 +41,17 @@ export default function Sidebar({
 
   const isOwnerOrAdmin = role === 'OWNER' || role === 'ADMIN';
   const isVendor = (currentWorkspace as any)?.participant_type === 'VENDOR';
+  const isBuyer = (currentWorkspace as any)?.participant_type === 'BUYER';
+  const isParticipant = isVendor || isBuyer;
+
+  // Payments & Reconciliation RBAC:
+  // OWNER & ADMIN: visible (unless buyer/vendor participant)
+  // MEMBER: only if explicitly authorized via permissions array
+  // BUYER & VENDOR: strictly hidden
+  // VIEWER: strictly hidden
+  const permissions: string[] = (currentWorkspace as any)?.permissions || [];
+  const canViewPayments = !isParticipant && role !== 'VIEWER' && (isOwnerOrAdmin || (role === 'MEMBER' && permissions.includes('payment:read')));
+  const canViewReconciliation = !isParticipant && role !== 'VIEWER' && (isOwnerOrAdmin || (role === 'MEMBER' && permissions.includes('reconciliation:read')));
 
   const getUrl = (path: string) => {
     return `${path}${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`;
@@ -62,6 +75,12 @@ export default function Sidebar({
           )}
           {role !== 'VIEWER' && (
             <NavItem href="/protected/settlements" icon={Receipt} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Settlements</NavItem>
+          )}
+          {canViewPayments && (
+            <NavItem href="/protected/payments" icon={BadgeDollarSign} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Payments</NavItem>
+          )}
+          {canViewReconciliation && (
+            <NavItem href="/protected/reconciliation" icon={FileCheck2} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Reconciliation</NavItem>
           )}
         </NavGroup>
 
@@ -135,4 +154,3 @@ const NavGroup = ({ title, children }: { title: string, children: React.ReactNod
     </div>
   </div>
 );
-
