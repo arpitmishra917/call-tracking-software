@@ -1,0 +1,362 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { ReconciliationService } from './reconciliation.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import {
+  SettlementStatus,
+  PaymentStatus,
+  ReconciliationStatus,
+  ReconciliationRunType,
+  ReconciliationIssueType,
+  ExecutionStatus,
+  SettlementParticipantType,
+  Prisma,
+} from '@prisma/client';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+describe('ReconciliationService Unit Tests', () => {
+  let service: ReconciliationService;
+  let prisma: PrismaService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReconciliationService,
+        {
+          provide: PrismaService,
+          useValue: {
+            $transaction: vi.fn(async (cb) => cb(prisma)),
+            settlementBatch: {
+              findFirst: vi.fn(),
+              findMany: vi.fn(),
+              update: vi.fn(),
+            },
+            settlementItem: {
+              findMany: vi.fn(),
+            },
+            reconciliationRun: {
+              create: vi.fn(),
+              findMany: vi.fn(),
+              findFirst: vi.fn(),
+            },
+            reconciliationIssue: {
+              findMany: vi.fn(),
+            },
+          },
+        },
+      ],
+    }).compile();
+
+    service = module.get<ReconciliationService>(ReconciliationService);
+    prisma = module.get<PrismaService>(PrismaService);
+  });
+
+  describe('runBatchReconciliation', () => {
+    it('1. clean closed batch with successful payment reconciles with zero discrepancies', async () => {
+      const mockBatch: any = {
+        id: 'batch-clean',
+        batch_number: 'SB-001',
+        workspace_id: 'ws-1',
+        settlement_status: SettlementStatus.CLOSED,
+        payment_status: PaymentStatus.SUCCEEDED,
+        currency: 'USD',
+        gross_amount: new Prisma.Decimal('100.0000'),
+        adjustments_amount: new Prisma.Decimal('0.0000'),
+        net_amount: new Prisma.Decimal('100.0000'),
+        participant_type: SettlementParticipantType.BUYER,
+        items: [
+          {
+            id: 'item-1',
+            call_commercial_id: 'comm-1',
+            amount: new Prisma.Decimal('100.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.BUYER,
+          },
+        ],
+        adjustments: [],
+        payment_instruction: {
+          currency: 'USD',
+          executions: [
+            {
+              id: 'exec-1',
+              status: ExecutionStatus.SUCCEEDED,
+              amount: new Prisma.Decimal('100.0000'),
+              currency: 'USD',
+            },
+          ],
+        },
+      };
+
+      vi.spyOn(prisma.settlementBatch, 'findFirst').mockResolvedValue(mockBatch);
+      vi.spyOn(prisma.settlementItem, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
+        id: 'run-clean',
+        status: ReconciliationStatus.RECONCILED,
+        discrepancy_count: 0,
+        items_checked: 1,
+        issues: [],
+      } as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      const result = await service.runBatchReconciliation('ws-1', 'batch-clean');
+
+      expect(prisma.reconciliationRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReconciliationStatus.RECONCILED,
+            discrepancy_count: 0,
+            items_checked: 1,
+          }),
+        }),
+      );
+      expect(prisma.settlementBatch.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'batch-clean' },
+          data: { reconciliation_status: ReconciliationStatus.RECONCILED },
+        }),
+      );
+    });
+
+    it('2. detects SUM_MISMATCH when items sum does not equal net_amount', async () => {
+      const mockBatch: any = {
+        id: 'batch-mismatch',
+        batch_number: 'SB-002',
+        workspace_id: 'ws-1',
+        settlement_status: SettlementStatus.CLOSED,
+        payment_status: PaymentStatus.SUCCEEDED,
+        currency: 'USD',
+        gross_amount: new Prisma.Decimal('150.0000'),
+        adjustments_amount: new Prisma.Decimal('0.0000'),
+        net_amount: new Prisma.Decimal('150.0000'),
+        participant_type: SettlementParticipantType.BUYER,
+        items: [
+          {
+            id: 'item-1',
+            call_commercial_id: 'comm-1',
+            amount: new Prisma.Decimal('100.0000'), // Sum is 100 != 150
+            currency: 'USD',
+            participant_type: SettlementParticipantType.BUYER,
+          },
+        ],
+        adjustments: [],
+        payment_instruction: {
+          currency: 'USD',
+          executions: [
+            {
+              id: 'exec-1',
+              status: ExecutionStatus.SUCCEEDED,
+              amount: new Prisma.Decimal('150.0000'),
+              currency: 'USD',
+            },
+          ],
+        },
+      };
+
+      vi.spyOn(prisma.settlementBatch, 'findFirst').mockResolvedValue(mockBatch);
+      vi.spyOn(prisma.settlementItem, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
+        id: 'run-mismatch',
+        status: ReconciliationStatus.DISCREPANCY,
+        discrepancy_count: 1,
+      } as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      await service.runBatchReconciliation('ws-1', 'batch-mismatch');
+
+      expect(prisma.reconciliationRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReconciliationStatus.DISCREPANCY,
+            discrepancy_count: 1,
+            issues: {
+              create: [
+                expect.objectContaining({
+                  issue_type: ReconciliationIssueType.SUM_MISMATCH,
+                }),
+              ],
+            },
+          }),
+        }),
+      );
+    });
+
+    it('3. detects CURRENCY_MISMATCH when item currency differs from batch currency', async () => {
+      const mockBatch: any = {
+        id: 'batch-curr-mismatch',
+        batch_number: 'SB-003',
+        workspace_id: 'ws-1',
+        settlement_status: SettlementStatus.CLOSED,
+        payment_status: PaymentStatus.SUCCEEDED,
+        currency: 'USD',
+        gross_amount: new Prisma.Decimal('100.0000'),
+        adjustments_amount: new Prisma.Decimal('0.0000'),
+        net_amount: new Prisma.Decimal('100.0000'),
+        participant_type: SettlementParticipantType.BUYER,
+        items: [
+          {
+            id: 'item-1',
+            call_commercial_id: 'comm-1',
+            amount: new Prisma.Decimal('100.0000'),
+            currency: 'EUR', // Mismatch!
+            participant_type: SettlementParticipantType.BUYER,
+          },
+        ],
+        adjustments: [],
+        payment_instruction: {
+          currency: 'USD',
+          executions: [
+            {
+              id: 'exec-1',
+              status: ExecutionStatus.SUCCEEDED,
+              amount: new Prisma.Decimal('100.0000'),
+              currency: 'USD',
+            },
+          ],
+        },
+      };
+
+      vi.spyOn(prisma.settlementBatch, 'findFirst').mockResolvedValue(mockBatch);
+      vi.spyOn(prisma.settlementItem, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
+        id: 'run-curr',
+        status: ReconciliationStatus.DISCREPANCY,
+      } as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      await service.runBatchReconciliation('ws-1', 'batch-curr-mismatch');
+
+      expect(prisma.reconciliationRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReconciliationStatus.DISCREPANCY,
+            issues: {
+              create: expect.arrayContaining([
+                expect.objectContaining({
+                  issue_type: ReconciliationIssueType.CURRENCY_MISMATCH,
+                }),
+              ]),
+            },
+          }),
+        }),
+      );
+    });
+
+    it('4. detects MISSING_PAYMENT when finalized batch lacks successful payment', async () => {
+      const mockBatch: any = {
+        id: 'batch-missing-pay',
+        batch_number: 'SB-004',
+        workspace_id: 'ws-1',
+        settlement_status: SettlementStatus.FINALIZED,
+        payment_status: PaymentStatus.UNPROCESSED,
+        currency: 'USD',
+        gross_amount: new Prisma.Decimal('200.0000'),
+        adjustments_amount: new Prisma.Decimal('0.0000'),
+        net_amount: new Prisma.Decimal('200.0000'),
+        participant_type: SettlementParticipantType.BUYER,
+        items: [
+          {
+            id: 'item-1',
+            call_commercial_id: 'comm-1',
+            amount: new Prisma.Decimal('200.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.BUYER,
+          },
+        ],
+        adjustments: [],
+        payment_instruction: null, // Missing payment!
+      };
+
+      vi.spyOn(prisma.settlementBatch, 'findFirst').mockResolvedValue(mockBatch);
+      vi.spyOn(prisma.settlementItem, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
+        id: 'run-missing',
+        status: ReconciliationStatus.DISCREPANCY,
+      } as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      await service.runBatchReconciliation('ws-1', 'batch-missing-pay');
+
+      expect(prisma.reconciliationRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReconciliationStatus.DISCREPANCY,
+            issues: {
+              create: expect.arrayContaining([
+                expect.objectContaining({
+                  issue_type: ReconciliationIssueType.MISSING_PAYMENT,
+                }),
+              ]),
+            },
+          }),
+        }),
+      );
+    });
+
+    it('5. detects DUPLICATE_CALL when item is settled across batches', async () => {
+      const mockBatch: any = {
+        id: 'batch-dup',
+        batch_number: 'SB-005',
+        workspace_id: 'ws-1',
+        settlement_status: SettlementStatus.CLOSED,
+        payment_status: PaymentStatus.SUCCEEDED,
+        currency: 'USD',
+        gross_amount: new Prisma.Decimal('100.0000'),
+        adjustments_amount: new Prisma.Decimal('0.0000'),
+        net_amount: new Prisma.Decimal('100.0000'),
+        participant_type: SettlementParticipantType.BUYER,
+        items: [
+          {
+            id: 'item-1',
+            call_commercial_id: 'comm-dup-1',
+            amount: new Prisma.Decimal('100.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.BUYER,
+          },
+        ],
+        adjustments: [],
+        payment_instruction: {
+          currency: 'USD',
+          executions: [
+            {
+              id: 'exec-1',
+              status: ExecutionStatus.SUCCEEDED,
+              amount: new Prisma.Decimal('100.0000'),
+              currency: 'USD',
+            },
+          ],
+        },
+      };
+
+      vi.spyOn(prisma.settlementBatch, 'findFirst').mockResolvedValue(mockBatch);
+      vi.spyOn(prisma.settlementItem, 'findMany').mockResolvedValue([
+        {
+          id: 'item-other',
+          call_commercial_id: 'comm-dup-1',
+          settlement_batch_id: 'batch-previous',
+        } as any,
+      ]);
+      vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
+        id: 'run-dup',
+        status: ReconciliationStatus.DISCREPANCY,
+      } as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      await service.runBatchReconciliation('ws-1', 'batch-dup');
+
+      expect(prisma.reconciliationRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReconciliationStatus.DISCREPANCY,
+            issues: {
+              create: expect.arrayContaining([
+                expect.objectContaining({
+                  issue_type: ReconciliationIssueType.DUPLICATE_CALL,
+                  call_commercial_id: 'comm-dup-1',
+                }),
+              ]),
+            },
+          }),
+        }),
+      );
+    });
+  });
+});
