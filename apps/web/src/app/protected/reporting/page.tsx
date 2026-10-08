@@ -35,7 +35,7 @@ function formatPercent(value: number): string {
 }
 
 function formatCurrency(amount: number | null | undefined, currency: string = 'USD'): string {
-  if (amount === null || amount === undefined || isNaN(amount)) return '$0.00';
+  if (amount === null || amount === undefined || isNaN(amount)) return '—';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency || 'USD',
@@ -89,7 +89,22 @@ export interface LiveCallsResponse {
 }
 
 
-type ColumnId = 'time' | 'caller' | 'trackingNumber' | 'campaign' | 'finalDestination' | 'status' | 'talkDuration' | 'totalDuration' | 'attempts' | 'recording' | 'actions';
+type ColumnId = 
+  | 'time' 
+  | 'caller' 
+  | 'trackingNumber' 
+  | 'campaign' 
+  | 'finalDestination' 
+  | 'status' 
+  | 'talkDuration' 
+  | 'totalDuration' 
+  | 'revenue'
+  | 'payout'
+  | 'profit'
+  | 'commercial'
+  | 'attempts' 
+  | 'recording' 
+  | 'actions';
 
 interface ColumnDef {
   id: ColumnId;
@@ -108,9 +123,13 @@ const DEFAULT_COLUMNS: ColumnDef[] = [
   { id: 'status', label: 'Status', visible: true, order: 5 },
   { id: 'talkDuration', label: 'Talk Duration', visible: true, order: 6 },
   { id: 'totalDuration', label: 'Total Duration', visible: true, order: 7 },
-  { id: 'attempts', label: 'Attempts', visible: true, order: 8 },
-  { id: 'recording', label: 'Recording', visible: true, order: 9 },
-  { id: 'actions', label: 'Actions', visible: true, order: 10, locked: true },
+  { id: 'revenue', label: 'Revenue', visible: true, order: 8 },
+  { id: 'payout', label: 'Payout', visible: true, order: 9 },
+  { id: 'profit', label: 'Profit', visible: true, order: 10 },
+  { id: 'commercial', label: 'Commercial', visible: true, order: 11 },
+  { id: 'attempts', label: 'Attempts', visible: true, order: 12 },
+  { id: 'recording', label: 'Recording', visible: true, order: 13 },
+  { id: 'actions', label: 'Actions', visible: true, order: 14, locked: true },
 ];
 
 export default function ReportingDashboard() {
@@ -300,7 +319,31 @@ export default function ReportingDashboard() {
     saveColumns(newCols);
   };
 
-  const visibleColumns = columns.filter(c => c.visible);
+  const hasRevenue = metrics?.revenue !== undefined;
+  const hasPayout = metrics?.payout !== undefined;
+  const hasProfit = metrics?.profit !== undefined;
+  const hasCost = metrics?.cost !== undefined;
+  const isVendor = !hasRevenue && hasPayout && !hasProfit;
+
+  const allowedColumnIds = useMemo(() => {
+    const ids = new Set<ColumnId>([
+      'time', 'caller', 'trackingNumber', 'campaign', 'status', 
+      'talkDuration', 'totalDuration', 'commercial', 'attempts', 'recording', 'actions'
+    ]);
+    if (!isVendor) ids.add('finalDestination');
+    if (hasRevenue) ids.add('revenue');
+    if (hasPayout) ids.add('payout');
+    if (hasProfit) ids.add('profit');
+    return ids;
+  }, [hasRevenue, hasPayout, hasProfit, isVendor]);
+
+  const displayedColumns = useMemo(() => {
+    return columns.filter(c => allowedColumnIds.has(c.id));
+  }, [columns, allowedColumnIds]);
+
+  const visibleColumns = useMemo(() => {
+    return displayedColumns.filter(c => c.visible);
+  }, [displayedColumns]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -766,85 +809,103 @@ export default function ReportingDashboard() {
           </div>
 
           {/* Commercial Economics KPI Cards */}
-          <div className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Commercial Economics</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    <DollarSign className="h-4 w-4 text-emerald-600" />
-                    <span className="text-sm font-medium">Revenue</span>
-                  </div>
-                  <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.revenue, metrics.currency)}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    <DollarSign className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-medium">Payout</span>
-                  </div>
-                  <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.payout, metrics.currency)}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    <TrendingUp className={`h-4 w-4 ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`} />
-                    <span className="text-sm font-medium">Profit</span>
-                  </div>
-                  <div className={`text-2xl font-bold ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {formatCurrency(metrics.profit, metrics.currency)}
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    <DollarSign className="h-4 w-4 text-orange-500" />
-                    <span className="text-sm font-medium">Cost</span>
-                  </div>
-                  <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.cost, metrics.currency)}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    <CheckCircle className="h-4 w-4 text-emerald-600" />
-                    <span className="text-sm font-medium">Converted</span>
-                  </div>
-                  <div className="text-2xl font-bold text-foreground">{(metrics.converted ?? 0).toLocaleString()}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    <Percent className="h-4 w-4 text-indigo-500" />
-                    <span className="text-sm font-medium">Qualified</span>
-                  </div>
-                  <div className="text-2xl font-bold text-foreground">{(metrics.qualified ?? 0).toLocaleString()}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    <Copy className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Duplicate</span>
-                  </div>
-                  <div className="text-2xl font-bold text-foreground">{(metrics.duplicate ?? 0).toLocaleString()}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                    <Percent className="h-4 w-4 text-emerald-500" />
-                    <span className="text-sm font-medium">Conv. Rate</span>
-                  </div>
-                  <div className="text-2xl font-bold text-foreground">{formatPercent(metrics.conversionRate ?? 0)}</div>
-                </CardContent>
-              </Card>
+          {(hasRevenue || hasPayout || metrics.converted !== undefined) && (
+            <div className="space-y-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Commercial Economics</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+                {hasRevenue && (
+                  <Card data-testid="kpi-revenue">
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                        <DollarSign className="h-4 w-4 text-emerald-600" />
+                        <span className="text-sm font-medium">Revenue</span>
+                      </div>
+                      <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.revenue, metrics.currency)}</div>
+                    </CardContent>
+                  </Card>
+                )}
+                {hasPayout && (
+                  <Card data-testid="kpi-payout">
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                        <DollarSign className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-medium">Payout</span>
+                      </div>
+                      <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.payout, metrics.currency)}</div>
+                    </CardContent>
+                  </Card>
+                )}
+                {hasProfit && (
+                  <Card data-testid="kpi-profit">
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                        <TrendingUp className={`h-4 w-4 ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`} />
+                        <span className="text-sm font-medium">Profit</span>
+                      </div>
+                      <div className={`text-2xl font-bold ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {formatCurrency(metrics.profit, metrics.currency)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                {hasCost && (
+                  <Card data-testid="kpi-cost">
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                        <DollarSign className="h-4 w-4 text-orange-500" />
+                        <span className="text-sm font-medium">Cost</span>
+                      </div>
+                      <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.cost, metrics.currency)}</div>
+                    </CardContent>
+                  </Card>
+                )}
+                {metrics.converted !== undefined && (
+                  <Card data-testid="kpi-converted">
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                        <CheckCircle className="h-4 w-4 text-emerald-600" />
+                        <span className="text-sm font-medium">Converted</span>
+                      </div>
+                      <div className="text-2xl font-bold text-foreground">{(metrics.converted ?? 0).toLocaleString()}</div>
+                    </CardContent>
+                  </Card>
+                )}
+                {metrics.qualified !== undefined && (
+                  <Card data-testid="kpi-qualified">
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                        <Percent className="h-4 w-4 text-indigo-500" />
+                        <span className="text-sm font-medium">Qualified</span>
+                      </div>
+                      <div className="text-2xl font-bold text-foreground">{(metrics.qualified ?? 0).toLocaleString()}</div>
+                    </CardContent>
+                  </Card>
+                )}
+                {metrics.duplicate !== undefined && (
+                  <Card data-testid="kpi-duplicate">
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                        <Copy className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">Duplicate</span>
+                      </div>
+                      <div className="text-2xl font-bold text-foreground">{(metrics.duplicate ?? 0).toLocaleString()}</div>
+                    </CardContent>
+                  </Card>
+                )}
+                {metrics.conversionRate !== undefined && (
+                  <Card data-testid="kpi-conversion-rate">
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                        <Percent className="h-4 w-4 text-emerald-500" />
+                        <span className="text-sm font-medium">Conv. Rate</span>
+                      </div>
+                      <div className="text-2xl font-bold text-foreground">{formatPercent(metrics.conversionRate ?? 0)}</div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card className="col-span-1 lg:col-span-2 flex flex-col">
@@ -952,60 +1013,49 @@ export default function ReportingDashboard() {
                 <Table>
                   <TableHeader className="bg-muted/50 whitespace-nowrap">
                     <TableRow>
-                      {visibleColumns.map(col => (
-                        <TableHead 
-                          key={col.id} 
-                          className={col.id === 'actions' || col.id === 'talkDuration' || col.id === 'totalDuration' || col.id === 'attempts' ? 'text-right' : col.id === 'recording' ? 'text-center' : ''}
-                        >
-                          {col.label}
-                        </TableHead>
-                      ))}
+                      <TableHead>Campaign</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-right">Answered</TableHead>
+                      <TableHead className="text-right">ACL</TableHead>
+                      <TableHead className="text-right">TCL</TableHead>
+                      {hasRevenue && <TableHead className="text-right">Revenue</TableHead>}
+                      {hasPayout && <TableHead className="text-right">Payout</TableHead>}
+                      {hasCost && <TableHead className="text-right">Cost</TableHead>}
+                      {hasProfit && <TableHead className="text-right">Profit</TableHead>}
+                      <TableHead className="text-right">Converted</TableHead>
+                      <TableHead className="text-right">Qualified</TableHead>
+                      <TableHead className="text-right">Duplicate</TableHead>
+                      <TableHead className="text-right">Conv. Rate</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {calls.map((call: any) => {
-                      const answeredAttempt = call.attempts?.find((a: any) => a.state === 'COMPLETED' || a.state === 'ANSWERED' || a.state === 'CONNECTED');
-                      const finalDestination = call.buyer?.name || answeredAttempt?.buyer?.name || 'No successful destination';
-                      const recordingAvailable = call.recordings && call.recordings.length > 0;
-                      
-                      return (
-                        <TableRow key={call.id}>
-                          <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
-                            {new Date(call.created_at).toLocaleString()}
+                    {Object.values(metrics.campaigns as Record<string, any>).map((stats: any) => (
+                      <TableRow key={stats.id || stats.name}>
+                        <TableCell className="font-medium whitespace-nowrap">{stats.name || stats.id || 'Unknown Campaign'}</TableCell>
+                        <TableCell className="text-right">{stats.total.toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
+                        {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>}
+                        {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>}
+                        {hasCost && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>}
+                        {hasProfit && (
+                          <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {formatCurrency(stats.profit, metrics.currency)}
                           </TableCell>
-                          <TableCell className="font-mono text-xs">{call.from_number}</TableCell>
-                          <TableCell className="font-mono text-xs">{call.to_number}</TableCell>
-                          <TableCell className="text-xs whitespace-nowrap">{call.campaign?.name || '—'}</TableCell>
-                          <TableCell className="text-xs whitespace-nowrap">{finalDestination}</TableCell>
-                          <TableCell>
-                            <Badge variant={call.state === "COMPLETED" ? "success" : "warning"} className="text-[10px]">
-                              {call.state}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {call.talkDurationSecs != null ? formatDurationHms(call.talkDurationSecs) : '—'}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {call.totalDurationSecs != null ? formatDurationHms(call.totalDurationSecs) : '—'}
-                          </TableCell>
-                          <TableCell className="text-right text-xs">
-                            {call.attempts?.length || 0} attempts
-                          </TableCell>
-                          <TableCell className="text-center text-xs">
-                            {recordingAvailable ? 'Available' : '—'}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Link href={`/protected/calls/${call.id}?workspace=${workspaceId}&returnTo=reporting&${searchParams.toString()}`}><Button variant="outline" size="sm">View</Button></Link>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                        )}
+                        <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{stats.qualified != null ? stats.qualified.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{stats.duplicate != null ? stats.duplicate.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               ))}
 
-              {groupBy === 'Buyer' && (!metrics.buyers || Object.keys(metrics.buyers).length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground text-sm">No buyer data.</div>
+              {groupBy === 'Buyer' && (isVendor || !metrics.buyers || Object.keys(metrics.buyers).length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground text-sm">No buyer data available.</div>
               ) : (
                 <Table>
                   <TableHeader className="bg-muted/50 whitespace-nowrap">
@@ -1015,11 +1065,13 @@ export default function ReportingDashboard() {
                       <TableHead className="text-right">Answered</TableHead>
                       <TableHead className="text-right">Failed</TableHead>
                       <TableHead className="text-right">TCL</TableHead>
-                      <TableHead className="text-right">Revenue</TableHead>
-                      <TableHead className="text-right">Payout</TableHead>
-                      <TableHead className="text-right">Cost</TableHead>
-                      <TableHead className="text-right">Profit</TableHead>
+                      {hasRevenue && <TableHead className="text-right">Revenue</TableHead>}
+                      {hasPayout && <TableHead className="text-right">Payout</TableHead>}
+                      {hasCost && <TableHead className="text-right">Cost</TableHead>}
+                      {hasProfit && <TableHead className="text-right">Profit</TableHead>}
                       <TableHead className="text-right">Converted</TableHead>
+                      <TableHead className="text-right">Qualified</TableHead>
+                      <TableHead className="text-right">Duplicate</TableHead>
                       <TableHead className="text-right">Conv. Rate</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1031,13 +1083,17 @@ export default function ReportingDashboard() {
                         <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
                         <TableCell className="text-right">{stats.failed.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>
-                        <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                          {formatCurrency(stats.profit, metrics.currency)}
-                        </TableCell>
+                        {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>}
+                        {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>}
+                        {hasCost && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>}
+                        {hasProfit && (
+                          <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {formatCurrency(stats.profit, metrics.currency)}
+                          </TableCell>
+                        )}
                         <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{stats.qualified != null ? stats.qualified.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{stats.duplicate != null ? stats.duplicate.toLocaleString() : '—'}</TableCell>
                         <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
                       </TableRow>
                     ))}
@@ -1056,29 +1112,35 @@ export default function ReportingDashboard() {
                       <TableHead className="text-right">Answered</TableHead>
                       <TableHead className="text-right">ACL</TableHead>
                       <TableHead className="text-right">TCL</TableHead>
-                      <TableHead className="text-right">Revenue</TableHead>
-                      <TableHead className="text-right">Payout</TableHead>
-                      <TableHead className="text-right">Cost</TableHead>
-                      <TableHead className="text-right">Profit</TableHead>
+                      {hasRevenue && <TableHead className="text-right">Revenue</TableHead>}
+                      {hasPayout && <TableHead className="text-right">Payout</TableHead>}
+                      {hasCost && <TableHead className="text-right">Cost</TableHead>}
+                      {hasProfit && <TableHead className="text-right">Profit</TableHead>}
                       <TableHead className="text-right">Converted</TableHead>
+                      <TableHead className="text-right">Qualified</TableHead>
+                      <TableHead className="text-right">Duplicate</TableHead>
                       <TableHead className="text-right">Conv. Rate</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {Object.values(metrics.trackingNumbers as Record<string, any>).map((stats: any, index: number) => (
-                      <TableRow key={index}>
+                      <TableRow key={stats.id || stats.phone_number || index}>
                         <TableCell className="font-medium font-mono text-xs whitespace-nowrap">{stats.tracking_number || stats.phone_number || 'Unknown'}</TableCell>
                         <TableCell className="text-right">{stats.total.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>
-                        <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                          {formatCurrency(stats.profit, metrics.currency)}
-                        </TableCell>
+                        {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>}
+                        {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>}
+                        {hasCost && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>}
+                        {hasProfit && (
+                          <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {formatCurrency(stats.profit, metrics.currency)}
+                          </TableCell>
+                        )}
                         <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{stats.qualified != null ? stats.qualified.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{stats.duplicate != null ? stats.duplicate.toLocaleString() : '—'}</TableCell>
                         <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
                       </TableRow>
                     ))}
@@ -1132,38 +1194,41 @@ export default function ReportingDashboard() {
                       <Button variant="ghost" size="sm" onClick={resetColumns} className="h-6 px-2 text-xs">Reset</Button>
                     </div>
                     <div className="max-h-64 overflow-y-auto space-y-1">
-                      {columns.map((col, index) => (
-                        <div key={col.id} className="flex items-center justify-between py-1 px-2 hover:bg-muted/50 rounded-sm">
-                          <label className="flex items-center gap-2 cursor-pointer flex-1">
-                            <input 
-                              type="checkbox" 
-                              checked={col.visible} 
-                              disabled={col.locked}
-                              onChange={() => toggleColumn(index)} 
-                              className="rounded border-border text-primary focus:ring-primary"
-                            />
-                            <span className={`text-sm ${col.locked ? 'text-muted-foreground' : ''}`}>{col.label}</span>
-                          </label>
-                          <div className="flex flex-col gap-0.5 ml-2">
-                            <button 
-                              disabled={index === 0} 
-                              onClick={() => moveColumn(index, -1)}
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed h-4 w-4 flex items-center justify-center"
-                              aria-label={`Move ${col.label} up`}
-                            >
-                              <ChevronUp className="w-3 h-3" />
-                            </button>
-                            <button 
-                              disabled={index === columns.length - 1} 
-                              onClick={() => moveColumn(index, 1)}
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed h-4 w-4 flex items-center justify-center"
-                              aria-label={`Move ${col.label} down`}
-                            >
-                              <ChevronDown className="w-3 h-3" />
-                            </button>
+                      {displayedColumns.map((col, index) => {
+                        const originalIndex = columns.findIndex(c => c.id === col.id);
+                        return (
+                          <div key={col.id} className="flex items-center justify-between py-1 px-2 hover:bg-muted/50 rounded-sm">
+                            <label className="flex items-center gap-2 cursor-pointer flex-1">
+                              <input 
+                                type="checkbox" 
+                                checked={col.visible} 
+                                disabled={col.locked}
+                                onChange={() => toggleColumn(originalIndex)} 
+                                className="rounded border-border text-primary focus:ring-primary"
+                              />
+                              <span className={`text-sm ${col.locked ? 'text-muted-foreground' : ''}`}>{col.label}</span>
+                            </label>
+                            <div className="flex flex-col gap-0.5 ml-2">
+                              <button 
+                                disabled={index === 0} 
+                                onClick={() => moveColumn(originalIndex, -1)}
+                                className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed h-4 w-4 flex items-center justify-center"
+                                aria-label={`Move ${col.label} up`}
+                              >
+                                <ChevronUp className="w-3 h-3" />
+                              </button>
+                              <button 
+                                disabled={index === displayedColumns.length - 1} 
+                                onClick={() => moveColumn(originalIndex, 1)}
+                                className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed h-4 w-4 flex items-center justify-center"
+                                aria-label={`Move ${col.label} down`}
+                              >
+                                <ChevronDown className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -1176,31 +1241,140 @@ export default function ReportingDashboard() {
                 <Table>
                   <TableHeader className="bg-muted/50 whitespace-nowrap">
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Caller</TableHead>
-                      <TableHead>Tracking Number</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Duration</TableHead>
+                      {visibleColumns.map(col => (
+                        <TableHead 
+                          key={col.id} 
+                          className={col.id === 'actions' || col.id === 'talkDuration' || col.id === 'totalDuration' || col.id === 'revenue' || col.id === 'payout' || col.id === 'profit' || col.id === 'attempts' ? 'text-right' : col.id === 'recording' ? 'text-center' : ''}
+                        >
+                          {col.label}
+                        </TableHead>
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {calls.map((call: any) => (
-                      <TableRow key={call.id}>
-                        <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
-                          {new Date(call.created_at).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{call.from_number}</TableCell>
-                        <TableCell className="font-mono text-xs">{call.to_number}</TableCell>
-                        <TableCell>
-                          <Badge variant={call.state === "COMPLETED" ? "default" : "warning"} className="text-[10px]">
-                            {call.state}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {formatDurationHms(call.duration_secs)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {calls.map((call: any) => {
+                      const answeredAttempt = call.attempts?.find((a: any) => a.state === 'COMPLETED' || a.state === 'ANSWERED' || a.state === 'CONNECTED');
+                      const finalDestination = call.buyer?.name || answeredAttempt?.buyer?.name || 'No successful destination';
+                      const recordingAvailable = call.recordings && call.recordings.length > 0;
+                      const comm = call.commercial;
+
+                      return (
+                        <TableRow key={call.id}>
+                          {visibleColumns.map(col => {
+                            if (col.id === 'time') {
+                              return (
+                                <TableCell key={col.id} className="text-xs whitespace-nowrap text-muted-foreground">
+                                  {new Date(call.created_at).toLocaleString()}
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'caller') {
+                              return <TableCell key={col.id} className="font-mono text-xs">{call.from_number}</TableCell>;
+                            }
+                            if (col.id === 'trackingNumber') {
+                              return <TableCell key={col.id} className="font-mono text-xs">{call.to_number}</TableCell>;
+                            }
+                            if (col.id === 'campaign') {
+                              return <TableCell key={col.id} className="text-xs whitespace-nowrap">{call.campaign?.name || '—'}</TableCell>;
+                            }
+                            if (col.id === 'finalDestination') {
+                              return <TableCell key={col.id} className="text-xs whitespace-nowrap">{finalDestination}</TableCell>;
+                            }
+                            if (col.id === 'status') {
+                              return (
+                                <TableCell key={col.id}>
+                                  <Badge variant={call.state === "COMPLETED" ? "success" : "warning"} className="text-[10px]">
+                                    {call.state}
+                                  </Badge>
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'talkDuration') {
+                              return (
+                                <TableCell key={col.id} className="text-right font-mono text-xs">
+                                  {call.talkDurationSecs != null ? formatDurationHms(call.talkDurationSecs) : '—'}
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'totalDuration') {
+                              return (
+                                <TableCell key={col.id} className="text-right font-mono text-xs">
+                                  {call.totalDurationSecs != null ? formatDurationHms(call.totalDurationSecs) : '—'}
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'revenue') {
+                              return (
+                                <TableCell key={col.id} className="text-right font-mono text-xs">
+                                  {comm && comm.revenue !== undefined ? formatCurrency(comm.revenue, comm.currency) : '—'}
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'payout') {
+                              return (
+                                <TableCell key={col.id} className="text-right font-mono text-xs">
+                                  {comm && comm.payout !== undefined ? formatCurrency(comm.payout, comm.currency) : '—'}
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'profit') {
+                              return (
+                                <TableCell key={col.id} className={`text-right font-mono text-xs ${comm && comm.profit !== undefined && comm.profit >= 0 ? 'text-emerald-600' : comm && comm.profit !== undefined ? 'text-red-500' : ''}`}>
+                                  {comm && comm.profit !== undefined ? formatCurrency(comm.profit, comm.currency) : '—'}
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'commercial') {
+                              return (
+                                <TableCell key={col.id} className="whitespace-nowrap">
+                                  {comm ? (
+                                    <div className="flex flex-col gap-1 items-start">
+                                      <div className="flex gap-1 flex-wrap">
+                                        {comm.converted && <Badge variant="success" className="text-[9px] px-1 py-0">Converted</Badge>}
+                                        {comm.qualified && <Badge variant="success" className="text-[9px] px-1 py-0">Qualified</Badge>}
+                                        {comm.duplicate && <Badge variant="warning" className="text-[9px] px-1 py-0">Duplicate</Badge>}
+                                        <Badge variant="outline" className="text-[9px] px-1 py-0">{comm.status}</Badge>
+                                      </div>
+                                      {comm.disputeStatus && (
+                                        <Badge variant={comm.disputeStatus === 'ACCEPTED' ? 'error' : comm.disputeStatus === 'PENDING' ? 'warning' : 'outline'} className="text-[9px] px-1 py-0">
+                                          Dispute: {comm.disputeStatus}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground text-xs">—</span>
+                                  )}
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'attempts') {
+                              return (
+                                <TableCell key={col.id} className="text-right text-xs">
+                                  {call.attempts?.length || 0} attempts
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'recording') {
+                              return (
+                                <TableCell key={col.id} className="text-center text-xs">
+                                  {recordingAvailable ? 'Available' : '—'}
+                                </TableCell>
+                              );
+                            }
+                            if (col.id === 'actions') {
+                              return (
+                                <TableCell key={col.id} className="text-right">
+                                  <Link href={`/protected/calls/${call.id}?workspace=${workspaceId}&returnTo=reporting&${searchParams.toString()}`}>
+                                    <Button variant="outline" size="sm">View</Button>
+                                  </Link>
+                                </TableCell>
+                              );
+                            }
+                            return null;
+                          })}
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}

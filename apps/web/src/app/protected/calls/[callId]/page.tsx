@@ -71,9 +71,9 @@ interface CallDetail {
 }
 
 function formatCurrency(amount: number | string | null | undefined, currency: string = 'USD'): string {
-  if (amount === null || amount === undefined) return '$0.00';
+  if (amount === null || amount === undefined) return '—';
   const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-  if (isNaN(num)) return '$0.00';
+  if (isNaN(num)) return '—';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency || 'USD',
@@ -328,55 +328,77 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                 </div>
               ) : (
                 <div className="space-y-6">
+                  {/* Financial Dimensions Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <span className="text-xs text-muted-foreground uppercase font-medium">Revenue</span>
-                      <p className="text-lg font-bold text-foreground mt-1">
-                        {formatCurrency(call.commercial.revenue, call.commercial.currency)}
-                      </p>
-                    </div>
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <span className="text-xs text-muted-foreground uppercase font-medium">Payout</span>
-                      <p className="text-lg font-bold text-foreground mt-1">
-                        {formatCurrency(call.commercial.payout, call.commercial.currency)}
-                      </p>
-                    </div>
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <span className="text-xs text-muted-foreground uppercase font-medium">Cost</span>
-                      <p className="text-lg font-bold text-foreground mt-1">
-                        {formatCurrency(call.commercial.cost, call.commercial.currency)}
-                      </p>
-                    </div>
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <span className="text-xs text-muted-foreground uppercase font-medium">Profit</span>
-                      <p className={`text-lg font-bold mt-1 ${Number(call.commercial.profit) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {formatCurrency(call.commercial.profit, call.commercial.currency)}
-                      </p>
-                    </div>
+                    {call.commercial.revenue !== undefined && (
+                      <div className="p-3 bg-muted/30 rounded-lg" data-testid="detail-revenue">
+                        <span className="text-xs text-muted-foreground uppercase font-medium">Revenue</span>
+                        <p className="text-lg font-bold text-foreground mt-1">
+                          {formatCurrency(call.commercial.revenue, call.commercial.currency)}
+                        </p>
+                      </div>
+                    )}
+                    {call.commercial.payout !== undefined && (
+                      <div className="p-3 bg-muted/30 rounded-lg" data-testid="detail-payout">
+                        <span className="text-xs text-muted-foreground uppercase font-medium">Payout</span>
+                        <p className="text-lg font-bold text-foreground mt-1">
+                          {formatCurrency(call.commercial.payout, call.commercial.currency)}
+                        </p>
+                      </div>
+                    )}
+                    {call.commercial.cost !== undefined && (
+                      <div className="p-3 bg-muted/30 rounded-lg" data-testid="detail-cost">
+                        <span className="text-xs text-muted-foreground uppercase font-medium">Cost</span>
+                        <p className="text-lg font-bold text-foreground mt-1">
+                          {formatCurrency(call.commercial.cost, call.commercial.currency)}
+                        </p>
+                      </div>
+                    )}
+                    {call.commercial.profit !== undefined && (
+                      <div className="p-3 bg-muted/30 rounded-lg" data-testid="detail-profit">
+                        <span className="text-xs text-muted-foreground uppercase font-medium">Profit</span>
+                        <p className={`text-lg font-bold mt-1 ${Number(call.commercial.profit) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {formatCurrency(call.commercial.profit, call.commercial.currency)}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 border-t pt-4 text-sm">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 border-t pt-4 text-sm">
                     <div>
                       <span className="text-xs text-muted-foreground">Currency</span>
-                      <p className="font-semibold text-foreground">{call.commercial.currency}</p>
+                      <p className="font-semibold text-foreground">{call.commercial.currency || 'USD'}</p>
                     </div>
                     <div>
                       <span className="text-xs text-muted-foreground">Classification</span>
-                      <div className="flex gap-1 mt-0.5">
+                      <div className="flex gap-1 mt-0.5 flex-wrap">
                         {call.commercial.converted ? (
                           <Badge variant="success" className="text-[10px]">Converted</Badge>
                         ) : (
                           <Badge variant="outline" className="text-[10px]">Unconverted</Badge>
+                        )}
+                        {call.commercial.qualified ? (
+                          <Badge variant="success" className="text-[10px]">Qualified</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">Unqualified</Badge>
                         )}
                         {call.commercial.duplicate && (
                           <Badge variant="warning" className="text-[10px]">Duplicate</Badge>
                         )}
                       </div>
                     </div>
-                    <div>
-                      <span className="text-xs text-muted-foreground">Commercial Buyer</span>
-                      <p className="font-semibold text-foreground">{call.commercial.buyer?.name || '—'}</p>
-                    </div>
+                    {call.commercial.buyer && (
+                      <div>
+                        <span className="text-xs text-muted-foreground">Commercial Buyer</span>
+                        <p className="font-semibold text-foreground">{call.commercial.buyer?.name || '—'}</p>
+                      </div>
+                    )}
+                    {call.commercial.vendor && (
+                      <div>
+                        <span className="text-xs text-muted-foreground">Commercial Vendor</span>
+                        <p className="font-semibold text-foreground">{call.commercial.vendor?.name || '—'}</p>
+                      </div>
+                    )}
                   </div>
 
                   {call.commercial.dispute && (
@@ -401,14 +423,30 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                         <Badge variant="success" className="text-[10px]">Reversed</Badge>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <span className="text-muted-foreground">Original Rev / Payout:</span>
-                          <p className="font-mono">{formatCurrency(call.commercial.adjustment.original_revenue, call.commercial.currency)} / {formatCurrency(call.commercial.adjustment.original_payout, call.commercial.currency)}</p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Adjusted Rev / Payout:</span>
-                          <p className="font-mono text-emerald-600">{formatCurrency(call.commercial.adjustment.adjusted_revenue, call.commercial.currency)} / {formatCurrency(call.commercial.adjustment.adjusted_payout, call.commercial.currency)}</p>
-                        </div>
+                        {call.commercial.adjustment.original_revenue !== undefined && (
+                          <div>
+                            <span className="text-muted-foreground">Original Revenue:</span>
+                            <p className="font-mono">{formatCurrency(call.commercial.adjustment.original_revenue, call.commercial.currency)}</p>
+                          </div>
+                        )}
+                        {call.commercial.adjustment.adjusted_revenue !== undefined && (
+                          <div>
+                            <span className="text-muted-foreground">Adjusted Revenue:</span>
+                            <p className="font-mono text-emerald-600">{formatCurrency(call.commercial.adjustment.adjusted_revenue, call.commercial.currency)}</p>
+                          </div>
+                        )}
+                        {call.commercial.adjustment.original_payout !== undefined && (
+                          <div>
+                            <span className="text-muted-foreground">Original Payout:</span>
+                            <p className="font-mono">{formatCurrency(call.commercial.adjustment.original_payout, call.commercial.currency)}</p>
+                          </div>
+                        )}
+                        {call.commercial.adjustment.adjusted_payout !== undefined && (
+                          <div>
+                            <span className="text-muted-foreground">Adjusted Payout:</span>
+                            <p className="font-mono text-emerald-600">{formatCurrency(call.commercial.adjustment.adjusted_payout, call.commercial.currency)}</p>
+                          </div>
+                        )}
                       </div>
                       {call.commercial.adjustment.reason && (
                         <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Reason:</span> {call.commercial.adjustment.reason}</p>

@@ -52,7 +52,7 @@ function formatDuration(secs: number | null | undefined): string {
 }
 
 function formatCurrency(amount: number | null | undefined, currency: string = 'USD'): string {
-  if (amount === null || amount === undefined || isNaN(amount)) return '$0.00';
+  if (amount === null || amount === undefined || isNaN(amount)) return '—';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency || 'USD',
@@ -218,6 +218,11 @@ export default function CallsPage() {
 
   if (!workspaceId) return <div className="p-6 text-muted-foreground">Select a workspace first.</div>;
 
+  const hasRevenue = calls.some(c => c.commercial?.revenue !== undefined);
+  const hasPayout = calls.some(c => c.commercial?.payout !== undefined);
+  const hasProfit = calls.some(c => c.commercial?.profit !== undefined);
+  const colSpanCount = 10 + (hasRevenue ? 1 : 0) + (hasPayout ? 1 : 0) + (hasProfit ? 1 : 0);
+
   return (
     <div className="flex flex-col gap-6 md:gap-8 pb-8 w-full max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -368,9 +373,9 @@ export default function CallsPage() {
                 <TableHead className="min-w-[100px]" title="Talk Time = connected/answered time through final hangup.">Talk Time</TableHead>
                 <TableHead className="min-w-[100px]" title="Total Time = tracking number call start through final hangup.">Total Time</TableHead>
                 <TableHead className="min-w-[100px]">Status</TableHead>
-                <TableHead className="min-w-[90px] text-right">Revenue</TableHead>
-                <TableHead className="min-w-[90px] text-right">Payout</TableHead>
-                <TableHead className="min-w-[90px] text-right">Profit</TableHead>
+                {hasRevenue && <TableHead className="min-w-[90px] text-right">Revenue</TableHead>}
+                {hasPayout && <TableHead className="min-w-[90px] text-right">Payout</TableHead>}
+                {hasProfit && <TableHead className="min-w-[90px] text-right">Profit</TableHead>}
                 <TableHead className="min-w-[110px]">Commercial</TableHead>
                 <TableHead className="min-w-[120px]">Recording</TableHead>
                 <TableHead className="text-right min-w-[90px]">Actions</TableHead>
@@ -379,7 +384,7 @@ export default function CallsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={13} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={colSpanCount} className="h-32 text-center text-muted-foreground">
                     <div className="flex items-center justify-center gap-2">
                       <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                       Loading calls...
@@ -388,7 +393,7 @@ export default function CallsPage() {
                 </TableRow>
               ) : calls.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={13} className="h-48 text-center">
+                  <TableCell colSpan={colSpanCount} className="h-48 text-center">
                     <EmptyState 
                       icon={<PhoneCall className="w-8 h-8" />}
                       title="No calls found"
@@ -424,20 +429,27 @@ export default function CallsPage() {
                           {call.state}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right font-mono text-xs">
-                        {comm ? formatCurrency(comm.revenue, comm.currency) : '—'}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs">
-                        {comm ? formatCurrency(comm.payout, comm.currency) : '—'}
-                      </TableCell>
-                      <TableCell className={`text-right font-mono text-xs ${comm && comm.profit >= 0 ? 'text-emerald-600' : comm ? 'text-red-500' : ''}`}>
-                        {comm ? formatCurrency(comm.profit, comm.currency) : '—'}
-                      </TableCell>
+                      {hasRevenue && (
+                        <TableCell className="text-right font-mono text-xs">
+                          {comm && comm.revenue !== undefined ? formatCurrency(comm.revenue, comm.currency) : '—'}
+                        </TableCell>
+                      )}
+                      {hasPayout && (
+                        <TableCell className="text-right font-mono text-xs">
+                          {comm && comm.payout !== undefined ? formatCurrency(comm.payout, comm.currency) : '—'}
+                        </TableCell>
+                      )}
+                      {hasProfit && (
+                        <TableCell className={`text-right font-mono text-xs ${comm && comm.profit !== undefined && comm.profit >= 0 ? 'text-emerald-600' : comm && comm.profit !== undefined ? 'text-red-500' : ''}`}>
+                          {comm && comm.profit !== undefined ? formatCurrency(comm.profit, comm.currency) : '—'}
+                        </TableCell>
+                      )}
                       <TableCell className="whitespace-nowrap">
                         {comm ? (
                           <div className="flex flex-col gap-1 items-start">
                             <div className="flex gap-1 flex-wrap">
                               {comm.converted && <Badge variant="success" className="text-[9px] px-1 py-0">Converted</Badge>}
+                              {comm.qualified && <Badge variant="success" className="text-[9px] px-1 py-0">Qualified</Badge>}
                               {comm.duplicate && <Badge variant="warning" className="text-[9px] px-1 py-0">Duplicate</Badge>}
                               <Badge variant="outline" className="text-[9px] px-1 py-0">{comm.status}</Badge>
                             </div>

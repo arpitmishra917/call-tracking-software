@@ -358,7 +358,7 @@ describe('ReportingPage (Direct apiFetch Payload Regression)', () => {
     await waitFor(() => {
       expect(screen.getAllByText('+15551234567').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('+15559876543').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('Direct Payload Campaign')).toBeDefined();
+      expect(screen.getAllByText('Direct Payload Campaign').length).toBeGreaterThanOrEqual(1);
     });
 
     expect(screen.queryByText('Unable to load reporting data')).toBeNull();
@@ -642,3 +642,378 @@ describe('ReportingPage (Owner KPI UI Completion)', () => {
     });
   });
 });
+
+describe('COMM-INTEGRATION-3 Commercial Reporting Frontend Matrix', () => {
+  beforeEach(() => {
+    mockPush.mockClear();
+    localStorage.clear();
+    vi.mocked(apiFetch).mockClear();
+  });
+
+  it('Owner/Admin view: renders all 7 commercial dimensions without distortion', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 8,
+          missed: 2,
+          failed: 0,
+          avgDuration: 120,
+          aclSecs: 120,
+          tclSecs: 1200,
+          revenue: 500.0,
+          payout: 200.0,
+          cost: 200.0,
+          profit: 300.0,
+          converted: 5,
+          qualified: 7,
+          duplicate: 1,
+          conversionRate: 0.5,
+          commercialCalls: 10,
+          campaigns: {
+            'c-1': {
+              id: 'c-1',
+              name: 'Solar Inbound',
+              total: 10,
+              answered: 8,
+              revenue: 500.0,
+              payout: 200.0,
+              profit: 300.0,
+              converted: 5,
+              qualified: 7,
+              duplicate: 1,
+              conversionRate: 0.5,
+            }
+          },
+          buyers: {
+            'b-1': {
+              id: 'b-1',
+              name: 'SunPower Corp',
+              total: 10,
+              answered: 8,
+              revenue: 500.0,
+              converted: 5,
+              conversionRate: 0.5,
+            }
+          },
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-owner-1',
+              created_at: new Date().toISOString(),
+              from_number: '+15551112222',
+              to_number: '+15553334444',
+              state: 'COMPLETED',
+              talkDurationSecs: 120,
+              totalDurationSecs: 125,
+              campaign: { name: 'Solar Inbound' },
+              buyer: { name: 'SunPower Corp' },
+              commercial: {
+                revenue: 50.0,
+                payout: 20.0,
+                profit: 30.0,
+                converted: true,
+                qualified: true,
+                duplicate: false,
+                status: 'FINAL',
+                currency: 'USD',
+              },
+              attempts: [],
+              recordings: [],
+            }
+          ],
+          total: 1,
+        };
+      }
+      return [];
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      // 7 dimensions in summary KPIs
+      const revCard = screen.getByTestId('kpi-revenue');
+      expect(revCard).toBeDefined();
+      expect(revCard.textContent).toContain('$500.00');
+
+      const payCard = screen.getByTestId('kpi-payout');
+      expect(payCard).toBeDefined();
+      expect(payCard.textContent).toContain('$200.00');
+
+      const profCard = screen.getByTestId('kpi-profit');
+      expect(profCard).toBeDefined();
+      expect(profCard.textContent).toContain('$300.00');
+
+      expect(screen.getByTestId('kpi-cost')).toBeDefined();
+
+      const convCard = screen.getByTestId('kpi-converted');
+      expect(convCard.textContent).toContain('5');
+
+      const qualCard = screen.getByTestId('kpi-qualified');
+      expect(qualCard.textContent).toContain('7');
+
+      const dupCard = screen.getByTestId('kpi-duplicate');
+      expect(dupCard.textContent).toContain('1');
+    });
+
+    // Check table headers have commercial columns
+    expect(screen.getAllByText('Solar Inbound').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('$50.00').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('$20.00').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('$30.00').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Buyer view: hides payout, cost, profit without displaying false $0.00', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 8,
+          missed: 2,
+          failed: 0,
+          avgDuration: 120,
+          aclSecs: 120,
+          tclSecs: 1200,
+          revenue: 500.0,
+          // payout, cost, profit intentionally omitted by backend
+          converted: 5,
+          qualified: 7,
+          duplicate: 1,
+          conversionRate: 0.5,
+          commercialCalls: 10,
+          campaigns: {
+            'c-1': {
+              id: 'c-1',
+              name: 'Solar Inbound',
+              total: 10,
+              answered: 8,
+              revenue: 500.0,
+              converted: 5,
+              qualified: 7,
+              duplicate: 1,
+              conversionRate: 0.5,
+            }
+          },
+          buyers: {
+            'b-1': {
+              id: 'b-1',
+              name: 'SunPower Corp',
+              total: 10,
+              answered: 8,
+              revenue: 500.0,
+              converted: 5,
+              conversionRate: 0.5,
+            }
+          },
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-buyer-1',
+              created_at: new Date().toISOString(),
+              from_number: '+15551112222',
+              to_number: '+15553334444',
+              state: 'COMPLETED',
+              talkDurationSecs: 120,
+              totalDurationSecs: 125,
+              campaign: { name: 'Solar Inbound' },
+              buyer: { name: 'SunPower Corp' },
+              commercial: {
+                revenue: 50.0,
+                // payout, profit omitted
+                converted: true,
+                qualified: true,
+                duplicate: false,
+                status: 'FINAL',
+                currency: 'USD',
+              },
+              attempts: [],
+              recordings: [],
+            }
+          ],
+          total: 1,
+        };
+      }
+      return [];
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      // Buyer sees Revenue
+      const revCard = screen.getByTestId('kpi-revenue');
+      expect(revCard).toBeDefined();
+      expect(revCard.textContent).toContain('$500.00');
+
+      const convCard = screen.getByTestId('kpi-converted');
+      expect(convCard.textContent).toContain('5');
+
+      const qualCard = screen.getByTestId('kpi-qualified');
+      expect(qualCard.textContent).toContain('7');
+
+      const dupCard = screen.getByTestId('kpi-duplicate');
+      expect(dupCard.textContent).toContain('1');
+    });
+
+    // Payout, Cost, Profit must NOT be rendered (nor as $0.00)
+    expect(screen.queryByTestId('kpi-payout')).toBeNull();
+    expect(screen.queryByTestId('kpi-profit')).toBeNull();
+    expect(screen.queryByTestId('kpi-cost')).toBeNull();
+  });
+
+  it('Vendor view: hides revenue, cost, profit, and buyer performance without false $0.00', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 8,
+          missed: 2,
+          failed: 0,
+          avgDuration: 120,
+          aclSecs: 120,
+          tclSecs: 1200,
+          payout: 200.0,
+          // revenue, cost, profit omitted
+          converted: 5,
+          qualified: 7,
+          duplicate: 1,
+          conversionRate: 0.5,
+          commercialCalls: 10,
+          campaigns: {
+            'c-1': {
+              id: 'c-1',
+              name: 'Solar Inbound',
+              total: 10,
+              answered: 8,
+              payout: 200.0,
+              converted: 5,
+              qualified: 7,
+              duplicate: 1,
+              conversionRate: 0.5,
+            }
+          },
+          buyers: {}, // masked/empty for vendor
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      if (typeof url === 'string' && url.includes('calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-vendor-1',
+              created_at: new Date().toISOString(),
+              from_number: '+15551112222',
+              to_number: '+15553334444',
+              state: 'COMPLETED',
+              talkDurationSecs: 120,
+              totalDurationSecs: 125,
+              campaign: { name: 'Solar Inbound' },
+              // buyer name omitted
+              commercial: {
+                payout: 20.0,
+                // revenue, profit omitted
+                converted: true,
+                qualified: true,
+                duplicate: false,
+                status: 'FINAL',
+                currency: 'USD',
+              },
+              attempts: [],
+              recordings: [],
+            }
+          ],
+          total: 1,
+        };
+      }
+      return [];
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      // Vendor sees Payout
+      const payCard = screen.getByTestId('kpi-payout');
+      expect(payCard).toBeDefined();
+      expect(payCard.textContent).toContain('$200.00');
+
+      const convCard = screen.getByTestId('kpi-converted');
+      expect(convCard.textContent).toContain('5');
+
+      const qualCard = screen.getByTestId('kpi-qualified');
+      expect(qualCard.textContent).toContain('7');
+
+      const dupCard = screen.getByTestId('kpi-duplicate');
+      expect(dupCard.textContent).toContain('1');
+    });
+
+    // Revenue, Cost, Profit must NOT be rendered
+    expect(screen.queryByTestId('kpi-revenue')).toBeNull();
+    expect(screen.queryByTestId('kpi-profit')).toBeNull();
+    expect(screen.queryByTestId('kpi-cost')).toBeNull();
+
+    // Destination / Buyer column is masked for vendors
+    expect(screen.queryByText('Final Destination')).toBeNull();
+  });
+
+  it('Non-commercial Member view: hides all financial KPI cards', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 8,
+          missed: 2,
+          failed: 0,
+          avgDuration: 120,
+          aclSecs: 120,
+          tclSecs: 1200,
+          // revenue, payout, cost, profit omitted
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [],
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Total Calls')).toBeDefined();
+      expect(screen.getByText('Answered')).toBeDefined();
+    });
+
+    // No financial cards
+    expect(screen.queryByText('Revenue')).toBeNull();
+    expect(screen.queryByText('Payout')).toBeNull();
+    expect(screen.queryByText('Profit')).toBeNull();
+    expect(screen.queryByText('Cost')).toBeNull();
+  });
+
+  it('Forbidden state (403): displays explicit permission error banner', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        throw new Error('Forbidden: Insufficient permissions to view call reporting');
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Unable to load reporting data')).toBeDefined();
+      expect(screen.getByText('Forbidden: Insufficient permissions to view call reporting')).toBeDefined();
+    });
+  });
+});
+
