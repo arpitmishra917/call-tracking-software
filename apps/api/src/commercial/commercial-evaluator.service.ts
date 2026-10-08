@@ -6,6 +6,7 @@ import {
   CommercialStatus,
   CallCommercial,
   TransactionType,
+  ReservationStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { normalizeE164 } from '../common/phone.utils.js';
@@ -156,9 +157,24 @@ export class CommercialEvaluatorService {
       // 12. Currency snapshot: CallCommercial.currency = Campaign.currency
       const currency = campaign.currency;
 
-      // 13. Operational cost resolution:
-      // Authoritative cost from settlement WalletTransaction.
-      // Must NOT assume zero or arbitrary defaults if settlement transaction is missing.
+      // 13. Operational cost resolution (AD-03):
+      // Operational completion must be distinguished from operational cost.
+      // CallReservation.status === SETTLED is the definitive signal that wallet settlement completed.
+      // 13. Settle / Cost Verification (AD-03: inspect reservation status)
+      const reservation = await tx.callReservation.findUnique({
+        where: { call_id: call.id },
+        select: { status: true },
+      });
+
+      // Case C: If reservation is missing or not SETTLED, wallet settlement has not completed.
+      if (!reservation || reservation.status !== ReservationStatus.SETTLED) {
+        this.logger.debug(
+          `Commercial evaluation deferred: Call ${call.id} reservation is not SETTLED (status: ${reservation?.status ?? 'none'}).`,
+        );
+        return null;
+      }
+
+      // Check for authoritative operational cost from settlement WalletTransaction
       const settlementTx = await tx.walletTransaction.findFirst({
         where: {
           workspace_id: call.workspace_id,
@@ -169,19 +185,20 @@ export class CommercialEvaluatorService {
         select: { amount_micro: true },
       });
 
-      if (!settlementTx) {
-        this.logger.error(
-          `Operational cost missing: No CALL_SETTLEMENT WalletTransaction found for call ${call.id} in workspace ${call.workspace_id}. Aborting commercial persistence without estimating cost.`,
-        );
-        return null;
-      }
-
-      const cost = new Prisma.Decimal(settlementTx.amount_micro.toString()).div(1_000_000);
+      // Case A: SETTLED + CALL_SETTLEMENT exists -> use authoritative debit amount
+      // Case B: SETTLED + CALL_SETTLEMENT absent -> legitimate zero operational cost (AD-03)
+      const cost = settlementTx
+        ? new Prisma.Decimal(settlementTx.amount_micro.toString()).div(1_000_000)
+        : new Prisma.Decimal('0.0000');
 
       // 14. Profit calculation: exact Decimal arithmetic: profit = revenue - payout - cost
       const profit = revenue.sub(payout).sub(cost);
 
-      // 15. Persist CallCommercial
+      // 15. Persist CallCommercial (AD-01):
+      // Synchronous finalizes_at = created_at + 168 hours
+      const createdAt = new Date();
+      const finalizesAt = new Date(createdAt.getTime() + 168 * 60 * 60 * 1000);
+
       try {
         return await tx.callCommercial.create({
           data: {
@@ -200,7 +217,8 @@ export class CommercialEvaluatorService {
             cost,
             profit,
             status: CommercialStatus.PENDING,
-            finalizes_at: null,
+            created_at: createdAt,
+            finalizes_at: finalizesAt,
           },
         });
       } catch (err: any) {

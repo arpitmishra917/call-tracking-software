@@ -7,6 +7,7 @@ import {
   CallAttemptState,
   CommercialStatus,
   TransactionType,
+  ReservationStatus,
   Prisma,
 } from '@prisma/client';
 
@@ -63,6 +64,9 @@ describe('CommercialEvaluatorService (COMM-4 Financial Correction)', () => {
       },
       phoneNumber: {
         findFirst: vi.fn().mockResolvedValue({ vendor_id: 'vendor-1' }),
+      },
+      callReservation: {
+        findUnique: vi.fn().mockResolvedValue({ status: ReservationStatus.SETTLED }),
       },
       walletTransaction: {
         findFirst: vi.fn().mockResolvedValue({
@@ -459,11 +463,11 @@ describe('CommercialEvaluatorService (COMM-4 Financial Correction)', () => {
     }
   });
 
-  // Blocker 2: Never silently use zero for unknown cost
-  it('28. Missing CALL_SETTLEMENT aborts evaluation without persisting CallCommercial; completed Call remains unchanged', async () => {
+  // AD-03 Case C: Reservation not SETTLED aborts evaluation
+  it('28. Unsettled reservation (status != SETTLED) aborts evaluation without persisting CallCommercial; completed Call remains unchanged', async () => {
     const call = getBaseCall();
     prisma.call.findUnique.mockResolvedValueOnce(call);
-    prisma.walletTransaction.findFirst.mockResolvedValueOnce(null); // Missing settlement
+    prisma.callReservation.findUnique.mockResolvedValueOnce({ status: ReservationStatus.ACTIVE });
 
     const result = await service.evaluateCall('call-1');
 
@@ -486,5 +490,42 @@ describe('CommercialEvaluatorService (COMM-4 Financial Correction)', () => {
         }),
       }),
     );
+  });
+
+  // AD-03 Case B: SETTLED reservation + no CALL_SETTLEMENT debit -> cost = 0.0000
+  it('30. Legitimate zero-cost call (SETTLED + missing CALL_SETTLEMENT) creates CallCommercial with cost = 0.0000', async () => {
+    const call = getBaseCall();
+    prisma.call.findUnique.mockResolvedValueOnce(call);
+    prisma.callReservation.findUnique.mockResolvedValueOnce({ status: ReservationStatus.SETTLED });
+    prisma.walletTransaction.findFirst.mockResolvedValueOnce(null); // No operational debit
+
+    const result = await service.evaluateCall('call-1');
+
+    expect(result).toBeDefined();
+    expect(prisma.callCommercial.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          cost: new Prisma.Decimal('0.0000'),
+          revenue: new Prisma.Decimal('45.0000'),
+          payout: new Prisma.Decimal('30.0000'),
+          profit: new Prisma.Decimal('15.0000'),
+          status: CommercialStatus.PENDING,
+        }),
+      }),
+    );
+  });
+
+  // AD-01: Synchronous finalizes_at = created_at + 168 hours
+  it('31. finalizes_at is populated synchronously and exactly equals created_at + 168 hours', async () => {
+    const result = await service.evaluateCall('call-1');
+    expect(result).toBeDefined();
+
+    const createdData = prisma.callCommercial.create.mock.calls[0][0].data;
+    expect(createdData.finalizes_at).toBeDefined();
+    expect(createdData.created_at).toBeDefined();
+
+    const diffHours =
+      (createdData.finalizes_at.getTime() - createdData.created_at.getTime()) / (1000 * 60 * 60);
+    expect(diffHours).toBe(168);
   });
 });

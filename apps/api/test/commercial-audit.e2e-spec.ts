@@ -5,7 +5,7 @@ import { PrismaService } from '../src/prisma/prisma.service.js';
 import { CallsService } from '../src/calls/calls.service.js';
 import { CommercialEvaluatorService } from '../src/commercial/commercial-evaluator.service.js';
 import { CommercialDisputesService } from '../src/commercial/commercial-disputes.service.js';
-import { CommercialStatus, DisputeStatus, CallState, CallAttemptState, TransactionType, Prisma } from '@prisma/client';
+import { CommercialStatus, DisputeStatus, CallState, CallAttemptState, TransactionType, ReservationStatus, Prisma } from '@prisma/client';
 
 describe('COMM-8 Commercial Finalization & Settlement Readiness Audit E2E', () => {
   const uniqueId = (base: string) => `${base}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -202,6 +202,18 @@ describe('COMM-8 Commercial Finalization & Settlement Readiness Audit E2E', () =
         },
       });
     }
+
+    // Create settled reservation for completed call (AD-03)
+    await prisma.callReservation.create({
+      data: {
+        workspace_id: workspace1,
+        call_id: call.id,
+        status: ReservationStatus.SETTLED,
+        original_reserved_micro: BigInt(5_000_000),
+        total_reserved_micro: BigInt(5_000_000),
+        expires_at: new Date(callDate.getTime() + 3600000),
+      },
+    });
 
     // Create settlement transaction with cost
     await prisma.walletTransaction.create({
