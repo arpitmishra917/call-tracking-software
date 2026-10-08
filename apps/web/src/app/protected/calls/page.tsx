@@ -221,6 +221,7 @@ export default function CallsPage() {
   const hasRevenue = calls.some(c => c.commercial?.revenue !== undefined);
   const hasPayout = calls.some(c => c.commercial?.payout !== undefined);
   const hasProfit = calls.some(c => c.commercial?.profit !== undefined);
+  const isVendor = !hasRevenue && hasPayout && !hasProfit;
   const colSpanCount = 10 + (hasRevenue ? 1 : 0) + (hasPayout ? 1 : 0) + (hasProfit ? 1 : 0);
 
   return (
@@ -453,7 +454,7 @@ export default function CallsPage() {
                               {comm.duplicate && <Badge variant="warning" className="text-[9px] px-1 py-0">Duplicate</Badge>}
                               <Badge variant="outline" className="text-[9px] px-1 py-0">{comm.status}</Badge>
                             </div>
-                            {comm.disputeStatus && (
+                            {!isVendor && comm.disputeStatus && (
                               <Badge variant={comm.disputeStatus === 'ACCEPTED' ? 'error' : comm.disputeStatus === 'PENDING' ? 'warning' : 'outline'} className="text-[9px] px-1 py-0">
                                 Dispute: {comm.disputeStatus}
                               </Badge>

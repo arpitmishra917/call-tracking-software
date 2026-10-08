@@ -26,7 +26,7 @@ export default async function ProtectedLayout({
   });
 
   // Fetch workspaces for this user from the API
-  let workspaces: { id: string; name: string; role: string }[] = [];
+  let workspaces: { id: string; name: string; role: string; participant_type?: string }[] = [];
   try {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
     const res = await fetch(`${apiUrl}/workspaces`, {

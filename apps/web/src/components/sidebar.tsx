@@ -24,7 +24,7 @@ export default function Sidebar({
   workspaces,
   onNavClick
 }: {
-  workspaces: { id: string; name: string; role: string }[];
+  workspaces: { id: string; name: string; role: string; participant_type?: string }[];
   onNavClick?: () => void;
 }) {
   const searchParams = useSearchParams();
@@ -38,6 +38,7 @@ export default function Sidebar({
   const role = currentWorkspace?.role;
 
   const isOwnerOrAdmin = role === 'OWNER' || role === 'ADMIN';
+  const isVendor = (currentWorkspace as any)?.participant_type === 'VENDOR';
 
   const getUrl = (path: string) => {
     return `${path}${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`;
@@ -56,22 +57,24 @@ export default function Sidebar({
         <NavGroup title="Overview">
           <NavItem href="/protected/calls" icon={PhoneCall} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Calls</NavItem>
           <NavItem href="/protected/reporting" icon={BarChart} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Reporting</NavItem>
+          {role !== 'VIEWER' && !isVendor && (
+            <NavItem href="/protected/disputes" icon={Scale} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Disputes</NavItem>
+          )}
           {role !== 'VIEWER' && (
-            <>
-              <NavItem href="/protected/disputes" icon={Scale} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Disputes</NavItem>
-              <NavItem href="/protected/settlements" icon={Receipt} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Settlements</NavItem>
-            </>
+            <NavItem href="/protected/settlements" icon={Receipt} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Settlements</NavItem>
           )}
         </NavGroup>
 
-        <NavGroup title="Routing">
-          <NavItem href="/protected/campaigns" icon={Megaphone} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Campaigns</NavItem>
-          <NavItem href="/protected/buyers" icon={Users} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Buyers</NavItem>
-          <NavItem href="/protected/phone-numbers" icon={Hash} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Phone Numbers</NavItem>
-          {isOwnerOrAdmin && (
-            <NavItem href="/protected/blocked-callers" icon={ShieldBan} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Blocked Callers</NavItem>
-          )}
-        </NavGroup>
+        {!isVendor && (
+          <NavGroup title="Routing">
+            <NavItem href="/protected/campaigns" icon={Megaphone} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Campaigns</NavItem>
+            <NavItem href="/protected/buyers" icon={Users} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Buyers</NavItem>
+            <NavItem href="/protected/phone-numbers" icon={Hash} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Phone Numbers</NavItem>
+            {isOwnerOrAdmin && (
+              <NavItem href="/protected/blocked-callers" icon={ShieldBan} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Blocked Callers</NavItem>
+            )}
+          </NavGroup>
+        )}
 
         {isOwnerOrAdmin && (
           <>

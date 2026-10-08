@@ -40,5 +40,28 @@ describe('Sidebar Role-Aware Navigation', () => {
     expect(screen.queryByText('Workspace')).toBeNull();
     expect(screen.queryByText('Members')).toBeNull();
   });
+
+  it('VENDOR member sees Calls, Reporting, Settlements, but NOT Disputes or Routing', () => {
+    const workspaces = [{ id: 'ws-vendor', name: 'Vendor Workspace', role: 'MEMBER', participant_type: 'VENDOR' }];
+    render(<Sidebar workspaces={workspaces} />);
+
+    // Vendor sees Calls, Reporting, Settlements
+    expect(screen.getByText('Calls')).toBeTruthy();
+    expect(screen.getByText('Reporting')).toBeTruthy();
+    expect(screen.getByText('Settlements')).toBeTruthy();
+
+    // Vendor does NOT see Disputes
+    expect(screen.queryByText('Disputes')).toBeNull();
+
+    // Vendor does NOT see Routing group (Campaigns, Buyers, Phone Numbers)
+    expect(screen.queryByText('Routing')).toBeNull();
+    expect(screen.queryByText('Campaigns')).toBeNull();
+    expect(screen.queryByText('Buyers')).toBeNull();
+    expect(screen.queryByText('Phone Numbers')).toBeNull();
+
+    // Vendor does NOT see Workspace management
+    expect(screen.queryByText('Workspace')).toBeNull();
+    expect(screen.queryByText('Members')).toBeNull();
+  });
 });
 

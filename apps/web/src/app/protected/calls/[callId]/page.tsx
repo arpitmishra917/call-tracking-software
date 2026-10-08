@@ -119,6 +119,31 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
   const [showResolveModal, setShowResolveModal] = useState<'ACCEPTED' | 'REJECTED' | null>(null);
   const [resolutionNotes, setResolutionNotes] = useState('');
   const [resolvingDispute, setResolvingDispute] = useState(false);
+  const [isVendorWorkspace, setIsVendorWorkspace] = useState(false);
+
+  useEffect(() => {
+    async function checkVendorRole() {
+      if (!workspaceId) return;
+      try {
+        const workspaces = await apiFetch('/workspaces');
+        const currentWs = Array.isArray(workspaces)
+          ? workspaces.find((w: any) => w.id === workspaceId)
+          : null;
+        if (currentWs && currentWs.participant_type === 'VENDOR') {
+          setIsVendorWorkspace(true);
+        }
+      } catch {
+        // Continue if workspace query fails
+      }
+    }
+    checkVendorRole();
+  }, [workspaceId]);
+
+  const isVendor = isVendorWorkspace || Boolean(
+    call?.commercial &&
+    call.commercial.payout !== undefined &&
+    call.commercial.revenue === undefined
+  );
 
   async function loadCall() {
     setLoading(true);
@@ -330,12 +355,14 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                   </span>
                   <p className="font-medium text-base">{call.campaign?.name || '-'}</p>
                 </div>
-                <div className="space-y-1">
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5" /> Final Buyer
-                  </span>
-                  <p className="font-medium text-base">{finalBuyer || 'No successful destination'}</p>
-                </div>
+                {!isVendor && (
+                  <div className="space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5" /> Final Buyer
+                    </span>
+                    <p className="font-medium text-base">{finalBuyer || 'No successful destination'}</p>
+                  </div>
+                )}
                 <div className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5" /> Started At
@@ -461,7 +488,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                         )}
                       </div>
                     </div>
-                    {call.commercial.buyer && (
+                    {!isVendor && call.commercial.buyer && (
                       <div>
                         <span className="text-xs text-muted-foreground">Commercial Buyer</span>
                         <p className="font-semibold text-foreground">{call.commercial.buyer?.name || '—'}</p>
@@ -476,148 +503,152 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                   </div>
 
                   {/* Dispute Section */}
-                  {call.commercial.dispute ? (
-                    <div className="border border-border/80 rounded-md p-4 bg-muted/20 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Buyer Dispute</span>
-                        <Badge variant={call.commercial.dispute.status === 'ACCEPTED' ? 'error' : call.commercial.dispute.status === 'PENDING' ? 'warning' : 'outline'} className="text-[10px]">
-                          {call.commercial.dispute.status}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-foreground"><span className="text-muted-foreground font-medium">Reason:</span> {call.commercial.dispute.reason}</p>
-                      {call.commercial.dispute.description && (
-                        <p className="text-xs text-foreground"><span className="text-muted-foreground font-medium">Description:</span> {call.commercial.dispute.description}</p>
-                      )}
-                      {call.commercial.dispute.resolution_notes && (
-                        <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Resolution Notes:</span> {call.commercial.dispute.resolution_notes}</p>
-                      )}
-
-                      {call.commercial.dispute.status === 'PENDING' && (
-                        <div className="pt-2 border-t border-border flex flex-wrap gap-2 justify-end">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs text-emerald-600 border-emerald-500/30 hover:bg-emerald-50"
-                            onClick={() => {
-                              setShowResolveModal('ACCEPTED');
-                              setResolutionNotes('');
-                              setDisputeActionError(null);
-                            }}
-                            disabled={resolvingDispute}
-                          >
-                            <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                            Accept Dispute
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs text-rose-600 border-rose-500/30 hover:bg-rose-50"
-                            onClick={() => {
-                              setShowResolveModal('REJECTED');
-                              setResolutionNotes('');
-                              setDisputeActionError(null);
-                            }}
-                            disabled={resolvingDispute}
-                          >
-                            <X className="w-3.5 h-3.5 mr-1 text-rose-600" />
-                            Reject Dispute
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="pt-2 flex justify-end">
-                      {!showDisputeForm ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs"
-                          onClick={() => {
-                            setShowDisputeForm(true);
-                            setDisputeActionError(null);
-                            setDisputeActionSuccess(null);
-                          }}
-                        >
-                          <Scale className="w-3.5 h-3.5 mr-1" />
-                          File Dispute
-                        </Button>
-                      ) : (
-                        <form onSubmit={handleCreateDispute} className="w-full border border-border rounded-md p-4 bg-muted/10 space-y-3">
+                  {!isVendor && (
+                    <>
+                      {call.commercial.dispute ? (
+                        <div className="border border-border/80 rounded-md p-4 bg-muted/20 space-y-3">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">File Buyer Dispute</span>
+                            <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Buyer Dispute</span>
+                            <Badge variant={call.commercial.dispute.status === 'ACCEPTED' ? 'error' : call.commercial.dispute.status === 'PENDING' ? 'warning' : 'outline'} className="text-[10px]">
+                              {call.commercial.dispute.status}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-foreground"><span className="text-muted-foreground font-medium">Reason:</span> {call.commercial.dispute.reason}</p>
+                          {call.commercial.dispute.description && (
+                            <p className="text-xs text-foreground"><span className="text-muted-foreground font-medium">Description:</span> {call.commercial.dispute.description}</p>
+                          )}
+                          {call.commercial.dispute.resolution_notes && (
+                            <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Resolution Notes:</span> {call.commercial.dispute.resolution_notes}</p>
+                          )}
+
+                          {call.commercial.dispute.status === 'PENDING' && (
+                            <div className="pt-2 border-t border-border flex flex-wrap gap-2 justify-end">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs text-emerald-600 border-emerald-500/30 hover:bg-emerald-50"
+                                onClick={() => {
+                                  setShowResolveModal('ACCEPTED');
+                                  setResolutionNotes('');
+                                  setDisputeActionError(null);
+                                }}
+                                disabled={resolvingDispute}
+                              >
+                                <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                                Accept Dispute
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs text-rose-600 border-rose-500/30 hover:bg-rose-50"
+                                onClick={() => {
+                                  setShowResolveModal('REJECTED');
+                                  setResolutionNotes('');
+                                  setDisputeActionError(null);
+                                }}
+                                disabled={resolvingDispute}
+                              >
+                                <X className="w-3.5 h-3.5 mr-1 text-rose-600" />
+                                Reject Dispute
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="pt-2 flex justify-end">
+                          {!showDisputeForm ? (
                             <Button
-                              type="button"
                               size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0 text-muted-foreground"
+                              variant="outline"
+                              className="text-xs"
                               onClick={() => {
-                                setShowDisputeForm(false);
+                                setShowDisputeForm(true);
                                 setDisputeActionError(null);
+                                setDisputeActionSuccess(null);
                               }}
                             >
-                              <X className="w-4 h-4" />
+                              <Scale className="w-3.5 h-3.5 mr-1" />
+                              File Dispute
                             </Button>
-                          </div>
-                          
-                          <div className="space-y-1">
-                            <Label htmlFor="dispute-reason" className="text-xs font-medium">Reason *</Label>
-                            <Input
-                              id="dispute-reason"
-                              placeholder="e.g. Call dropped under qualified threshold, invalid lead"
-                              value={disputeReason}
-                              onChange={(e) => setDisputeReason(e.target.value)}
-                              disabled={disputeSubmitting}
-                              required
-                              className="h-8 text-xs"
-                            />
-                          </div>
+                          ) : (
+                            <form onSubmit={handleCreateDispute} className="w-full border border-border rounded-md p-4 bg-muted/10 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">File Buyer Dispute</span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 text-muted-foreground"
+                                  onClick={() => {
+                                    setShowDisputeForm(false);
+                                    setDisputeActionError(null);
+                                  }}
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </div>
+                              
+                              <div className="space-y-1">
+                                <Label htmlFor="dispute-reason" className="text-xs font-medium">Reason *</Label>
+                                <Input
+                                  id="dispute-reason"
+                                  placeholder="e.g. Call dropped under qualified threshold, invalid lead"
+                                  value={disputeReason}
+                                  onChange={(e) => setDisputeReason(e.target.value)}
+                                  disabled={disputeSubmitting}
+                                  required
+                                  className="h-8 text-xs"
+                                />
+                              </div>
 
-                          <div className="space-y-1">
-                            <Label htmlFor="dispute-desc" className="text-xs font-medium">Description (Optional)</Label>
-                            <Input
-                              id="dispute-desc"
-                              placeholder="Additional details regarding the dispute"
-                              value={disputeDescription}
-                              onChange={(e) => setDisputeDescription(e.target.value)}
-                              disabled={disputeSubmitting}
-                              className="h-8 text-xs"
-                            />
-                          </div>
+                              <div className="space-y-1">
+                                <Label htmlFor="dispute-desc" className="text-xs font-medium">Description (Optional)</Label>
+                                <Input
+                                  id="dispute-desc"
+                                  placeholder="Additional details regarding the dispute"
+                                  value={disputeDescription}
+                                  onChange={(e) => setDisputeDescription(e.target.value)}
+                                  disabled={disputeSubmitting}
+                                  className="h-8 text-xs"
+                                />
+                              </div>
 
-                          <div className="flex items-center justify-end gap-2 pt-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={disputeSubmitting}
-                              onClick={() => setShowDisputeForm(false)}
-                              className="h-8 text-xs"
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              type="submit"
-                              size="sm"
-                              isLoading={disputeSubmitting}
-                              disabled={disputeSubmitting || !disputeReason.trim()}
-                              className="h-8 text-xs"
-                            >
-                              Submit Dispute
-                            </Button>
-                          </div>
-                        </form>
+                              <div className="flex items-center justify-end gap-2 pt-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={disputeSubmitting}
+                                  onClick={() => setShowDisputeForm(false)}
+                                  className="h-8 text-xs"
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  type="submit"
+                                  size="sm"
+                                  isLoading={disputeSubmitting}
+                                  disabled={disputeSubmitting || !disputeReason.trim()}
+                                  className="h-8 text-xs"
+                                >
+                                  Submit Dispute
+                                </Button>
+                              </div>
+                            </form>
+                          )}
+                        </div>
                       )}
-                    </div>
+                    </>
                   )}
 
                   {/* Feedback message banner */}
-                  {disputeActionError && (
+                  {!isVendor && disputeActionError && (
                     <div className="bg-error-muted text-error-muted-foreground p-3 rounded-md text-xs flex items-center gap-2">
                       <AlertCircle className="w-4 h-4 shrink-0" />
                       <span>{disputeActionError}</span>
                     </div>
                   )}
-                  {disputeActionSuccess && (
+                  {!isVendor && disputeActionSuccess && (
                     <div className="bg-success-muted text-success-muted-foreground p-3 rounded-md text-xs flex items-center gap-2">
                       <CheckCircle className="w-4 h-4 shrink-0" />
                       <span>{disputeActionSuccess}</span>
@@ -739,7 +770,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                 Routing Timeline
               </CardTitle>
               <CardDescription>
-                Sequence of buyer attempts.
+                {isVendor ? 'Sequence of routing attempts.' : 'Sequence of buyer attempts.'}
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6 flex-1">
@@ -764,7 +795,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                         <div className="flex flex-col gap-1.5">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-sm font-semibold text-foreground">
-                              {index + 1}. {attempt.buyer?.name || 'Unknown Buyer'}
+                              {isVendor ? `Attempt #${index + 1}` : `${index + 1}. ${attempt.buyer?.name || 'Unknown Buyer'}`}
                             </span>
                             <Badge variant={variant} className="text-[10px] h-5 px-1.5">
                               {attempt.state}

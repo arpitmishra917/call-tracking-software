@@ -229,4 +229,74 @@ describe('CallDetailPage Dispute & Adjustment UI (COMM-INTEGRATION-4)', () => {
       expect(screen.getByText('Adjusted Revenue:')).toBeDefined();
     });
   });
+
+  it('COMM-INTEGRATION-6: scopes vendor view by hiding disputes, buyer identities, and non-vendor economics', async () => {
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url === '/workspaces') {
+        return Promise.resolve([
+          { id: 'ws-test-456', role: 'MEMBER', participant_type: 'VENDOR' },
+        ]);
+      }
+      if (url.includes('/calls/call-vendor-1')) {
+        return Promise.resolve({
+          id: 'call-vendor-1',
+          from_number: '+15551234567',
+          to_number: '+15559876543',
+          state: 'COMPLETED',
+          created_at: '2026-10-01T10:00:00Z',
+          campaign: { name: 'Inbound Campaign' },
+          attempts: [
+            {
+              id: 'att-1',
+              state: 'COMPLETED',
+              buyer: { id: 'b-1', name: 'Secret Buyer Inc' },
+              started_at: '2026-10-01T10:00:01Z',
+              answered_at: '2026-10-01T10:00:05Z',
+              ended_at: '2026-10-01T10:02:05Z',
+            },
+          ],
+          commercial: {
+            id: 'comm-v-1',
+            status: 'FINAL',
+            qualified: true,
+            converted: true,
+            duplicate: false,
+            payout: 45.0,
+            currency: 'USD',
+            vendor: { id: 'v-1', name: 'Premier Vendor' },
+            // dispute, revenue, cost, profit omitted for vendor
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(<CallDetailPage params={{ callId: 'call-vendor-1' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Commercial Economics')).toBeDefined();
+    });
+
+    // Payout should be visible
+    expect(screen.getByTestId('detail-payout')).toBeDefined();
+    expect(screen.getByText('$45.00')).toBeDefined();
+
+    // Revenue, Cost, Profit should NOT be visible
+    expect(screen.queryByTestId('detail-revenue')).toBeNull();
+    expect(screen.queryByTestId('detail-cost')).toBeNull();
+    expect(screen.queryByTestId('detail-profit')).toBeNull();
+
+    // Dispute actions and sections should NOT be visible
+    expect(screen.queryByText('File Dispute')).toBeNull();
+    expect(screen.queryByText('Buyer Dispute')).toBeNull();
+
+    // Buyer identity should NOT be visible
+    expect(screen.queryByText('Final Buyer')).toBeNull();
+    expect(screen.queryByText('Commercial Buyer')).toBeNull();
+    expect(screen.queryByText('Secret Buyer Inc')).toBeNull();
+
+    // Timeline should show masked attempt
+    expect(screen.getByText('Attempt #1')).toBeDefined();
+    expect(screen.getByText('Sequence of routing attempts.')).toBeDefined();
+  });
 });
