@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import fs from 'fs';
 import path from 'path';
 
-dotenv.config({ path: 'apps/api/.env' });
+dotenv.config({ path: path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '../../apps/api/.env') });
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY; // Using service role key for simplicity, or we can use anon key if available.
@@ -19,7 +19,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY);
 async function run() {
   // Let's create a dummy user
   const email = `testuser_${Date.now()}@example.com`;
-  const password = "Password123!";
+  const password = process.env.TEST_USER_PASSWORD || "TestPasswordPlaceholder123!";
 
   const { data: user, error: signUpError } = await supabase.auth.admin.createUser({
     email,
