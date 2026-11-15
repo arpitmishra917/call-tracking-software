@@ -10,6 +10,13 @@ import { WebhookIdempotencyService } from './webhook-idempotency.service.js';
 import { CallsModule } from '../calls/calls.module.js';
 import { RecordingsController } from './recordings.controller.js';
 import { ReservationRecoveryService } from './reservation-recovery.service.js';
+import { QaTelephonyGuardService } from './qa/qa-telephony-guard.service.js';
+import { AsteriskAriClientService } from './qa/asterisk-ari-client.service.js';
+import { QaSipUriAdapterService } from './qa/qa-sip-uri-adapter.service.js';
+import { QaAudioAnalyzerService } from './qa/qa-audio-analyzer.service.js';
+import { QaOrchestratorService } from './qa/qa-orchestrator.service.js';
+import { QaTestController } from './qa/qa-test.controller.js';
+import { QaAuthGuard } from './qa/qa-auth.guard.js';
 
 import { AuthModule } from '../auth/auth.module.js';
 import { AuthorizationModule } from '../authorization/authorization.module.js';
@@ -38,22 +45,44 @@ import { CommercialModule } from '../commercial/commercial.module.js';
     TwilioProvider,
     {
       provide: TELEPHONY_PROVIDER,
-      useFactory: (telnyx: TelnyxProvider, twilio: TwilioProvider) => {
-        const provider = process.env.TELEPHONY_PROVIDER || process.env.ACTIVE_TELEPHONY_PROVIDER;
-        return provider === 'twilio'
-          ? twilio
-          : telnyx;
+      useFactory: (telnyx: TelnyxProvider) => {
+        const configuredProvider = (
+          process.env.TELEPHONY_PROVIDER ||
+          process.env.ACTIVE_TELEPHONY_PROVIDER ||
+          ''
+        ).toLowerCase();
+        if (configuredProvider === 'twilio') {
+          throw new Error(
+            'FATAL: Twilio provider has been retired and disabled. CallFlow exclusively uses Telnyx as its telephony provider.',
+          );
+        }
+        return telnyx;
       },
-      inject: [TelnyxProvider, TwilioProvider],
+      inject: [TelnyxProvider],
     },
     CallController,
     ReservationRecoveryService,
+    QaTelephonyGuardService,
+    AsteriskAriClientService,
+    QaSipUriAdapterService,
+    QaAudioAnalyzerService,
+    QaOrchestratorService,
+    QaAuthGuard,
   ],
   controllers: [
     TelnyxWebhookController,
-    TwilioWebhookController,
     RecordingsController,
+    QaTestController,
   ],
-  exports: [CallController, TELEPHONY_PROVIDER],
+  exports: [
+    CallController,
+    TELEPHONY_PROVIDER,
+    QaTelephonyGuardService,
+    AsteriskAriClientService,
+    QaSipUriAdapterService,
+    QaAudioAnalyzerService,
+    QaOrchestratorService,
+    QaAuthGuard,
+  ],
 })
 export class TelephonyModule {}

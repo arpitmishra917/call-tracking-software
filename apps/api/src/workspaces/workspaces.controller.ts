@@ -14,6 +14,8 @@ import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 import { WorkspacesService } from './workspaces.service.js';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission } from '../authorization/permissions.decorator.js';
 
 @Controller('workspaces')
 @UseGuards(JwtAuthGuard)
@@ -27,10 +29,6 @@ export class WorkspacesController {
 
   @Get()
   async getUserWorkspaces(@Request() req: any) {
-    console.log('[WorkspacesController] DIAGNOSTICS - req.user:', {
-      userId: req.user.userId,
-      email: req.user.email
-    });
     return this.workspacesService.getUserWorkspaces(req.user.userId);
   }
 
@@ -47,15 +45,19 @@ export class WorkspacesController {
   }
 
   @Get(':workspaceId/members')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('member:read')
   @RequireWorkspaceRoles(
     WorkspaceRole.OWNER,
     WorkspaceRole.ADMIN,
     WorkspaceRole.MEMBER,
     WorkspaceRole.VIEWER,
   )
-  async getMembers(@Param('workspaceId') workspaceId: string) {
-    return this.workspacesService.getWorkspaceMembers(workspaceId);
+  async getMembers(
+    @Param('workspaceId') workspaceId: string,
+    @Request() req: any,
+  ) {
+    return this.workspacesService.getWorkspaceMembers(workspaceId, req.user?.userId);
   }
 
   @Put(':workspaceId/settings')
@@ -100,6 +102,40 @@ export class WorkspacesController {
     @Request() req: any
   ) {
     return this.workspacesService.removeMember(workspaceId, userId, req.user.userId);
+  }
+
+  @Get(':workspaceId/members/:memberId/buyers')
+  @UseGuards(WorkspaceRolesGuard)
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  async getMemberBuyers(
+    @Param('workspaceId') workspaceId: string,
+    @Param('memberId') memberId: string,
+  ) {
+    return this.workspacesService.getMemberBuyers(workspaceId, memberId);
+  }
+
+  @Post(':workspaceId/members/:memberId/buyers')
+  @UseGuards(WorkspaceRolesGuard)
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  async linkBuyer(
+    @Param('workspaceId') workspaceId: string,
+    @Param('memberId') memberId: string,
+    @Body() body: { buyerId: string },
+    @Request() req: any,
+  ) {
+    return this.workspacesService.linkBuyerToMember(workspaceId, memberId, body.buyerId, req.user.userId);
+  }
+
+  @Delete(':workspaceId/members/:memberId/buyers/:buyerId')
+  @UseGuards(WorkspaceRolesGuard)
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  async unlinkBuyer(
+    @Param('workspaceId') workspaceId: string,
+    @Param('memberId') memberId: string,
+    @Param('buyerId') buyerId: string,
+    @Request() req: any,
+  ) {
+    return this.workspacesService.unlinkBuyerFromMember(workspaceId, memberId, buyerId, req.user.userId);
   }
 
   @Get(':workspaceId/invitations')

@@ -1,4 +1,6 @@
 import { PermissionsService } from '../permissions/permissions.service.js';
+import { isCallAuthorizedForVendor } from './call-authorization.util.js';
+import { maskCallerPhoneNumber, formatCallerDisplay, normalizeCallerNumber } from '../common/phone.utils.js';
 import { ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -62,6 +64,16 @@ export const VALID_ATTEMPT_TRANSITIONS: Record<
 
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 
+export interface ParticipantContext {
+  isOwnerOrAdmin: boolean;
+  isBuyer: boolean;
+  buyerId?: string;
+  buyerIds?: string[];
+  isVendor: boolean;
+  vendorId?: string;
+  isInternalMember: boolean;
+}
+
 @Injectable()
 export class CallsService {
   constructor(
@@ -74,14 +86,37 @@ export class CallsService {
   async createCall(data: {
     workspace_id: string;
     campaign_id?: string;
+    phone_number_id?: string | null;
+    vendor_id?: string | null;
+    attributed_vendor_id?: string | null;
+    attribution_source?: string | null;
     provider: string;
     provider_call_id: string;
     from_number: string;
     to_number: string;
   }): Promise<Call> {
+    const vendorId =
+      data.vendor_id && data.vendor_id.trim() !== '' ? data.vendor_id : null;
+    const attributedVendorId =
+      data.attributed_vendor_id !== undefined
+        ? (data.attributed_vendor_id && data.attributed_vendor_id.trim() !== ''
+            ? data.attributed_vendor_id
+            : null)
+        : vendorId;
+    const attributionSource =
+      data.attribution_source !== undefined
+        ? data.attribution_source
+        : (data.phone_number_id
+            ? (vendorId ? 'INGRESS_ASSIGNED' : 'INGRESS_UNASSIGNED')
+            : null);
+
     const call = await this.prisma.call.create({
       data: {
         ...data,
+        phone_number_id: data.phone_number_id ?? null,
+        vendor_id: vendorId,
+        attributed_vendor_id: attributedVendorId,
+        attribution_source: attributionSource,
         state: CallState.INITIATED,
       },
     });
@@ -151,7 +186,19 @@ export class CallsService {
       if (!call)
         throw new NotFoundException(`Call ${providerCallId} not found`);
 
-      // Cancel the call if it's not in a terminal state already
+      // If call is already finalized and terminal, idempotently return
+      const isAlreadyFinalized =
+        (call.ended_at !== null || call.duration_secs !== null) &&
+        (call.state === CallState.CANCELED ||
+          call.state === CallState.FAILED ||
+          call.state === CallState.NO_ANSWER ||
+          (call.state === CallState.COMPLETED && call.duration_secs !== null));
+
+      if (isAlreadyFinalized) {
+        return call;
+      }
+
+      // Determine final state
       let finalState = call.state;
       if (
         call.state === CallState.INITIATED ||
@@ -171,17 +218,40 @@ export class CallsService {
             where: { id: attempt.id },
             data: { state: CallAttemptState.CANCELED },
           });
+          await this.releaseBuyerReservation(attempt.id, tx);
+        } else if (attempt.state === CallAttemptState.ANSWERED) {
+          const now = new Date();
+          const durationSecs = attempt.answered_at
+            ? Math.max(0, Math.floor((now.getTime() - attempt.answered_at.getTime()) / 1000))
+            : undefined;
+          await tx.callAttempt.update({
+            where: { id: attempt.id },
+            data: {
+              state: CallAttemptState.COMPLETED,
+              ended_at: attempt.ended_at || now,
+              ...(durationSecs !== undefined && attempt.duration_secs === null ? { duration_secs: durationSecs } : {}),
+            },
+          });
+          await this.releaseBuyerReservation(attempt.id, tx);
         }
       }
+      await this.releaseBuyerReservationForCall(call.id, tx);
 
       const updateData: any = { state: finalState };
+      updateData.ended_at = call.ended_at || new Date();
       const computedDuration =
         durationSecs !== undefined
           ? durationSecs
-          : Math.floor(
-              (Date.now() - (call.created_at?.getTime?.() ?? Date.now())) /
-                1000,
-            );
+          : call.answered_at
+            ? Math.max(
+                0,
+                Math.floor(
+                  ((updateData.ended_at ? updateData.ended_at.getTime() : Date.now()) -
+                    call.answered_at.getTime()) /
+                    1000,
+                ),
+              )
+            : 0;
 
       if (this.isTerminalCallState(finalState) && call.duration_secs === null) {
         updateData.duration_secs = computedDuration;
@@ -210,16 +280,12 @@ export class CallsService {
       }
 
       // Fire webhooks
-      if (call.state !== finalState) {
+      if (call.state !== finalState || !call.ended_at) {
         if (finalState === CallState.FAILED) {
           this.webhooksService
             .queueEvent(updatedCall.workspace_id, 'call.blocked', updatedCall)
             .catch(console.error);
-        } else if (finalState === CallState.COMPLETED) {
-          this.webhooksService
-            .queueEvent(updatedCall.workspace_id, 'call.answered', updatedCall)
-            .catch(console.error);
-        } else if (this.isTerminalCallState(finalState)) {
+        } else if (finalState === CallState.COMPLETED || this.isTerminalCallState(finalState)) {
           this.webhooksService
             .queueEvent(updatedCall.workspace_id, 'call.ended', updatedCall)
             .catch(console.error);
@@ -228,6 +294,37 @@ export class CallsService {
 
       return updatedCall;
     });
+  }
+
+  
+  async releaseBuyerReservation(attemptId: string, tx?: any): Promise<void> {
+    const client = tx || this.prisma;
+    if (client?.buyerReservation?.updateMany) {
+      await client.buyerReservation.updateMany({
+        where: {
+          attempt_id: attemptId,
+          status: 'ACTIVE',
+        },
+        data: {
+          status: 'RELEASED',
+        },
+      });
+    }
+  }
+
+  async releaseBuyerReservationForCall(callId: string, tx?: any): Promise<void> {
+    const client = tx || this.prisma;
+    if (client?.buyerReservation?.updateMany) {
+      await client.buyerReservation.updateMany({
+        where: {
+          call_id: callId,
+          status: 'ACTIVE',
+        },
+        data: {
+          status: 'RELEASED',
+        },
+      });
+    }
   }
 
   async createCallAttempt(data: {
@@ -296,6 +393,7 @@ export class CallsService {
       if (newState !== attempt.state) {
         if (VALID_ATTEMPT_TRANSITIONS[newState].length === 0) {
           // It's a terminal state
+          await this.releaseBuyerReservation(attemptId, tx);
           const call = await tx.call.findUnique({
             where: { id: attempt.call_id },
           });
@@ -324,14 +422,21 @@ export class CallsService {
         return false;
       }
 
+      const now = new Date();
       await tx.callAttempt.update({
         where: { id: attemptId },
-        data: { state: CallAttemptState.ANSWERED },
+        data: {
+          state: CallAttemptState.ANSWERED,
+          answered_at: now,
+        },
       });
 
       const updatedCall = await tx.call.update({
         where: { id: callId },
-        data: { state: CallState.COMPLETED },
+        data: {
+          state: CallState.COMPLETED,
+          answered_at: now,
+        },
       });
 
       this.webhooksService
@@ -342,7 +447,26 @@ export class CallsService {
     });
   }
 
-  async handleBuyerHangup(callId: string, attemptId: string): Promise<{ action: 'HANGUP_CALLER' | 'DIAL_NEXT' | 'NONE', call?: any }> {
+  async handleBridgeFailure(callId: string, attemptId: string): Promise<any> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${callId} FOR UPDATE`;
+      await tx.callAttempt.update({
+        where: { id: attemptId },
+        data: { state: CallAttemptState.FAILED, ended_at: new Date() },
+      });
+      await this.releaseBuyerReservation(attemptId, tx);
+
+      const updatedCall = await tx.call.update({
+        where: { id: callId },
+        data: { state: CallState.ROUTING, answered_at: null },
+        include: { attempts: { include: { buyer: true }, orderBy: { created_at: 'asc' } } },
+      });
+
+      return updatedCall;
+    });
+  }
+
+  async handleBuyerHangup(callId: string, attemptId: string, hangupCause?: string): Promise<{ action: 'HANGUP_CALLER' | 'DIAL_NEXT' | 'NONE', call?: any }> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${callId} FOR UPDATE`;
       const call = await tx.call.findUnique({
@@ -363,18 +487,43 @@ export class CallsService {
       }
 
       if (call.state === CallState.COMPLETED && attempt.state === CallAttemptState.ANSWERED) {
+        const now = new Date();
+        const durationSecs = attempt.answered_at
+          ? Math.max(0, Math.floor((now.getTime() - attempt.answered_at.getTime()) / 1000))
+          : undefined;
         await tx.callAttempt.update({
           where: { id: attemptId },
-          data: { state: CallAttemptState.COMPLETED },
+          data: {
+            state: CallAttemptState.COMPLETED,
+            ended_at: now,
+            ...(durationSecs !== undefined ? { duration_secs: durationSecs } : {}),
+          },
         });
+        await this.releaseBuyerReservation(attemptId, tx);
         return { action: 'HANGUP_CALLER' };
       }
 
       if (call.state === CallState.ROUTING) {
+        let attemptState: CallAttemptState = CallAttemptState.NO_ANSWER;
+        const cause = (hangupCause || '').toUpperCase();
+        if (cause === 'ORIGINATOR_CANCEL') {
+          attemptState = CallAttemptState.CANCELED;
+        } else if (
+          cause === 'CALL_FAILED' ||
+          cause === 'UNALLOCATED_NUMBER' ||
+          cause === 'DESTINATION_OUT_OF_ORDER' ||
+          cause === 'NETWORK_OUT_OF_ORDER'
+        ) {
+          attemptState = CallAttemptState.FAILED;
+        } else {
+          attemptState = CallAttemptState.NO_ANSWER;
+        }
+
         await tx.callAttempt.update({
           where: { id: attemptId },
-          data: { state: CallAttemptState.NO_ANSWER },
+          data: { state: attemptState, ended_at: new Date() },
         });
+        await this.releaseBuyerReservation(attemptId, tx);
 
         const updatedCall = await tx.call.findUnique({
           where: { id: callId },
@@ -404,12 +553,13 @@ export class CallsService {
     return VALID_CALL_TRANSITIONS[state].length === 0;
   }
 
-  async getParticipantContext(workspaceId: string, userId: string = '') {
+  async getParticipantContext(workspaceId: string, userId: string = ''): Promise<ParticipantContext> {
     if (!userId) {
       return {
         isOwnerOrAdmin: true,
         isBuyer: false,
         buyerId: undefined as string | undefined,
+        buyerIds: [] as string[],
         isVendor: false,
         vendorId: undefined as string | undefined,
         isInternalMember: false,
@@ -429,17 +579,35 @@ export class CallsService {
         isOwnerOrAdmin: true,
         isBuyer: false,
         buyerId: undefined as string | undefined,
+        buyerIds: [] as string[],
         isVendor: false,
         vendorId: undefined as string | undefined,
         isInternalMember: false,
       };
     }
 
-    if (member.participant_type === 'BUYER' && member.buyer_id) {
+    if (member.participant_type === 'BUYER') {
+      let buyerIds: string[] = [];
+      if (this.prisma.workspaceMemberBuyer?.findMany) {
+        const links = await this.prisma.workspaceMemberBuyer.findMany({
+          where: { workspace_member_id: member.id, workspace_id: workspaceId },
+        });
+        if (links && links.length > 0) {
+          buyerIds = links.map((l: any) => l.buyer_id);
+        } else if (links && links.length === 0) {
+          buyerIds = [];
+        } else if (member.buyer_id) {
+          buyerIds = [member.buyer_id];
+        }
+      } else if (member.buyer_id) {
+        buyerIds = [member.buyer_id];
+      }
+
       return {
         isOwnerOrAdmin: false,
         isBuyer: true,
-        buyerId: member.buyer_id,
+        buyerId: buyerIds[0] || member.buyer_id || undefined,
+        buyerIds,
         isVendor: false,
         vendorId: undefined as string | undefined,
         isInternalMember: false,
@@ -451,6 +619,7 @@ export class CallsService {
         isOwnerOrAdmin: false,
         isBuyer: false,
         buyerId: undefined as string | undefined,
+        buyerIds: [] as string[],
         isVendor: true,
         vendorId: member.vendor_id,
         isInternalMember: false,
@@ -461,13 +630,14 @@ export class CallsService {
       isOwnerOrAdmin: false,
       isBuyer: false,
       buyerId: undefined as string | undefined,
+      buyerIds: [] as string[],
       isVendor: false,
       vendorId: undefined as string | undefined,
       isInternalMember: true,
     };
   }
 
-  sanitizeCommercial(rawCommercial: any, ctx: { isOwnerOrAdmin: boolean; isBuyer: boolean; isVendor: boolean; isInternalMember: boolean }) {
+  sanitizeCommercial(rawCommercial: any, ctx: ParticipantContext) {
     if (!rawCommercial) return null;
 
     if (ctx.isOwnerOrAdmin) {
@@ -490,6 +660,10 @@ export class CallsService {
     }
 
     if (ctx.isBuyer) {
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      if (!rawCommercial || !rawCommercial.buyer_id || !allowedBuyerIds.includes(rawCommercial.buyer_id)) {
+        return null;
+      }
       return {
         id: rawCommercial.id,
         status: rawCommercial.status,
@@ -528,7 +702,7 @@ export class CallsService {
     };
   }
 
-  sanitizeCommercialDetail(rawCommercial: any, ctx: { isOwnerOrAdmin: boolean; isBuyer: boolean; isVendor: boolean; isInternalMember: boolean }) {
+  sanitizeCommercialDetail(rawCommercial: any, ctx: ParticipantContext) {
     if (!rawCommercial) return null;
 
     if (ctx.isOwnerOrAdmin) {
@@ -536,6 +710,10 @@ export class CallsService {
     }
 
     if (ctx.isBuyer) {
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      if (!rawCommercial || !rawCommercial.buyer_id || !allowedBuyerIds.includes(rawCommercial.buyer_id)) {
+        return null;
+      }
       const comm: any = {
         id: rawCommercial.id,
         workspace_id: rawCommercial.workspace_id,
@@ -633,7 +811,7 @@ export class CallsService {
     };
   }
 
-  sanitizeMetrics(metrics: any, ctx: { isOwnerOrAdmin: boolean; isBuyer: boolean; buyerId?: string; isVendor: boolean; isInternalMember: boolean }) {
+  sanitizeMetrics(metrics: any, ctx: ParticipantContext) {
     if (ctx.isOwnerOrAdmin) {
       return metrics;
     }
@@ -652,8 +830,9 @@ export class CallsService {
       }
 
       if (metrics.buyers) {
+        const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
         for (const k of Object.keys(metrics.buyers)) {
-          if (k !== ctx.buyerId) {
+          if (!allowedBuyerIds.includes(k)) {
             delete metrics.buyers[k];
           } else {
             delete metrics.buyers[k].payout;
@@ -767,6 +946,7 @@ export class CallsService {
     filters: {
       campaignId?: string;
       buyerId?: string;
+      vendorId?: string;
       status?: CallState;
       callerNumber?: string;
       trackingNumber?: string;
@@ -792,16 +972,29 @@ export class CallsService {
     let authOrConditions: any[] = [];
     if (!hasAll) {
       let assignedBuyerId = null;
+      let assignedVendorId = null;
       if (hasAssigned) {
         const member = await this.prisma.workspaceMember.findUnique({
           where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }
         });
         assignedBuyerId = member?.buyer_id;
+        assignedVendorId = member?.vendor_id;
       }
       
       if (assignedBuyerId) {
         authOrConditions.push({ campaign: { buyers: { some: { buyer_id: assignedBuyerId } } } });
         authOrConditions.push({ attempts: { some: { buyer_id: assignedBuyerId } } });
+      }
+
+      if (assignedVendorId) {
+        authOrConditions.push({
+          attribution_source: 'INGRESS_ASSIGNED',
+          attributed_vendor_id: assignedVendorId,
+        });
+        authOrConditions.push({
+          attribution_source: 'LEGACY_COMMERCIAL',
+          commercial: { vendor_id: assignedVendorId },
+        });
       }
       
       if (campaignIds.length > 0) {
@@ -837,7 +1030,7 @@ export class CallsService {
       
       let durationSql = filters.durationType === 'talk' 
           ? Prisma.sql`EXTRACT(EPOCH FROM (ended_at - answered_at))` 
-          : Prisma.sql`EXTRACT(EPOCH FROM (ended_at - started_at))`;
+          : Prisma.sql`EXTRACT(EPOCH FROM (ended_at - COALESCE(started_at, created_at)))`;
 
       let maxCondition = Prisma.sql`1=1`;
       if (filters.maxDurationSecs !== undefined) {
@@ -846,7 +1039,7 @@ export class CallsService {
 
       let notNullCondition = filters.durationType === 'talk'
           ? Prisma.sql`ended_at IS NOT NULL AND answered_at IS NOT NULL`
-          : Prisma.sql`ended_at IS NOT NULL AND started_at IS NOT NULL`;
+          : Prisma.sql`ended_at IS NOT NULL AND (started_at IS NOT NULL OR created_at IS NOT NULL)`;
 
       const results = await this.prisma.$queryRaw<{id: string}[]>`
         SELECT id FROM "calls" 
@@ -861,7 +1054,16 @@ export class CallsService {
     const ctx = await this.getParticipantContext(workspaceId, userId);
 
     if (ctx.isBuyer) {
-      if (filters.buyerId && filters.buyerId !== ctx.buyerId) {
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      if (allowedBuyerIds.length === 0) {
+        return { items: [], total: 0 };
+      }
+      if (filters.buyerId && !allowedBuyerIds.includes(filters.buyerId)) {
+        return { items: [], total: 0 };
+      }
+    }
+    if (ctx.isVendor) {
+      if (filters.vendorId && filters.vendorId !== ctx.vendorId) {
         return { items: [], total: 0 };
       }
     }
@@ -869,9 +1071,24 @@ export class CallsService {
     const where: any = { workspace_id: workspaceId };
 
     if (ctx.isBuyer) {
-      where.commercial = { buyer_id: ctx.buyerId };
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      const targetBuyerIds = filters.buyerId ? [filters.buyerId] : allowedBuyerIds;
+      const buyerTarget = targetBuyerIds.length === 1 ? targetBuyerIds[0] : { in: targetBuyerIds };
+      where.OR = [
+        { commercial: { buyer_id: buyerTarget } },
+        { attempts: { some: { buyer_id: buyerTarget } } },
+      ];
     } else if (ctx.isVendor) {
-      where.commercial = { vendor_id: ctx.vendorId };
+      where.OR = [
+        {
+          attribution_source: 'INGRESS_ASSIGNED',
+          attributed_vendor_id: ctx.vendorId,
+        },
+        {
+          attribution_source: 'LEGACY_COMMERCIAL',
+          commercial: { vendor_id: ctx.vendorId },
+        },
+      ];
     }
 
     if (authOrConditions.length > 0) {
@@ -890,6 +1107,18 @@ export class CallsService {
         some: { buyer_id: filters.buyerId },
       };
     }
+    if (filters.vendorId && !ctx.isVendor) {
+      where.OR = [
+        {
+          attribution_source: 'INGRESS_ASSIGNED',
+          attributed_vendor_id: filters.vendorId,
+        },
+        {
+          attribution_source: 'LEGACY_COMMERCIAL',
+          commercial: { vendor_id: filters.vendorId },
+        },
+      ];
+    }
     if (filters.status) {
       if (!Object.values(CallState).includes(filters.status as CallState)) {
         throw new BadRequestException(`Invalid status: ${filters.status}`);
@@ -897,7 +1126,20 @@ export class CallsService {
       where.state = filters.status;
     }
     if (filters.callerNumber) {
-      where.from_number = { contains: filters.callerNumber };
+      const normSearch = normalizeCallerNumber(filters.callerNumber) || filters.callerNumber;
+      const searchTerms = [filters.callerNumber];
+      if (normSearch && !searchTerms.includes(normSearch)) {
+        searchTerms.push(normSearch);
+      }
+      const digits = filters.callerNumber.replace(/\D/g, '');
+      if (digits && digits.length >= 7 && !searchTerms.includes(digits)) {
+        searchTerms.push(digits);
+      }
+      if (searchTerms.length === 1) {
+        where.from_number = { contains: filters.callerNumber };
+      } else {
+        where.OR = searchTerms.map(term => ({ from_number: { contains: term } }));
+      }
     }
     if (filters.trackingNumber) {
       where.to_number = filters.trackingNumber;
@@ -920,7 +1162,10 @@ export class CallsService {
         include: {
           campaign: { select: { name: true } },
           attempts: {
-            include: { buyer: { select: { name: true } } },
+            include: {
+              buyer: { select: { name: true, destination_number: true } },
+              destination_ref: { select: { id: true, name: true, destination_number: true } },
+            },
             orderBy: { created_at: 'asc' },
           },
           recordings: true,
@@ -933,7 +1178,7 @@ export class CallsService {
                   resolved_at: true,
                 },
               },
-              buyer: { select: { id: true, name: true } },
+              buyer: { select: { id: true, name: true, destination_number: true } },
               vendor: { select: { id: true, name: true } },
             },
           },
@@ -948,13 +1193,39 @@ export class CallsService {
     const mappedItems = items.map((call: any) => {
        let talkDurationSecs: number | null = null;
        let totalDurationSecs: number | null = null;
-       
-       if (call.ended_at && call.answered_at && call.ended_at >= call.answered_at) {
-          talkDurationSecs = Math.floor((call.ended_at.getTime() - call.answered_at.getTime()) / 1000);
+
+       const connectedAttempt = call.attempts?.find(
+         (a: any) =>
+           (a.state === CallAttemptState.COMPLETED || a.state === CallAttemptState.ANSWERED) &&
+           a.answered_at,
+       );
+       const latestAttemptEndedAt = call.attempts?.reduce((max: Date | null, a: any) => {
+         if (!a.ended_at) return max;
+         const d = a.ended_at instanceof Date ? a.ended_at : new Date(a.ended_at);
+         return !max || d > max ? d : max;
+       }, null);
+
+       const effectiveEndedAt =
+         call.ended_at ||
+         (call.state === CallState.COMPLETED ? connectedAttempt?.ended_at : null) ||
+         latestAttemptEndedAt;
+       const effectiveAnsweredAt =
+         call.answered_at ||
+         (call.state === CallState.COMPLETED ? connectedAttempt?.answered_at : null);
+
+       if (effectiveEndedAt && effectiveAnsweredAt && effectiveEndedAt >= effectiveAnsweredAt && call.state !== CallState.NO_ANSWER && call.state !== CallState.FAILED) {
+         talkDurationSecs = Math.max(0, Math.floor((effectiveEndedAt.getTime() - effectiveAnsweredAt.getTime()) / 1000));
+       } else if (call.state === CallState.COMPLETED && call.duration_secs !== null && call.duration_secs !== undefined) {
+         talkDurationSecs = call.duration_secs;
+       } else if (call.duration_secs !== null && call.duration_secs !== undefined && call.answered_at) {
+         talkDurationSecs = call.duration_secs;
        }
-       
-       if (call.ended_at && call.started_at && call.ended_at >= call.started_at) {
-          totalDurationSecs = Math.floor((call.ended_at.getTime() - call.started_at.getTime()) / 1000);
+
+       if (effectiveEndedAt) {
+         const start = call.started_at || call.created_at;
+         if (start && effectiveEndedAt >= start) {
+           totalDurationSecs = Math.max(0, Math.floor((effectiveEndedAt.getTime() - start.getTime()) / 1000));
+         }
        }
 
        const commercial = this.sanitizeCommercial(call.commercial, ctx);
@@ -966,17 +1237,28 @@ export class CallsService {
            return rest;
          });
        }
+       if (ctx.isBuyer && attempts) {
+         const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+         attempts = attempts.filter((a: any) => a.buyer_id != null && allowedBuyerIds.includes(a.buyer_id));
+       }
+
+       const fromNumber = formatCallerDisplay(call.from_number, ctx.isVendor);
+
+       const allowedBuyerIdsForRecordings = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
 
        return {
           ...call,
+          from_number: fromNumber,
+          raw_from_number: call.from_number,
           talkDurationSecs,
           totalDurationSecs,
           attempts,
           commercial,
-          recordings: call.recordings ? call.recordings.map((r: any) => ({
-             id: r.id,
-             status: r.status
-          })) : []
+          recordings: call.recordings ? (
+             (ctx.isBuyer && (!call.commercial?.buyer_id || !allowedBuyerIdsForRecordings.includes(call.commercial.buyer_id)))
+               ? []
+               : call.recordings.map((r: any) => ({ id: r.id, status: r.status }))
+          ) : []
        };
     });
 
@@ -988,7 +1270,18 @@ export class CallsService {
     const count = await this.prisma.call.count({
       where: {
         workspace_id: workspaceId,
-        state: { in: ['INITIATED', 'ROUTING'] },
+        state: CallState.COMPLETED,
+        ended_at: null,
+        answered_at: { not: null },
+        attempts: {
+          some: {
+            state: CallAttemptState.ANSWERED,
+            ended_at: null,
+          },
+        },
+        callReservation: {
+          status: 'ACTIVE',
+        },
       },
     });
     return { liveCalls: count };
@@ -1002,7 +1295,10 @@ export class CallsService {
       include: {
         campaign: { select: { name: true } },
         attempts: {
-          include: { buyer: { select: { name: true } } },
+          include: {
+            buyer: { select: { name: true, destination_number: true } },
+            destination_ref: { select: { id: true, name: true, destination_number: true } },
+          },
           orderBy: { created_at: 'asc' },
         },
         recordings: true,
@@ -1010,7 +1306,7 @@ export class CallsService {
           include: {
             dispute: true,
             adjustment: true,
-            buyer: { select: { id: true, name: true } },
+            buyer: { select: { id: true, name: true, destination_number: true } },
             vendor: { select: { id: true, name: true } },
           },
         },
@@ -1020,13 +1316,16 @@ export class CallsService {
     if (!call) throw new NotFoundException(`Call ${callId} not found`);
 
     if (ctx.isBuyer) {
-      if (!call.commercial || call.commercial.buyer_id !== ctx.buyerId) {
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      const isAttributedCommercial = Boolean(call.commercial?.buyer_id != null && allowedBuyerIds.includes(call.commercial.buyer_id));
+      const isAttributedAttempt = Boolean(call.attempts?.some((a: any) => a.buyer_id != null && allowedBuyerIds.includes(a.buyer_id)));
+      if (!isAttributedCommercial && !isAttributedAttempt) {
         throw new ForbiddenException('Access denied to call');
       }
     }
 
     if (ctx.isVendor) {
-      if (!call.commercial || call.commercial.vendor_id !== ctx.vendorId) {
+      if (!isCallAuthorizedForVendor(call, workspaceId, ctx.vendorId!)) {
         throw new ForbiddenException('Access denied to call');
       }
     }
@@ -1040,9 +1339,68 @@ export class CallsService {
         return rest;
       });
     }
+    if (ctx.isBuyer && attempts) {
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      attempts = attempts.filter((a: any) => a.buyer_id != null && allowedBuyerIds.includes(a.buyer_id));
+    }
+
+    let talkDurationSecs: number | null = null;
+    let totalDurationSecs: number | null = null;
+
+    const connectedAttempt = call.attempts?.find(
+      (a: any) =>
+        (a.state === CallAttemptState.COMPLETED || a.state === CallAttemptState.ANSWERED) &&
+        a.answered_at,
+    );
+    const latestAttemptEndedAt = call.attempts?.reduce((max: Date | null, a: any) => {
+      if (!a.ended_at) return max;
+      const d = a.ended_at instanceof Date ? a.ended_at : new Date(a.ended_at);
+      return !max || d > max ? d : max;
+    }, null);
+
+    const effectiveEndedAt =
+      call.ended_at ||
+      (call.state === CallState.COMPLETED ? connectedAttempt?.ended_at : null) ||
+      latestAttemptEndedAt;
+    const effectiveAnsweredAt =
+      call.answered_at ||
+      (call.state === CallState.COMPLETED ? connectedAttempt?.answered_at : null);
+
+    if (effectiveEndedAt && effectiveAnsweredAt && effectiveEndedAt >= effectiveAnsweredAt && call.state !== CallState.NO_ANSWER && call.state !== CallState.FAILED) {
+      talkDurationSecs = Math.max(0, Math.floor((effectiveEndedAt.getTime() - effectiveAnsweredAt.getTime()) / 1000));
+    } else if (call.state === CallState.COMPLETED && call.duration_secs !== null && call.duration_secs !== undefined) {
+      talkDurationSecs = call.duration_secs;
+    } else if (call.duration_secs !== null && call.duration_secs !== undefined && call.answered_at) {
+      talkDurationSecs = call.duration_secs;
+    }
+
+    if (effectiveEndedAt) {
+      const start = call.started_at || call.created_at;
+      if (start && effectiveEndedAt >= start) {
+        totalDurationSecs = Math.max(0, Math.floor((effectiveEndedAt.getTime() - start.getTime()) / 1000));
+      }
+    }
+
+    let recordings = call.recordings ? call.recordings.map((r: any) => ({ id: r.id, status: r.status })) : [];
+    if (ctx.isBuyer) {
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      if (!call.commercial?.buyer_id || !allowedBuyerIds.includes(call.commercial.buyer_id)) {
+        recordings = [];
+      }
+    }
+    if (ctx.isVendor && (!ctx.vendorId || !isCallAuthorizedForVendor(call, workspaceId, ctx.vendorId))) {
+      recordings = [];
+    }
+
+    const fromNumber = formatCallerDisplay(call.from_number, ctx.isVendor);
 
     return {
       ...call,
+      from_number: fromNumber,
+      raw_from_number: call.from_number,
+      recordings,
+      talkDurationSecs,
+      totalDurationSecs,
       attempts,
       commercial: sanitizedCommercial,
     };
@@ -1056,6 +1414,7 @@ export class CallsService {
       endDate?: string;
       campaignId?: string;
       buyerId?: string;
+      vendorId?: string;
       trackingNumber?: string;
       callerNumber?: string;
       status?: string;
@@ -1082,7 +1441,16 @@ export class CallsService {
     const ctx = await this.getParticipantContext(workspaceId, userId);
 
     if (ctx.isBuyer) {
-      if (filters.buyerId && filters.buyerId !== ctx.buyerId) {
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      if (allowedBuyerIds.length === 0) {
+        return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
+      }
+      if (filters.buyerId && !allowedBuyerIds.includes(filters.buyerId)) {
+        return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
+      }
+    }
+    if (ctx.isVendor) {
+      if (filters.vendorId && filters.vendorId !== ctx.vendorId) {
         return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
       }
     }
@@ -1093,11 +1461,17 @@ export class CallsService {
     const hasAll = readPerms.some((p: any) => p.scope_type === 'ALL');
     const hasAssigned = readPerms.some((p: any) => p.scope_type === 'ASSIGNED');
     
-    let assignedBuyerId = null;
+    let assignedBuyerIds: string[] = [];
+    let assignedVendorId = null;
     if (!hasAll && hasAssigned) {
       const member = await this.prisma.workspaceMember.findUnique({ where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }});
-      assignedBuyerId = member?.buyer_id;
-      if (!assignedBuyerId && !ctx.isVendor) {
+      if (member?.participant_type === 'BUYER') {
+        assignedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (member.buyer_id ? [member.buyer_id] : []);
+      } else {
+        assignedBuyerIds = member?.buyer_id ? [member.buyer_id] : [];
+      }
+      assignedVendorId = member?.vendor_id;
+      if (assignedBuyerIds.length === 0 && !assignedVendorId && !ctx.isVendor) {
          return this.sanitizeMetrics(this.getEmptyMetrics(), ctx);
       }
     }
@@ -1106,16 +1480,42 @@ export class CallsService {
     const conditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
 
     if (ctx.isBuyer) {
-      conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_b WHERE ccom_b.call_id = c.id AND ccom_b.buyer_id = ${ctx.buyerId})`);
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      const targetBuyerIds = filters.buyerId ? [filters.buyerId] : allowedBuyerIds;
+      if (targetBuyerIds.length === 1) {
+        const bid = targetBuyerIds[0];
+        conditions.push(Prisma.sql`(EXISTS (SELECT 1 FROM call_commercials ccom_b WHERE ccom_b.call_id = c.id AND ccom_b.buyer_id = ${bid}) OR (NOT EXISTS (SELECT 1 FROM call_commercials ccom_any WHERE ccom_any.call_id = c.id) AND EXISTS (SELECT 1 FROM call_attempts ca_b WHERE ca_b.call_id = c.id AND ca_b.buyer_id = ${bid})))`);
+      } else if (targetBuyerIds.length > 1) {
+        conditions.push(Prisma.sql`(EXISTS (SELECT 1 FROM call_commercials ccom_b WHERE ccom_b.call_id = c.id AND ccom_b.buyer_id IN (${Prisma.join(targetBuyerIds)})) OR (NOT EXISTS (SELECT 1 FROM call_commercials ccom_any WHERE ccom_any.call_id = c.id) AND EXISTS (SELECT 1 FROM call_attempts ca_b WHERE ca_b.call_id = c.id AND ca_b.buyer_id IN (${Prisma.join(targetBuyerIds)}))))`);
+      } else {
+        conditions.push(Prisma.sql`1=0`);
+      }
     } else if (ctx.isVendor) {
-      conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_v WHERE ccom_v.call_id = c.id AND ccom_v.vendor_id = ${ctx.vendorId})`);
+      conditions.push(Prisma.sql`(
+        (c.attribution_source = 'INGRESS_ASSIGNED' AND c.attributed_vendor_id = ${ctx.vendorId})
+        OR
+        (c.attribution_source = 'LEGACY_COMMERCIAL' AND EXISTS (SELECT 1 FROM call_commercials ccom_v WHERE ccom_v.call_id = c.id AND ccom_v.vendor_id = ${ctx.vendorId}))
+      )`);
     }
     
     if (!hasAll) {
       let authOrConditionsRaw: any[] = [];
       
-      if (hasAssigned && assignedBuyerId) {
-        authOrConditionsRaw.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id = ${assignedBuyerId}) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id = ${assignedBuyerId}))`);
+      if (hasAssigned && assignedBuyerIds.length > 0) {
+        if (assignedBuyerIds.length === 1) {
+          const abId = assignedBuyerIds[0];
+          authOrConditionsRaw.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id = ${abId}) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id = ${abId}))`);
+        } else {
+          authOrConditionsRaw.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id IN (${Prisma.join(assignedBuyerIds)})) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id IN (${Prisma.join(assignedBuyerIds)})))`);
+        }
+      }
+
+      if (hasAssigned && assignedVendorId) {
+        authOrConditionsRaw.push(Prisma.sql`(
+          (c.attribution_source = 'INGRESS_ASSIGNED' AND c.attributed_vendor_id = ${assignedVendorId})
+          OR
+          (c.attribution_source = 'LEGACY_COMMERCIAL' AND EXISTS (SELECT 1 FROM call_commercials ccom_v WHERE ccom_v.call_id = c.id AND ccom_v.vendor_id = ${assignedVendorId}))
+        )`);
       }
       
       const campaignIds = readPerms.filter((p: any) => p.scope_type === 'CAMPAIGN' && p.resource_id).map((p: any) => p.resource_id);
@@ -1143,17 +1543,44 @@ export class CallsService {
     }
   
   
-    if (filters.startDate) conditions.push(Prisma.sql`c.created_at >= ${new Date(filters.startDate)}`);
-    if (filters.endDate) conditions.push(Prisma.sql`c.created_at <= ${new Date(filters.endDate)}`);
+    if (filters.startDate) {
+      const start = new Date(filters.startDate.includes('T') ? filters.startDate : `${filters.startDate}T00:00:00Z`);
+      conditions.push(Prisma.sql`c.created_at >= ${start}`);
+    }
+    if (filters.endDate) {
+      if (filters.endDate.includes('T')) {
+        conditions.push(Prisma.sql`c.created_at <= ${new Date(filters.endDate)}`);
+      } else {
+        const end = new Date(`${filters.endDate}T00:00:00Z`);
+        end.setUTCDate(end.getUTCDate() + 1);
+        conditions.push(Prisma.sql`c.created_at < ${end}`);
+      }
+    }
     if (filters.campaignId) conditions.push(Prisma.sql`c.campaign_id = ${filters.campaignId}`);
     if (filters.trackingNumber) conditions.push(Prisma.sql`c.to_number = ${filters.trackingNumber}`);
-    if (filters.callerNumber) conditions.push(Prisma.sql`c.from_number = ${filters.callerNumber}`);
+    if (filters.callerNumber) {
+      const normSearch = normalizeCallerNumber(filters.callerNumber) || filters.callerNumber;
+      conditions.push(Prisma.sql`(
+        c.from_number = ${filters.callerNumber}
+        OR c.from_number = ${normSearch}
+        OR c.from_number LIKE ${filters.callerNumber + '@%'}
+        OR c.from_number LIKE ${normSearch + '@%'}
+        OR c.from_number LIKE ${'%' + filters.callerNumber + '%'}
+      )`);
+    }
     if (filters.status) conditions.push(Prisma.sql`c.state = ${filters.status}::"CallState"`);
     if (filters.minDuration) conditions.push(Prisma.sql`c.duration_secs >= ${Number(filters.minDuration)}`);
     if (filters.maxDuration) conditions.push(Prisma.sql`c.duration_secs <= ${Number(filters.maxDuration)}`);
     
-    if (filters.buyerId) {
+    if (filters.buyerId && !ctx.isBuyer) {
       conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_attempts ca WHERE ca.call_id = c.id AND ca.buyer_id = ${filters.buyerId})`);
+    }
+    if (filters.vendorId && !ctx.isVendor) {
+      conditions.push(Prisma.sql`(
+        (c.attribution_source = 'INGRESS_ASSIGNED' AND c.attributed_vendor_id = ${filters.vendorId})
+        OR
+        (c.attribution_source = 'LEGACY_COMMERCIAL' AND EXISTS (SELECT 1 FROM call_commercials ccom_fv WHERE ccom_fv.call_id = c.id AND ccom_fv.vendor_id = ${filters.vendorId}))
+      )`);
     }
 
     const whereClause = Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`;
@@ -1264,22 +1691,57 @@ export class CallsService {
 
     const buyerConditions = [Prisma.sql`c.workspace_id = ${workspaceId}`];
     if (ctx.isBuyer) {
-      buyerConditions.push(Prisma.sql`a.buyer_id = ${ctx.buyerId}`);
-      buyerConditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_bb WHERE ccom_bb.call_id = c.id AND ccom_bb.buyer_id = ${ctx.buyerId})`);
+      const allowedBuyerIds = ctx.buyerIds !== undefined ? ctx.buyerIds : (ctx.buyerId ? [ctx.buyerId] : []);
+      const targetBuyerIds = filters.buyerId ? [filters.buyerId] : allowedBuyerIds;
+      if (targetBuyerIds.length === 1) {
+        buyerConditions.push(Prisma.sql`a.buyer_id = ${targetBuyerIds[0]}`);
+        buyerConditions.push(Prisma.sql`(EXISTS (SELECT 1 FROM call_commercials ccom_bb WHERE ccom_bb.call_id = c.id AND ccom_bb.buyer_id = ${targetBuyerIds[0]}) OR NOT EXISTS (SELECT 1 FROM call_commercials ccom_any_b WHERE ccom_any_b.call_id = c.id))`);
+      } else if (targetBuyerIds.length > 1) {
+        buyerConditions.push(Prisma.sql`a.buyer_id IN (${Prisma.join(targetBuyerIds)})`);
+        buyerConditions.push(Prisma.sql`(EXISTS (SELECT 1 FROM call_commercials ccom_bb WHERE ccom_bb.call_id = c.id AND ccom_bb.buyer_id IN (${Prisma.join(targetBuyerIds)})) OR NOT EXISTS (SELECT 1 FROM call_commercials ccom_any_b WHERE ccom_any_b.call_id = c.id))`);
+      } else {
+        buyerConditions.push(Prisma.sql`1=0`);
+      }
     } else if (ctx.isVendor) {
-      buyerConditions.push(Prisma.sql`EXISTS (SELECT 1 FROM call_commercials ccom_vv WHERE ccom_vv.call_id = c.id AND ccom_vv.vendor_id = ${ctx.vendorId})`);
-    } else if (!hasAll && hasAssigned && assignedBuyerId) {
-      buyerConditions.push(Prisma.sql`a.buyer_id = ${assignedBuyerId}`);
+      buyerConditions.push(Prisma.sql`1=0`);
+    } else if (!hasAll && hasAssigned) {
+      if (assignedBuyerIds.length === 1) {
+        buyerConditions.push(Prisma.sql`a.buyer_id = ${assignedBuyerIds[0]}`);
+      } else if (assignedBuyerIds.length > 1) {
+        buyerConditions.push(Prisma.sql`a.buyer_id IN (${Prisma.join(assignedBuyerIds)})`);
+      } else {
+        buyerConditions.push(Prisma.sql`1=0`);
+      }
     }
-    if (filters.startDate) buyerConditions.push(Prisma.sql`c.created_at >= ${new Date(filters.startDate)}`);
-    if (filters.endDate) buyerConditions.push(Prisma.sql`c.created_at <= ${new Date(filters.endDate)}`);
+    if (filters.startDate) {
+      const start = new Date(filters.startDate.includes('T') ? filters.startDate : `${filters.startDate}T00:00:00Z`);
+      buyerConditions.push(Prisma.sql`c.created_at >= ${start}`);
+    }
+    if (filters.endDate) {
+      if (filters.endDate.includes('T')) {
+        buyerConditions.push(Prisma.sql`c.created_at <= ${new Date(filters.endDate)}`);
+      } else {
+        const end = new Date(`${filters.endDate}T00:00:00Z`);
+        end.setUTCDate(end.getUTCDate() + 1);
+        buyerConditions.push(Prisma.sql`c.created_at < ${end}`);
+      }
+    }
     if (filters.campaignId) buyerConditions.push(Prisma.sql`c.campaign_id = ${filters.campaignId}`);
     if (filters.trackingNumber) buyerConditions.push(Prisma.sql`c.to_number = ${filters.trackingNumber}`);
-    if (filters.callerNumber) buyerConditions.push(Prisma.sql`c.from_number = ${filters.callerNumber}`);
+    if (filters.callerNumber) {
+      const normSearch = normalizeCallerNumber(filters.callerNumber) || filters.callerNumber;
+      buyerConditions.push(Prisma.sql`(
+        c.from_number = ${filters.callerNumber}
+        OR c.from_number = ${normSearch}
+        OR c.from_number LIKE ${filters.callerNumber + '@%'}
+        OR c.from_number LIKE ${normSearch + '@%'}
+        OR c.from_number LIKE ${'%' + filters.callerNumber + '%'}
+      )`);
+    }
     if (filters.status) buyerConditions.push(Prisma.sql`c.state = ${filters.status}::"CallState"`);
     if (filters.minDuration) buyerConditions.push(Prisma.sql`c.duration_secs >= ${Number(filters.minDuration)}`);
     if (filters.maxDuration) buyerConditions.push(Prisma.sql`c.duration_secs <= ${Number(filters.maxDuration)}`);
-    if (filters.buyerId) buyerConditions.push(Prisma.sql`a.buyer_id = ${filters.buyerId}`);
+    if (filters.buyerId && !ctx.isBuyer) buyerConditions.push(Prisma.sql`a.buyer_id = ${filters.buyerId}`);
 
     const buyerWhere = Prisma.sql`WHERE ${Prisma.join(buyerConditions, ' AND ')} AND a.buyer_id IS NOT NULL`;
 
@@ -1533,11 +1995,26 @@ export class CallsService {
       await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${initialAttempt.call_id} FOR UPDATE`;
       const call = await tx.call.findUnique({ where: { id: initialAttempt.call_id } });
 
+      if (
+        initialAttempt.state === CallAttemptState.ANSWERED ||
+        initialAttempt.state === CallAttemptState.COMPLETED ||
+        call?.state === CallState.COMPLETED
+      ) {
+        if (!initialAttempt.provider_call_id) {
+          await tx.callAttempt.update({
+            where: { id: attemptId },
+            data: { provider_call_id: providerCallId },
+          });
+        }
+        return false;
+      }
+
       if (!call || call.state !== CallState.ROUTING) {
         await tx.callAttempt.update({
           where: { id: attemptId },
           data: { provider_call_id: providerCallId, state: CallAttemptState.CANCELED },
         });
+        await this.releaseBuyerReservation(attemptId, tx);
         return true;
       }
 
@@ -1550,10 +2027,11 @@ export class CallsService {
   }
 
   async prepareNextBuyer(callId: string): Promise<{
-    action: 'HANGUP' | 'DIAL' | 'NONE';
+    action: 'HANGUP' | 'DIAL' | 'BUSY' | 'NONE';
     call?: any;
     attempt?: any;
     buyer?: any;
+    destinationNumber?: any;
   }> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "calls" WHERE id = ${callId} FOR UPDATE`;
@@ -1578,7 +2056,7 @@ export class CallsService {
       if (!call.campaign_id) {
         const updatedCall = await tx.call.update({
           where: { id: callId },
-          data: { state: CallState.FAILED },
+          data: { state: CallState.FAILED, ended_at: new Date() },
         });
         return { action: 'HANGUP', call: updatedCall };
       }
@@ -1586,6 +2064,21 @@ export class CallsService {
       const campaign = await tx.campaign.findUnique({
         where: { id: call.campaign_id },
         include: {
+          destination_numbers: {
+            where: {
+              status: 'ACTIVE',
+              destination_number: {
+                status: 'ACTIVE',
+                buyer: { status: 'ACTIVE' },
+              },
+            },
+            orderBy: [{ priority: 'asc' }, { weight: 'desc' }],
+            include: {
+              destination_number: {
+                include: { buyer: true },
+              },
+            },
+          },
           buyers: {
             where: { status: 'ACTIVE', buyer: { status: 'ACTIVE' } },
             orderBy: { priority: 'asc' },
@@ -1594,42 +2087,215 @@ export class CallsService {
         },
       });
 
-      if (!campaign || campaign.status !== 'ACTIVE' || campaign.buyers.length === 0) {
+      if (!campaign || campaign.status !== 'ACTIVE') {
         const hasAttempts = call.attempts && call.attempts.length > 0;
         const updatedCall = await tx.call.update({
           where: { id: callId },
-          data: { state: hasAttempts ? CallState.NO_ANSWER : CallState.FAILED },
+          data: { state: hasAttempts ? CallState.NO_ANSWER : CallState.FAILED, ended_at: new Date() },
         });
         return { action: 'HANGUP', call: updatedCall };
       }
 
-      const attemptedBuyerIds = new Set(call.attempts.map((a: any) => a.buyer_id));
-      const nextCampaignBuyer = campaign.buyers.find(
+      const hasDestinationNumbers =
+        campaign.destination_numbers && campaign.destination_numbers.length > 0;
+
+      // =========================================================================
+      // PRIMARY ROUTING PATH: CampaignDestinationNumbers (Independent Endpoints)
+      // =========================================================================
+      if (hasDestinationNumbers) {
+        const attemptedDestinationIds = new Set(
+          call.attempts.map((a: any) => a.destination_number_id).filter(Boolean),
+        );
+        const attemptedNumbers = new Set(
+          call.attempts.map((a: any) => a.destination_number).filter(Boolean),
+        );
+
+        // Filter valid endpoints, enforcing workspace/tenant isolation & unattempted status
+        const remainingDestinations = campaign.destination_numbers.filter((cdn) => {
+          if (!cdn.destination_number) return false;
+          if (cdn.status !== 'ACTIVE') return false;
+          if (cdn.destination_number.status !== 'ACTIVE') return false;
+          if (cdn.destination_number.buyer && cdn.destination_number.buyer.status !== 'ACTIVE') return false;
+          // Workspace / Tenant isolation: destination must belong to same workspace as call
+          if (cdn.destination_number.workspace_id !== call.workspace_id) return false;
+          if (attemptedDestinationIds.has(cdn.destination_number_id)) return false;
+          if (
+            cdn.destination_number.destination_number &&
+            attemptedNumbers.has(cdn.destination_number.destination_number)
+          ) {
+            return false;
+          }
+          return true;
+        });
+
+        if (remainingDestinations.length === 0) {
+          const updatedCall = await tx.call.update({
+            where: { id: callId },
+            data: { state: CallState.NO_ANSWER, ended_at: new Date() },
+          });
+          return { action: 'HANGUP', call: updatedCall };
+        }
+
+        // Evaluate candidate destinations in waterfall order
+        for (const cdn of remainingDestinations) {
+          // Lock the candidate destination row to guarantee atomic capacity reservation across workers
+          const lockedDns = await tx.$queryRaw<Array<{ id: string; max_concurrent_calls: number }>>`
+            SELECT id, max_concurrent_calls FROM "destination_numbers" WHERE id = ${cdn.destination_number_id} FOR UPDATE
+          `;
+          const maxLimit = lockedDns[0]?.max_concurrent_calls ?? cdn.destination_number.max_concurrent_calls ?? 1;
+
+          // Query active attempts for this destination number
+          const countResult = await tx.$queryRaw<Array<{ count: bigint | number }>>`
+            SELECT COUNT(*)::int AS count FROM "call_attempts"
+            WHERE destination_number_id = ${cdn.destination_number_id}
+              AND state IN ('INITIATED', 'RINGING', 'ANSWERED')
+          `;
+          const activeCount = Number(countResult[0]?.count || 0);
+
+          // Capacity available on endpoint!
+          if (activeCount < maxLimit) {
+            // Check buyer organization capacity if buyer has limit configured
+            const buyerId = cdn.destination_number.buyer_id;
+            const lockedBuyers = await tx.$queryRaw<Array<{ id: string; max_concurrent_calls: number }>>`
+              SELECT id, max_concurrent_calls FROM "buyers" WHERE id = ${buyerId} FOR UPDATE
+            `;
+            const buyerMax = lockedBuyers[0]?.max_concurrent_calls ?? 1000;
+            const buyerCountResult = await tx.$queryRaw<Array<{ count: bigint | number }>>`
+              SELECT COUNT(*)::int AS count FROM "buyer_reservations"
+              WHERE buyer_id = ${buyerId} AND status = 'ACTIVE'
+            `;
+            const buyerActiveCount = Number(buyerCountResult[0]?.count || 0);
+
+            if (buyerActiveCount >= buyerMax) {
+              // Buyer organization full, continue waterfall
+              continue;
+            }
+
+            // Reserve slot atomically and snapshot immutable destination data
+            const attempt = await tx.callAttempt.create({
+              data: {
+                call_id: call.id,
+                buyer_id: buyerId,
+                destination_number_id: cdn.destination_number_id,
+                destination_number: cdn.destination_number.destination_number,
+                state: CallAttemptState.INITIATED,
+              },
+            });
+
+            await tx.buyerReservation.create({
+              data: {
+                workspace_id: call.workspace_id,
+                buyer_id: buyerId,
+                call_id: call.id,
+                attempt_id: attempt.id,
+                status: 'ACTIVE',
+              },
+            });
+
+            // Fire webhook
+            this.webhooksService
+              .queueEvent(call.workspace_id, 'call.attempt.started', attempt)
+              .catch(console.error);
+
+            return {
+              action: 'DIAL',
+              call,
+              attempt,
+              destinationNumber: cdn.destination_number,
+              buyer: cdn.destination_number.buyer,
+            };
+          }
+        }
+
+        // All remaining eligible destinations in the campaign are at capacity
+        const updatedCall = await tx.call.update({
+          where: { id: callId },
+          data: { state: CallState.FAILED, ended_at: new Date() },
+        });
+
+        return { action: 'BUSY', call: updatedCall };
+      }
+
+      // =========================================================================
+      // FALLBACK ROUTING PATH: Legacy CampaignBuyers (Backward Compatibility)
+      // =========================================================================
+      if (!campaign.buyers || campaign.buyers.length === 0) {
+        const hasAttempts = call.attempts && call.attempts.length > 0;
+        const updatedCall = await tx.call.update({
+          where: { id: callId },
+          data: { state: hasAttempts ? CallState.NO_ANSWER : CallState.FAILED, ended_at: new Date() },
+        });
+        return { action: 'HANGUP', call: updatedCall };
+      }
+
+      const attemptedBuyerIds = new Set(
+        call.attempts.map((a: any) => a.buyer_id).filter(Boolean),
+      );
+      const remainingCampaignBuyers = campaign.buyers.filter(
         (cb) => !attemptedBuyerIds.has(cb.buyer_id),
       );
 
-      if (!nextCampaignBuyer) {
+      if (remainingCampaignBuyers.length === 0) {
         const updatedCall = await tx.call.update({
           where: { id: callId },
-          data: { state: CallState.NO_ANSWER },
+          data: { state: CallState.NO_ANSWER, ended_at: new Date() },
         });
         return { action: 'HANGUP', call: updatedCall };
       }
 
-      const attempt = await tx.callAttempt.create({
-        data: {
-          call_id: call.id,
-          buyer_id: nextCampaignBuyer.buyer_id,
-          state: CallAttemptState.INITIATED,
-        },
+      // Evaluate buyers in waterfall priority for available concurrency capacity
+      for (const cb of remainingCampaignBuyers) {
+        // Lock candidate buyer row
+        const lockedBuyers = await tx.$queryRaw<Array<{ id: string; max_concurrent_calls: number }>>`
+          SELECT id, max_concurrent_calls FROM "buyers" WHERE id = ${cb.buyer_id} FOR UPDATE
+        `;
+        const lockedBuyer = lockedBuyers[0];
+        const maxLimit = lockedBuyer?.max_concurrent_calls ?? 1;
+
+        // Query active reservations for this buyer
+        const countResult = await tx.$queryRaw<Array<{ count: bigint | number }>>`
+          SELECT COUNT(*)::int AS count FROM "buyer_reservations"
+          WHERE buyer_id = ${cb.buyer_id} AND status = 'ACTIVE'
+        `;
+        const activeCount = Number(countResult[0]?.count || 0);
+
+        if (activeCount < maxLimit) {
+          // Slot is available! Reserve it atomically and snapshot dialed number
+          const attempt = await tx.callAttempt.create({
+            data: {
+              call_id: call.id,
+              buyer_id: cb.buyer_id,
+              destination_number: cb.buyer.destination_number,
+              state: CallAttemptState.INITIATED,
+            },
+          });
+
+          await tx.buyerReservation.create({
+            data: {
+              workspace_id: call.workspace_id,
+              buyer_id: cb.buyer_id,
+              call_id: call.id,
+              attempt_id: attempt.id,
+              status: 'ACTIVE',
+            },
+          });
+
+          // Fire webhook
+          this.webhooksService
+            .queueEvent(call.workspace_id, 'call.attempt.started', attempt)
+            .catch(console.error);
+
+          return { action: 'DIAL', call, attempt, buyer: cb.buyer };
+        }
+      }
+
+      // If all remaining eligible buyers in the campaign are at capacity, return BUSY immediately
+      const updatedCall = await tx.call.update({
+        where: { id: callId },
+        data: { state: CallState.FAILED, ended_at: new Date() },
       });
 
-      // Fire webhook
-      this.webhooksService
-        .queueEvent(call.workspace_id, 'call.attempt.started', attempt)
-        .catch(console.error);
-
-      return { action: 'DIAL', call, attempt, buyer: nextCampaignBuyer.buyer };
+      return { action: 'BUSY', call: updatedCall };
     });
   }
 }

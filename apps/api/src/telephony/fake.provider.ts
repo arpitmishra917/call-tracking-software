@@ -1,7 +1,9 @@
 import { TelephonyProvider } from './telephony.provider.js';
 
 export type FakeProviderAction = {
-  action: 'answer' | 'dial' | 'bridge' | 'hangup' | 'startRecording';
+  action: 'answer' | 'dial' | 'bridge' | 'hangup' | 'startRecording' | 'startRingback' | 'stopRingback';
+  reason?: 'BUSY' | 'NORMAL';
+  ringbackUrl?: string;
   callId?: string;
   to?: string;
   from?: string;
@@ -24,6 +26,7 @@ export class FakeTelephonyProvider implements TelephonyProvider {
     from: string,
     connectionId: string,
     timeoutSecs: number,
+    clientState?: string,
   ): Promise<string> {
     const buyerCallId = `fake-buyer-call-${this.nextBuyerCallId++}`;
     this.actions.push({
@@ -47,8 +50,16 @@ export class FakeTelephonyProvider implements TelephonyProvider {
     });
   }
 
-  async hangupCall(callId: string): Promise<void> {
-    this.actions.push({ action: 'hangup', callId, timestamp: Date.now() });
+  async hangupCall(callId: string, reason?: 'BUSY' | 'NORMAL'): Promise<void> {
+    this.actions.push({ action: 'hangup', callId, reason, timestamp: Date.now() });
+  }
+
+  async startRingback(callId: string, ringbackUrl?: string): Promise<void> {
+    this.actions.push({ action: 'startRingback', callId, ringbackUrl, timestamp: Date.now() });
+  }
+
+  async stopRingback(callId: string): Promise<void> {
+    this.actions.push({ action: 'stopRingback', callId, timestamp: Date.now() });
   }
 
   async startRecording(callId: string): Promise<void> {

@@ -8,6 +8,9 @@ import { UsageBillingService } from '../billing/usage-billing.service.js';
 import { WalletService } from '../billing/wallet.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 import { CommercialEvaluatorService } from '../commercial/commercial-evaluator.service.js';
+import { QaTelephonyGuardService } from './qa/qa-telephony-guard.service.js';
+import { QaSipUriAdapterService } from './qa/qa-sip-uri-adapter.service.js';
+import { normalizeCallerNumber } from '../common/phone.utils.js';
 import { CallState, CallAttemptState } from '@prisma/client';
 
 export const TELEPHONY_PROVIDER = 'TELEPHONY_PROVIDER';
@@ -16,6 +19,7 @@ export const TELEPHONY_PROVIDER = 'TELEPHONY_PROVIDER';
 export class CallController {
   private readonly logger = new Logger(CallController.name);
   private activeCallTimers = new Map<string, any>();
+  private activeRingbackCalls = new Set<string>();
 
   constructor(
     @Inject(forwardRef(() => TELEPHONY_PROVIDER))
@@ -28,7 +32,42 @@ export class CallController {
     private readonly walletService: WalletService,
     @Optional()
     private readonly commercialEvaluatorService?: CommercialEvaluatorService,
+    @Optional()
+    private readonly qaGuardService?: QaTelephonyGuardService,
+    @Optional()
+    private readonly qaSipAdapter?: QaSipUriAdapterService,
   ) {}
+
+  private async startRingbackIfInactive(callId: string, providerCallId: string): Promise<void> {
+    if (!this.activeRingbackCalls.has(callId)) {
+      try {
+        await this.provider.startRingback?.(providerCallId);
+        this.activeRingbackCalls.add(callId);
+      } catch (err: any) {
+        this.logger.warn(`Failed to start ringback for call ${callId}: ${err.message}`);
+      }
+    }
+  }
+
+  private async stopRingbackIfActive(
+    callId: string,
+    providerCallId: string,
+    isBridgedOrCompleted?: boolean,
+  ): Promise<void> {
+    const wasActive = this.activeRingbackCalls.has(callId);
+    this.activeRingbackCalls.delete(callId);
+    if (isBridgedOrCompleted) {
+      // Ringback was already stopped prior to bridge
+      return;
+    }
+    if (wasActive || isBridgedOrCompleted === false) {
+      try {
+        await this.provider.stopRingback?.(providerCallId);
+      } catch (err: any) {
+        this.logger.debug(`Stop ringback failed on call ${callId}: ${err.message}`);
+      }
+    }
+  }
 
   private scheduleAuthorizationExtension(
     workspaceId: string,
@@ -148,18 +187,173 @@ export class CallController {
       }
     }
 
+    // Early buyer webhook arrival: correlate using client_state if provider_call_id not yet persisted
+    if (!call && event.clientState) {
+      try {
+        const decoded = JSON.parse(
+          Buffer.from(event.clientState, 'base64').toString('utf8'),
+        );
+        if (decoded.attemptId && decoded.callId) {
+          attempt = await this.prisma.callAttempt.findUnique({
+            where: { id: decoded.attemptId },
+            include: {
+              call: {
+                include: {
+                  attempts: {
+                    include: { buyer: true },
+                    orderBy: { created_at: 'asc' },
+                  },
+                },
+              },
+              buyer: true,
+            },
+          });
+          if (
+            attempt &&
+            attempt.call_id === decoded.callId &&
+            (!decoded.workspaceId || attempt.call.workspace_id === decoded.workspaceId)
+          ) {
+            call = attempt.call;
+            // Backfill or update provider_call_id to the live callId
+            if (attempt.provider_call_id !== callId) {
+              await this.prisma.callAttempt.update({
+                where: { id: attempt.id },
+                data: { provider_call_id: callId },
+              });
+              attempt.provider_call_id = callId;
+            }
+            this.logger.log(
+              `client_state.correlated: Successfully correlated event ${type} to attempt ${attempt.id} (call ${call.id}) with callId ${callId}`,
+            );
+          } else {
+            this.logger.warn(
+              `client_state.mismatch: Verification failed for attemptId ${decoded.attemptId}, callId ${decoded.callId}`,
+            );
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to decode/correlate client_state: ${err.message}`);
+      }
+    }
+
     if (type === CallEventType.CALL_INITIATED && direction === 'incoming') {
       if (call) return; // idempotency
 
+      // Phase 7B-1: Permanent QA Ingress Shutdown & Identity Gate
+      const isQaIngress = this.qaGuardService ? this.qaGuardService.isQaIngressDid(to) : false;
+      let matchedQaRunId: string | undefined;
+
+      if (isQaIngress) {
+        // 1. Verify QA is enabled and configuration is strictly valid
+        if (!this.qaGuardService?.isQaEnabled()) {
+          this.logger.warn(
+            `qa.ingress.rejected: Call ${callId} to QA tracking DID ${to} received while TELEPHONY_QA_ENABLED is false. Terminating immediately.`,
+          );
+          await this.provider.hangupCall(callId);
+          return; // Fail closed: Never create DB call, never enter waterfall, never reserve funds!
+        }
+
+        const configCheck = this.qaGuardService.validateConfiguration();
+        if (!configCheck.valid) {
+          this.logger.error(
+            `qa.ingress.rejected: QA configuration is invalid: ${configCheck.errors.join(', ')}. Terminating immediately.`,
+          );
+          await this.provider.hangupCall(callId);
+          return;
+        }
+
+        // 2. Dedicated QA Ingress must match an active, trusted server-side lease
+        const leaseMatch = this.qaGuardService.consumeInboundLease(callId, {
+          from: from || undefined,
+          to: to || undefined,
+          connectionId: event.connectionId || undefined,
+          token: event.clientState,
+        });
+
+        if (!leaseMatch) {
+          this.logger.warn(
+            `qa.ingress.rejected: Call ${callId} to dedicated QA tracking DID ${to} from ${from} has no active trusted QA lease. Terminating immediately.`,
+          );
+          await this.provider.hangupCall(callId);
+          return; // Fail closed: Never create DB call, never enter waterfall!
+        }
+
+        matchedQaRunId = leaseMatch.runId;
+        this.logger.log(
+          `qa.ingress.accepted: Call ${callId} to dedicated QA tracking DID ${to} verified and bound to active QA test run ${matchedQaRunId}.`,
+        );
+      }
+
       const trackingNumber = await this.prisma.phoneNumber.findFirst({
-        where: { phone_number: to!, status: 'ACTIVE' },
+        where: { phone_number: to! },
         include: { workspace: true, campaign: true },
       });
 
-      if (!trackingNumber) {
-        this.logger.warn(`Unknown tracking number: ${to}`);
+      const isNumberInactive = trackingNumber?.status && trackingNumber.status !== 'ACTIVE';
+      if (!trackingNumber || isNumberInactive) {
+        this.logger.warn(`Unknown or inactive tracking number: ${to}. Terminating call.`);
+        await this.provider.hangupCall(callId);
         return;
       }
+
+      // Phase 7B-1 & Phase 7B-2A: Defense-in-depth for Dedicated QA Workspace
+      // If the tracking number belongs to QA_WORKSPACE_ID, enforce strict QA gates
+      const isQaWorkspaceNum =
+        this.qaGuardService?.isQaWorkspace(trackingNumber.workspace_id) ||
+        (process.env.QA_WORKSPACE_ID &&
+          trackingNumber.workspace_id.trim().toLowerCase() ===
+            process.env.QA_WORKSPACE_ID.trim().toLowerCase());
+
+      if (isQaWorkspaceNum) {
+        if (!this.qaGuardService?.isQaEnabled()) {
+          this.logger.warn(
+            `qa.workspace_ingress.rejected: Call ${callId} directed to QA workspace ${trackingNumber.workspace_id} while TELEPHONY_QA_ENABLED is false. Terminating immediately.`,
+          );
+          await this.provider.hangupCall(callId);
+          return;
+        }
+
+        const configCheck = this.qaGuardService?.validateConfiguration();
+        if (configCheck && !configCheck.valid) {
+          this.logger.error(
+            `qa.workspace_ingress.rejected: QA configuration is invalid: ${configCheck.errors.join(', ')}. Terminating immediately.`,
+          );
+          await this.provider.hangupCall(callId);
+          return;
+        }
+
+        if (trackingNumber.workspace.status !== 'ACTIVE') {
+          this.logger.warn(
+            `qa.workspace_ingress.rejected: QA workspace ${trackingNumber.workspace_id} is ${trackingNumber.workspace.status}. Terminating immediately.`,
+          );
+          await this.provider.hangupCall(callId);
+          return;
+        }
+
+        if (!trackingNumber.campaign || trackingNumber.campaign.status !== 'ACTIVE') {
+          this.logger.warn(
+            `qa.workspace_ingress.rejected: QA campaign is missing or inactive. Terminating immediately.`,
+          );
+          await this.provider.hangupCall(callId);
+          return;
+        }
+
+        if (!this.qaGuardService?.isCallBound(callId)) {
+          this.logger.warn(
+            `qa.workspace_ingress.rejected: Inbound call ${callId} directed to QA workspace ${trackingNumber.workspace_id} without verified QA binding. Terminating immediately.`,
+          );
+          await this.provider.hangupCall(callId);
+          return;
+        }
+      }
+
+      const vendorId =
+        trackingNumber.vendor_id && trackingNumber.vendor_id.trim() !== ''
+          ? trackingNumber.vendor_id
+          : null;
+      const attributionSource = vendorId
+        ? 'INGRESS_ASSIGNED'
+        : 'INGRESS_UNASSIGNED';
 
       if (
         trackingNumber.workspace.status !== 'ACTIVE' ||
@@ -173,6 +367,10 @@ export class CallController {
           data: {
             workspace_id: trackingNumber.workspace_id,
             campaign_id: trackingNumber.campaign_id,
+            phone_number_id: trackingNumber.id,
+            vendor_id: vendorId,
+            attributed_vendor_id: vendorId,
+            attribution_source: attributionSource,
             provider: 'provider',
             provider_call_id: callId,
             from_number: from!,
@@ -184,24 +382,49 @@ export class CallController {
         return;
       }
 
-      const isBlocked = await this.prisma.blockedCaller.findUnique({
-        where: {
-          workspace_id_phone_number: {
-            workspace_id: trackingNumber.workspace_id,
-            phone_number: from!,
+      const normalizedFrom = from ? normalizeCallerNumber(from) : '';
+      let isBlocked = null;
+      if (typeof this.prisma.blockedCaller?.findUnique === 'function') {
+        isBlocked = await this.prisma.blockedCaller.findUnique({
+          where: {
+            workspace_id_phone_number: {
+              workspace_id: trackingNumber.workspace_id,
+              phone_number: normalizedFrom || from!,
+            },
           },
-        },
-      });
+        });
+        if (!isBlocked && from && normalizedFrom && normalizedFrom !== from) {
+          isBlocked = await this.prisma.blockedCaller.findUnique({
+            where: {
+              workspace_id_phone_number: {
+                workspace_id: trackingNumber.workspace_id,
+                phone_number: from,
+              },
+            },
+          });
+        }
+      } else if (typeof this.prisma.blockedCaller?.findFirst === 'function') {
+        isBlocked = await this.prisma.blockedCaller.findFirst({
+          where: {
+            workspace_id: trackingNumber.workspace_id,
+            phone_number: { in: [normalizedFrom, from!].filter(Boolean) as string[] },
+          },
+        });
+      }
 
       if (isBlocked) {
-        this.logger.log(`Call from blocked number ${from}. Hanging up.`);
+        this.logger.log(`Call from blocked number ${from} (normalized: ${normalizedFrom}). Hanging up.`);
         await this.prisma.call.create({
           data: {
             workspace_id: trackingNumber.workspace_id,
             campaign_id: trackingNumber.campaign_id,
+            phone_number_id: trackingNumber.id,
+            vendor_id: vendorId,
+            attributed_vendor_id: vendorId,
+            attribution_source: attributionSource,
             provider: 'provider',
             provider_call_id: callId,
-            from_number: from!,
+            from_number: normalizedFrom || from!,
             to_number: to!,
             state: CallState.FAILED,
           },
@@ -213,33 +436,49 @@ export class CallController {
       call = await this.callsService.createCall({
         workspace_id: trackingNumber.workspace_id,
         campaign_id: trackingNumber.campaign_id || undefined,
+        phone_number_id: trackingNumber.id,
+        vendor_id: vendorId,
+        attributed_vendor_id: vendorId,
+        attribution_source: attributionSource,
         provider: 'provider',
         provider_call_id: callId,
         from_number: from!,
         to_number: to!,
       });
 
+      // If this was a verified QA ingress candidate, bind the persistent Prisma call ID as well
+      if (matchedQaRunId && this.qaGuardService) {
+        this.qaGuardService.bindCallToTestRun(call.id, matchedQaRunId);
+      }
+
       // --- PHASE 3D RESERVATION ---
-      const initialAmountMicro =
-        this.usageBillingService.calculateInitialReservation(
-          trackingNumber.number_type,
+      const isQaCall = this.isQaCallContext(call) || !!matchedQaRunId;
+      if (!isQaCall) {
+        const initialAmountMicro =
+          this.usageBillingService.calculateInitialReservation(
+            trackingNumber.number_type,
+          );
+        try {
+          await this.walletService.reserveForCall(
+            call.workspace_id,
+            call.id,
+            initialAmountMicro,
+          );
+        } catch (err: any) {
+          this.logger.warn(
+            `Insufficient balance for call ${call.id}. Rejecting: ${err.message}`,
+          );
+          await this.prisma.call.update({
+            where: { id: call.id },
+            data: { state: CallState.FAILED },
+          });
+          await this.provider.hangupCall(callId);
+          return;
+        }
+      } else {
+        this.logger.log(
+          `qa.wallet.bypass: Call ${call.id} is a verified QA test call. Bypassing wallet reservation.`,
         );
-      try {
-        await this.walletService.reserveForCall(
-          call.workspace_id,
-          call.id,
-          initialAmountMicro,
-        );
-      } catch (err: any) {
-        this.logger.warn(
-          `Insufficient balance for call ${call.id}. Rejecting: ${err.message}`,
-        );
-        await this.prisma.call.update({
-          where: { id: call.id },
-          data: { state: CallState.FAILED },
-        });
-        await this.provider.hangupCall(callId);
-        return;
       }
       // ----------------------------
 
@@ -256,22 +495,35 @@ export class CallController {
       type === CallEventType.CALL_ANSWERED &&
       call.provider_call_id === callId
     ) {
+      if (
+        call.state === CallState.ROUTING ||
+        call.state === CallState.COMPLETED
+      ) {
+        this.logger.debug(
+          `duplicate.caller_answer.ignored: Caller leg ${callId} already in ${call.state}.`,
+        );
+        return;
+      }
       try {
         call = await this.callsService.transitionCall(
           call.id,
           CallState.ROUTING,
         );
-      } catch (err) {
-        console.error('FAIL ROUTING', err);
+      } catch (err: any) {
+        this.logger.error(
+          `call.routing.transition_failed: Call ${call.id} failed transitioning to ROUTING: ${err.message}`,
+        );
         // If the call was canceled by a concurrent hangup, transition fails
         return;
       }
       // Start recording the inbound leg
       try {
         await this.provider.startRecording(call.provider_call_id);
-      } catch (err) {
-        this.logger.error(`Failed to start recording for call ${callId}`, err);
+      } catch (err: any) {
+        this.logger.error(`Failed to start recording for call ${callId}: ${err.message}`, err);
       }
+      // Start ringback waiting experience for caller
+      await this.startRingbackIfInactive(call.id, call.provider_call_id);
       await this.dialNextBuyer(call, connectionId);
       return;
     }
@@ -281,20 +533,56 @@ export class CallController {
       attempt &&
       attempt.provider_call_id === callId
     ) {
+      // Idempotency: if attempt is already answered, ignore duplicate
+      if (
+        attempt.state === CallAttemptState.ANSWERED ||
+        attempt.state === CallAttemptState.COMPLETED
+      ) {
+        this.logger.debug(
+          `duplicate.buyer_answer.ignored: Attempt ${attempt.id} already answered.`,
+        );
+        return;
+      }
+
       const success = await this.callsService.markCallAnswered(
         call.id,
         attempt.id,
       );
       if (!success) {
         // Call is no longer ROUTING, likely canceled by caller hangup
+        this.logger.warn(
+          `buyer_answer.rejected: Call ${call.id} is no longer ROUTING. Hanging up buyer leg ${callId}.`,
+        );
         await this.provider.hangupCall(callId);
         return;
       }
 
-      await this.provider.bridgeCalls(
-        call.provider_call_id,
-        attempt.provider_call_id!,
-      );
+      // Stop ringback on caller leg before bridging
+      await this.stopRingbackIfActive(call.id, call.provider_call_id, false);
+
+      try {
+        this.logger.log(
+          `bridge.executing: Bridging caller ${call.provider_call_id} <-> buyer ${attempt.provider_call_id}`,
+        );
+        await this.provider.bridgeCalls(
+          call.provider_call_id,
+          attempt.provider_call_id!,
+        );
+        this.logger.log(
+          `bridge.succeeded: Successfully bridged caller ${call.provider_call_id} <-> buyer ${attempt.provider_call_id}`,
+        );
+      } catch (bridgeErr: any) {
+        this.logger.error(
+          `bridge.failed: Error bridging caller ${call.provider_call_id} and buyer ${attempt.provider_call_id}: ${bridgeErr.message}`,
+          bridgeErr.stack,
+        );
+        await this.provider.hangupCall(attempt.provider_call_id!).catch(() => {});
+        await this.callsService.handleBridgeFailure(call.id, attempt.id);
+        // Resume ringback for caller while dialing next buyer
+        await this.startRingbackIfInactive(call.id, call.provider_call_id);
+        await this.dialNextBuyer(call, connectionId);
+        return;
+      }
 
       // --- PHASE 3E: Start Extension Timer ---
       const trackingNumInfo = await this.prisma.phoneNumber.findFirst({
@@ -311,6 +599,13 @@ export class CallController {
       );
       // ---------------------------------------
 
+      return;
+    }
+
+    if (type === CallEventType.CALL_BRIDGED) {
+      this.logger.log(
+        `call.bridged.confirmed: Provider confirmed bridge for callId: ${callId}`,
+      );
       return;
     }
 
@@ -360,7 +655,29 @@ export class CallController {
       }
       // -----------------------------
       if (call.provider_call_id === callId) {
+        // Stop ringback on caller hangup
+        const isBridged = call.state === CallState.COMPLETED || !!call.answered_at;
+        await this.stopRingbackIfActive(call.id, call.provider_call_id, isBridged);
+
+        if (
+          call.ended_at &&
+          (call.state === CallState.COMPLETED ||
+            call.state === CallState.CANCELED ||
+            call.state === CallState.FAILED ||
+            call.state === CallState.NO_ANSWER)
+        ) {
+          this.logger.debug(
+            `duplicate.caller_hangup.ignored: Caller leg ${callId} already finalized (${call.state}).`,
+          );
+          return;
+        }
+
         const updatedCall = await this.callsService.handleCallerHangup(callId);
+        if (!updatedCall) return;
+        const isQaCall = this.isQaCallContext(updatedCall);
+        if (this.qaGuardService && updatedCall.id) {
+          this.qaGuardService.releaseCallBinding(updatedCall.id);
+        }
 
         const nowMs = updatedCall.ended_at
           ? updatedCall.ended_at.getTime()
@@ -368,40 +685,56 @@ export class CallController {
         const dMs = updatedCall.answered_at
           ? nowMs - updatedCall.answered_at.getTime()
           : 0;
-        const talkDurationSecs = Math.max(0, Math.ceil(dMs / 1000));
+        const talkDurationSecs =
+          updatedCall.duration_secs !== null && updatedCall.duration_secs !== undefined
+            ? updatedCall.duration_secs
+            : Math.max(0, Math.ceil(dMs / 1000));
 
-        const trackingNumInfo = await this.prisma.phoneNumber.findFirst({
-          where: {
-            phone_number: updatedCall.to_number,
-            workspace_id: updatedCall.workspace_id,
-          },
-        });
-
-        const rrr = await this.usageBillingService
-          .billCallUsage(
-            updatedCall.workspace_id,
-            updatedCall.id,
-            trackingNumInfo?.number_type,
-            talkDurationSecs,
-          )
-          .catch((err) => {
-            this.logger.error(
-              `Failed to settle/release reservation for call ${updatedCall.id}: ${err.message}`,
-            );
-          });
-        console.log('BILL_USAGE_RESULT:', rrr, 'DUR:', talkDurationSecs);
-        if (
-          this.commercialEvaluatorService &&
-          updatedCall.state === CallState.COMPLETED
-        ) {
-          await this.commercialEvaluatorService
-            .evaluateCall(updatedCall.id)
+        if (isQaCall) {
+          this.logger.log(
+            `qa.billing.bypass: Call ${updatedCall.id} belongs to QA context. Releasing reservation without debit.`,
+          );
+          await this.walletService
+            .releaseReservation(updatedCall.workspace_id, updatedCall.id)
             .catch((err) => {
-              this.logger.error(
-                `Commercial evaluation failed for call ${updatedCall.id}: ${err.message}`,
-                err.stack,
+              this.logger.warn(
+                `Failed to release QA reservation for call ${updatedCall.id}: ${err.message}`,
               );
             });
+        } else {
+          const trackingNumInfo = await this.prisma.phoneNumber.findFirst({
+            where: {
+              phone_number: updatedCall.to_number,
+              workspace_id: updatedCall.workspace_id,
+            },
+          });
+
+          const rrr = await this.usageBillingService
+            .billCallUsage(
+              updatedCall.workspace_id,
+              updatedCall.id,
+              trackingNumInfo?.number_type,
+              talkDurationSecs,
+            )
+            .catch((err) => {
+              this.logger.error(
+                `Failed to settle/release reservation for call ${updatedCall.id}: ${err.message}`,
+              );
+            });
+          console.log('BILL_USAGE_RESULT:', rrr, 'DUR:', talkDurationSecs);
+          if (
+            this.commercialEvaluatorService &&
+            updatedCall.state === CallState.COMPLETED
+          ) {
+            await this.commercialEvaluatorService
+              .evaluateCall(updatedCall.id)
+              .catch((err) => {
+                this.logger.error(
+                  `Commercial evaluation failed for call ${updatedCall.id}: ${err.message}`,
+                  err.stack,
+                );
+              });
+          }
         }
         // ---------------------------
         const activeAttempts =
@@ -418,14 +751,125 @@ export class CallController {
           }
         }
       } else if (attempt && attempt.provider_call_id === callId) {
-        const result = await this.callsService.handleBuyerHangup(
-          call.id,
-          attempt.id,
-        );
+        if (
+          attempt.state === CallAttemptState.COMPLETED ||
+          attempt.state === CallAttemptState.NO_ANSWER ||
+          attempt.state === CallAttemptState.FAILED ||
+          attempt.state === CallAttemptState.CANCELED
+        ) {
+          this.logger.debug(
+            `duplicate.buyer_hangup.ignored: Attempt ${attempt.id} already terminal (${attempt.state}).`,
+          );
+          return;
+        }
+
+        const result = event.hangupCause
+          ? await this.callsService.handleBuyerHangup(
+              call.id,
+              attempt.id,
+              event.hangupCause,
+            )
+          : await this.callsService.handleBuyerHangup(call.id, attempt.id);
 
         if (result.action === 'HANGUP_CALLER') {
-          await this.provider.hangupCall(call.provider_call_id);
+          const isBridged = call.state === CallState.COMPLETED || !!call.answered_at;
+          await this.stopRingbackIfActive(call.id, call.provider_call_id, isBridged);
+          this.logger.log(
+            `buyer_hangup.terminating_caller: Buyer hangup for attempt ${attempt.id}. Hanging up caller ${call.provider_call_id}.`,
+          );
+          await this.provider.hangupCall(call.provider_call_id).catch((err) => {
+            this.logger.warn(`Failed to hangup caller leg for call ${call.id}: ${err.message}`);
+          });
+
+          const updatedCall = await this.callsService.handleCallerHangup(call.provider_call_id);
+
+          const isQaCall = this.isQaCallContext(updatedCall);
+          if (this.qaGuardService && updatedCall.id) {
+            this.qaGuardService.releaseCallBinding(updatedCall.id);
+          }
+
+          const nowMs = updatedCall.ended_at
+            ? updatedCall.ended_at.getTime()
+            : Date.now();
+          const dMs = updatedCall.answered_at
+            ? nowMs - updatedCall.answered_at.getTime()
+            : 0;
+          const talkDurationSecs =
+            updatedCall.duration_secs !== null && updatedCall.duration_secs !== undefined
+              ? updatedCall.duration_secs
+              : Math.max(0, Math.ceil(dMs / 1000));
+
+          if (isQaCall) {
+            this.logger.log(
+              `qa.billing.bypass: Call ${updatedCall.id} belongs to QA context. Releasing reservation without debit.`,
+            );
+            await this.walletService
+              .releaseReservation(updatedCall.workspace_id, updatedCall.id)
+              .catch((err) => {
+                this.logger.warn(
+                  `Failed to release QA reservation for call ${updatedCall.id}: ${err.message}`,
+                );
+              });
+          } else {
+            const trackingNumInfo = await this.prisma.phoneNumber.findFirst({
+              where: {
+                phone_number: updatedCall.to_number,
+                workspace_id: updatedCall.workspace_id,
+              },
+            });
+
+            await this.usageBillingService
+              .billCallUsage(
+                updatedCall.workspace_id,
+                updatedCall.id,
+                trackingNumInfo?.number_type,
+                talkDurationSecs,
+              )
+              .catch((err) => {
+                this.logger.error(
+                  `Failed to settle/release reservation for call ${updatedCall.id}: ${err.message}`,
+                );
+              });
+
+            if (
+              this.commercialEvaluatorService &&
+              updatedCall.state === CallState.COMPLETED
+            ) {
+              await this.commercialEvaluatorService
+                .evaluateCall(updatedCall.id)
+                .catch((err) => {
+                  this.logger.error(
+                    `Commercial evaluation failed for call ${updatedCall.id}: ${err.message}`,
+                    err.stack,
+                  );
+                });
+            }
+          }
         } else if (result.action === 'DIAL_NEXT' && result.call) {
+          // Phase 6D: QA Waterfall Circuit-Breaker
+          const isQa = this.isQaCallContext(result.call);
+          if (isQa) {
+            this.logger.warn(
+              `qa.circuit_breaker: QA buyer attempt ${attempt.id} ended. Terminating QA caller leg immediately without advancing waterfall.`,
+            );
+            await this.stopRingbackIfActive(result.call.id, result.call.provider_call_id, false);
+            await this.provider.hangupCall(result.call.provider_call_id).catch((hangupErr: any) => {
+              this.logger.warn(`Failed to hangup QA caller leg: ${hangupErr.message}`);
+            });
+            await this.walletService
+              .releaseReservation(result.call.workspace_id, result.call.id)
+              .catch((err) => {
+                this.logger.warn(`Failed to release QA reservation on circuit-breaker: ${err.message}`);
+              });
+            if (this.qaGuardService) {
+              this.qaGuardService.releaseCallBinding(result.call.id);
+            }
+            return;
+          }
+
+          this.logger.log(
+            `buyer_hangup.advancing: Buyer attempt ${attempt.id} ended. Dialing next buyer.`,
+          );
           await this.dialNextBuyer(result.call, connectionId);
         }
       }
@@ -437,20 +881,159 @@ export class CallController {
 
     if (result.action === 'NONE') return;
 
+    if (result.action === 'BUSY') {
+      this.logger.log(
+        `routing.busy: All eligible buyers are at maximum concurrent capacity. Hanging up caller ${result.call.provider_call_id} with BUSY.`,
+      );
+      await this.stopRingbackIfActive(result.call.id, result.call.provider_call_id, false);
+
+      let hangupSucceeded = false;
+      try {
+        await this.provider.hangupCall(result.call.provider_call_id, 'BUSY');
+        hangupSucceeded = true;
+      } catch (err: any) {
+        this.logger.error(
+          `caller_hangup.failed: Provider failed to hang up caller ${result.call.provider_call_id} on busy: ${err.message}`,
+        );
+        await this.handleExhaustionHangupFailure(result.call);
+        return;
+      }
+
+      if (hangupSucceeded) {
+        if (this.isQaCallContext(result.call)) {
+          this.logger.log(
+            `qa.billing.bypass: Call ${result.call.id} belongs to QA context. Releasing reservation without debit on BUSY.`,
+          );
+          await this.walletService
+            .releaseReservation(result.call.workspace_id, result.call.id)
+            .catch((err) => {
+              this.logger.warn(`Failed to release QA reservation on BUSY: ${err.message}`);
+            });
+        } else {
+          const trackingNumInfo = await this.prisma.phoneNumber.findFirst({
+            where: {
+              phone_number: result.call.to_number,
+              workspace_id: result.call.workspace_id,
+            },
+          });
+          await this.usageBillingService
+            .billCallUsage(
+              result.call.workspace_id,
+              result.call.id,
+              trackingNumInfo?.number_type,
+              0,
+            )
+            .catch((err) => {
+              this.logger.error(`Failed to release reservation on BUSY: ${err.message}`);
+            });
+        }
+      }
+      return;
+    }
+
     if (result.action === 'HANGUP') {
-      await this.provider.hangupCall(result.call.provider_call_id);
+      if (result.call.state === CallState.COMPLETED) {
+        this.logger.warn(
+          `routing.exhausted.ignored: Call ${result.call.id} is already COMPLETED. Not terminating caller.`,
+        );
+        return;
+      }
+
+      this.logger.log(`routing.exhausted: No further buyers available. Hanging up caller ${result.call.provider_call_id}.`);
+      await this.stopRingbackIfActive(result.call.id, result.call.provider_call_id, false);
+
+      let hangupSucceeded = false;
+      try {
+        await this.provider.hangupCall(result.call.provider_call_id);
+        hangupSucceeded = true;
+      } catch (err: any) {
+        this.logger.error(
+          `caller_hangup.failed: Provider failed to hang up caller ${result.call.provider_call_id} on routing exhaustion: ${err.message}`,
+        );
+        await this.handleExhaustionHangupFailure(result.call);
+        return;
+      }
+
+      if (hangupSucceeded) {
+        if (this.isQaCallContext(result.call)) {
+          this.logger.log(
+            `qa.billing.bypass: Call ${result.call.id} belongs to QA context. Releasing reservation without debit on HANGUP.`,
+          );
+          await this.walletService
+            .releaseReservation(result.call.workspace_id, result.call.id)
+            .catch((err) => {
+              this.logger.warn(`Failed to release QA reservation on HANGUP: ${err.message}`);
+            });
+        } else {
+          const trackingNumInfo = await this.prisma.phoneNumber.findFirst({
+            where: {
+              phone_number: result.call.to_number,
+              workspace_id: result.call.workspace_id,
+            },
+          });
+          await this.usageBillingService
+            .billCallUsage(
+              result.call.workspace_id,
+              result.call.id,
+              trackingNumInfo?.number_type,
+              0,
+            )
+            .catch((err) => {
+              this.logger.error(`Failed to release reservation on HANGUP: ${err.message}`);
+            });
+        }
+      }
       return;
     }
 
     if (result.action === 'DIAL') {
-      const { attempt, buyer } = result;
+      // Ensure ringback is active for caller leg
+      await this.startRingbackIfInactive(result.call.id, result.call.provider_call_id);
+
+      const { attempt, buyer, destinationNumber } = result;
+      let buyerCallId: string | undefined;
       try {
-        const buyerCallId = await this.provider.dialBuyer(
-          buyer.destination_number,
+        const clientStatePayload = {
+          callId: result.call.id,
+          attemptId: attempt.id,
+          workspaceId: result.call.workspace_id,
+        };
+        const clientState = Buffer.from(
+          JSON.stringify(clientStatePayload),
+        ).toString('base64');
+
+        const dialNumber = destinationNumber?.destination_number || buyer.destination_number;
+        const dialTimeout = destinationNumber?.timeout ?? buyer.timeout ?? 30;
+
+        if (this.qaGuardService) {
+          this.qaGuardService.validateDestinationOrThrow(dialNumber, result.call);
+        }
+
+        const dialTarget = this.qaSipAdapter
+          ? this.qaSipAdapter.resolveBuyerDestination(dialNumber, result.call)
+          : dialNumber;
+
+        const isQa = this.isQaCallContext(result.call);
+        const boundRunId = isQa && this.qaGuardService
+          ? this.qaGuardService.getBoundTestRun(result.call.id) || this.qaGuardService.getBoundTestRun(result.call.provider_call_id)
+          : null;
+
+        const customHeaders = boundRunId
+          ? [{ name: 'X-QA-Run-Id', value: boundRunId }]
+          : undefined;
+
+        buyerCallId = await this.provider.dialBuyer(
+          dialTarget,
           result.call.to_number,
           connectionId || '',
-          buyer.timeout,
+          dialTimeout,
+          clientState,
+          customHeaders,
         );
+
+        if (boundRunId && buyerCallId && this.qaGuardService) {
+          this.qaGuardService.bindCallToTestRun(buyerCallId, boundRunId);
+        }
 
         const shouldHangup = await this.callsService.commitBuyerDial(
           attempt.id,
@@ -462,25 +1045,130 @@ export class CallController {
           return;
         }
 
-        await this.callsService.transitionAttempt(
-          attempt.id,
-          CallAttemptState.RINGING,
-        );
-      } catch (err) {
-        this.logger.error(`Failed to dial buyer ${buyer.id}`, err);
+        const currentAttempt = await this.prisma.callAttempt.findUnique({
+          where: { id: attempt.id },
+        });
+        if (currentAttempt && currentAttempt.state === CallAttemptState.INITIATED) {
+          await this.callsService.transitionAttempt(
+            attempt.id,
+            CallAttemptState.RINGING,
+          );
+        }
+      } catch (err: any) {
+        this.logger.error(`Failed to dial buyer ${buyer.id}: ${err.message}`, err.stack);
+        if (buyerCallId) {
+          await this.provider.hangupCall(buyerCallId).catch(() => {});
+        }
+        await this.callsService.releaseBuyerReservation(attempt.id).catch(() => {});
         await this.callsService.transitionAttempt(
           attempt.id,
           CallAttemptState.FAILED,
-        );
+        ).catch(() => {});
 
         // Attempt next buyer by calling dialNextBuyer again
+        // Phase 6D: QA Waterfall Circuit-Breaker
+        const isQa = this.qaGuardService ? this.qaGuardService.isQaCall(result.call) : false;
+        if (isQa) {
+          this.logger.warn(
+            `qa.circuit_breaker: QA call ${result.call.id} failed buyer dial. Terminating caller leg immediately without advancing waterfall.`,
+          );
+          await this.stopRingbackIfActive(result.call.id, result.call.provider_call_id, false);
+          await this.provider.hangupCall(result.call.provider_call_id).catch((hangupErr: any) => {
+            this.logger.warn(`Failed to hangup QA caller leg: ${hangupErr.message}`);
+          });
+          if (this.qaGuardService) {
+            this.qaGuardService.releaseCallBinding(result.call.id);
+          }
+          return;
+        }
+
         // prepareNextBuyer already checks if still ROUTING
         await this.dialNextBuyer(result.call, connectionId);
       }
     }
   }
 
-  getCallState(_id: string): any {
-    return null;
+  private async handleExhaustionHangupFailure(call: any) {
+    this.logger.warn(
+      `routing.exhaustion.recovery: Initiating recovery for call ${call.id} (${call.provider_call_id})`,
+    );
+    const status = await this.provider
+      .getCallStatus(call.provider_call_id)
+      .catch(() => 'UNKNOWN');
+
+    if (status !== 'TERMINAL' && status !== 'NOT_FOUND') {
+      try {
+        await this.provider.hangupCall(call.provider_call_id);
+      } catch (retryErr: any) {
+        this.logger.warn(
+          `routing.exhaustion.recovery: Retry hangup failed for call ${call.id}: ${retryErr.message}`,
+        );
+      }
+    }
+
+    const updatedCall = await this.callsService
+      .handleCallerHangup(call.provider_call_id)
+      .catch((err) => {
+        this.logger.error(`Failed to finalize caller on recovery: ${err.message}`);
+        return null;
+      });
+
+    if (updatedCall) {
+      if (this.isQaCallContext(updatedCall)) {
+        this.logger.log(
+          `qa.billing.bypass: Call ${updatedCall.id} belongs to QA context. Releasing reservation without debit on exhaustion recovery.`,
+        );
+        await this.walletService
+          .releaseReservation(updatedCall.workspace_id, updatedCall.id)
+          .catch((err) => {
+            this.logger.warn(
+              `Failed to release QA reservation on exhaustion recovery: ${err.message}`,
+            );
+          });
+      } else {
+        const trackingNumInfo = await this.prisma.phoneNumber.findFirst({
+          where: {
+            phone_number: updatedCall.to_number,
+            workspace_id: updatedCall.workspace_id,
+          },
+        });
+        await this.usageBillingService
+          .billCallUsage(
+            updatedCall.workspace_id,
+            updatedCall.id,
+            trackingNumInfo?.number_type,
+            0,
+          )
+          .catch((err) => {
+            this.logger.error(
+              `Failed to release reservation on exhaustion recovery: ${err.message}`,
+            );
+          });
+      }
+    }
+  }
+
+  /**
+   * Helper method to determine if a call belongs to a QA context (by call ID, provider call ID, or workspace).
+   */
+  private isQaCallContext(call: any): boolean {
+    if (!call) return false;
+    if (this.qaGuardService?.isCallBound(call.id) || this.qaGuardService?.isCallBound(call.provider_call_id)) {
+      return true;
+    }
+    if (call.workspace_id && this.qaGuardService?.isQaWorkspace(call.workspace_id)) {
+      return true;
+    }
+    if (process.env.QA_WORKSPACE_ID && call.workspace_id === process.env.QA_WORKSPACE_ID) {
+      return true;
+    }
+    return false;
+  }
+
+  async getCallState(id: string): Promise<any> {
+    return this.prisma.call.findUnique({
+      where: { id },
+      include: { attempts: true },
+    });
   }
 }

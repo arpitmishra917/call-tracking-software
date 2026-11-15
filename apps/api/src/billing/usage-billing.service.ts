@@ -1,73 +1,101 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WalletService } from './wallet.service.js';
-import { UsageType } from '@prisma/client';
+import { TelephonyPricingConfig } from './telephony-pricing.config.js';
 
+/**
+ * Backward-compatible PRICING accessor dynamically delegating to TelephonyPricingConfig.
+ * Eliminates competing hardcoded rates while preserving legacy interface compatibility.
+ */
 export const PRICING = {
-  LOCAL_INBOUND_MICRO_PER_MIN: 45000n, // $0.045
-  TOLL_FREE_INBOUND_MICRO_PER_MIN: 55000n, // $0.055
-  RECORDING_MICRO_PER_MIN: 2500n, // $0.0025
+  get LOCAL_INBOUND_MICRO_PER_MIN(): bigint {
+    return new TelephonyPricingConfig().localInboundRateMicro;
+  },
+  get TOLL_FREE_INBOUND_MICRO_PER_MIN(): bigint {
+    return new TelephonyPricingConfig().tollFreeRateMicro;
+  },
+  get RECORDING_MICRO_PER_MIN(): bigint {
+    return new TelephonyPricingConfig().recordingStorageRateMicro;
+  },
 };
 
 @Injectable()
 export class UsageBillingService {
   private readonly logger = new Logger(UsageBillingService.name);
+  private readonly pricingConfig: TelephonyPricingConfig;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
-  ) {}
+    @Optional()
+    pricingConfig?: TelephonyPricingConfig,
+  ) {
+    this.pricingConfig = pricingConfig ?? new TelephonyPricingConfig();
+  }
+
+  /**
+   * Retrieves the current pricing configuration.
+   */
+  getPricingConfig(): TelephonyPricingConfig {
+    return this.pricingConfig;
+  }
 
   /**
    * Evaluates the billable duration using exact ceiling arithmetic.
    */
   calculateBillableMinutes(durationSeconds: number): bigint {
-    if (durationSeconds <= 0) return 0n;
+    if (!durationSeconds || durationSeconds <= 0 || isNaN(durationSeconds)) {
+      return 0n;
+    }
     return BigInt(Math.ceil(durationSeconds / 60));
   }
 
   /**
-   * Attempts to bill a connected Call.
+   * Calculates initial reservation amount for pre-call authorization.
+   * Uses configured rates: (ratePerMin + recordingRate) * 10 minute block.
    */
   calculateInitialReservation(numberType: string | null | undefined): bigint {
-    let ratePerMin: bigint;
-    if (numberType === 'local') {
-      ratePerMin = PRICING.LOCAL_INBOUND_MICRO_PER_MIN;
-    } else if (numberType === 'toll_free') {
-      ratePerMin = PRICING.TOLL_FREE_INBOUND_MICRO_PER_MIN;
-    } else {
-      ratePerMin = PRICING.LOCAL_INBOUND_MICRO_PER_MIN;
-    }
-    const recordingRate = PRICING.RECORDING_MICRO_PER_MIN;
+    const ratePerMin = this.pricingConfig.getRateForNumberType(numberType);
+    const recordingRate = this.pricingConfig.recordingStorageRateMicro;
     return (ratePerMin + recordingRate) * 10n; // 10 minute block
   }
 
+  /**
+   * Attempts to bill a connected Call usage.
+   */
   async billCallUsage(
-    workspaceId: string, 
-    callId: string, 
-    numberType: string | null | undefined, 
-    talkDurationSeconds: number
+    workspaceId: string,
+    callId: string,
+    numberType: string | null | undefined,
+    talkDurationSeconds: number,
   ) {
-    if (talkDurationSeconds <= 0) {
+    // Durable QA isolation: Never settle or debit calls in QA workspace
+    const qaWorkspaceId = process.env.QA_WORKSPACE_ID;
+    if (qaWorkspaceId && workspaceId.trim().toLowerCase() === qaWorkspaceId.trim().toLowerCase()) {
+      try {
+        await this.walletService.releaseReservation(workspaceId, callId);
+        return { billed: false, reason: 'QA workspace call, reservation released without debit' };
+      } catch (e: any) {
+        this.logger.warn(`Failed to release reservation for QA call ${callId}: ${e.message}`);
+        return { billed: false, reason: e.message };
+      }
+    }
+
+    if (!talkDurationSeconds || talkDurationSeconds <= 0 || isNaN(talkDurationSeconds)) {
       try {
         await this.walletService.releaseReservation(workspaceId, callId);
         return { billed: false, reason: 'Zero talk duration, reservation released' };
       } catch (e: any) {
-         this.logger.error(`Failed to release reservation ${callId}: ${e.message}`);
-         return { billed: false, reason: e.message };
+        this.logger.error(`Failed to release reservation ${callId}: ${e.message}`);
+        return { billed: false, reason: e.message };
       }
     }
 
-    let ratePerMin: bigint;
-    if (numberType === 'local') {
-      ratePerMin = PRICING.LOCAL_INBOUND_MICRO_PER_MIN;
-    } else if (numberType === 'toll_free') {
-      ratePerMin = PRICING.TOLL_FREE_INBOUND_MICRO_PER_MIN;
-    } else {
+    if (numberType !== 'local' && numberType !== 'toll_free') {
       this.logger.warn(`Call ${callId} lacks billable number_type (${numberType})`);
-      ratePerMin = PRICING.LOCAL_INBOUND_MICRO_PER_MIN;
     }
 
+    const ratePerMin = this.pricingConfig.getRateForNumberType(numberType);
     const billableMinutes = this.calculateBillableMinutes(talkDurationSeconds);
     const costMicro = billableMinutes * ratePerMin;
 
@@ -76,7 +104,7 @@ export class UsageBillingService {
         await this.walletService.releaseReservation(workspaceId, callId);
         return { billed: false, reason: 'Zero computed cost, reservation released' };
       } catch (e: any) {
-         return { billed: false, reason: e.message };
+        return { billed: false, reason: e.message };
       }
     }
 
@@ -90,25 +118,25 @@ export class UsageBillingService {
   }
 
   /**
-   * Attempts to bill Recording storage.
+   * Attempts to bill Recording storage usage.
    */
   async billRecordingUsage(
     workspaceId: string,
     recordingId: string,
-    durationSeconds: number
+    durationSeconds: number,
   ) {
-    if (durationSeconds <= 0) {
+    if (!durationSeconds || durationSeconds <= 0 || isNaN(durationSeconds)) {
       return { billed: false, reason: 'Missing duration' };
     }
 
     const billableMinutes = this.calculateBillableMinutes(durationSeconds);
-    const costMicro = billableMinutes * PRICING.RECORDING_MICRO_PER_MIN;
+    const costMicro = billableMinutes * this.pricingConfig.recordingStorageRateMicro;
 
     if (costMicro <= 0n) {
       return { billed: false, reason: 'Zero computed cost' };
     }
 
-    const idempotencyKey = `recording:\${recordingId}:usage`;
+    const idempotencyKey = `recording:${recordingId}:usage`;
 
     try {
       await this.walletService.debitWallet({
@@ -117,11 +145,11 @@ export class UsageBillingService {
         referenceType: 'RECORDING_STORAGE',
         referenceId: recordingId,
         idempotencyKey,
-        description: `Recording usage: \${billableMinutes} min`
+        description: `Recording usage: ${billableMinutes} min`,
       });
       return { billed: true, costMicro };
     } catch (e: any) {
-      this.logger.error(`Failed to bill recording \${recordingId}: \${e.message}`);
+      this.logger.error(`Failed to bill recording ${recordingId}: ${e.message}`);
       return { billed: false, reason: e.message };
     }
   }

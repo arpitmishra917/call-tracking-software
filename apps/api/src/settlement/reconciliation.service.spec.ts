@@ -332,6 +332,7 @@ describe('ReconciliationService Unit Tests', () => {
           id: 'item-other',
           call_commercial_id: 'comm-dup-1',
           settlement_batch_id: 'batch-previous',
+          participant_type: SettlementParticipantType.BUYER,
         } as any,
       ]);
       vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
@@ -353,6 +354,286 @@ describe('ReconciliationService Unit Tests', () => {
                   call_commercial_id: 'comm-dup-1',
                 }),
               ]),
+            },
+          }),
+        }),
+      );
+    });
+
+    it('6. regression: valid Buyer + Vendor pair in the same batch must NOT be reported as duplicate', async () => {
+      const mockBatch: any = {
+        id: 'batch-buyer-vendor-pair',
+        batch_number: 'SB-006',
+        workspace_id: 'ws-1',
+        settlement_status: SettlementStatus.CLOSED,
+        payment_status: PaymentStatus.SUCCEEDED,
+        currency: 'USD',
+        gross_amount: new Prisma.Decimal('150.0000'),
+        adjustments_amount: new Prisma.Decimal('0.0000'),
+        net_amount: new Prisma.Decimal('150.0000'),
+        participant_type: SettlementParticipantType.BUYER,
+        items: [
+          {
+            id: 'item-buyer-1',
+            call_commercial_id: 'comm-shared-1',
+            amount: new Prisma.Decimal('100.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.BUYER,
+          },
+          {
+            id: 'item-vendor-1',
+            call_commercial_id: 'comm-shared-1',
+            amount: new Prisma.Decimal('50.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.VENDOR,
+          },
+        ],
+        adjustments: [],
+        payment_instruction: {
+          currency: 'USD',
+          executions: [
+            {
+              id: 'exec-1',
+              status: ExecutionStatus.SUCCEEDED,
+              amount: new Prisma.Decimal('150.0000'),
+              currency: 'USD',
+            },
+          ],
+        },
+      };
+
+      vi.spyOn(prisma.settlementBatch, 'findFirst').mockResolvedValue(mockBatch);
+      vi.spyOn(prisma.settlementItem, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
+        id: 'run-clean-pair',
+        status: ReconciliationStatus.RECONCILED,
+        discrepancy_count: 0,
+      } as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      await service.runBatchReconciliation('ws-1', 'batch-buyer-vendor-pair');
+
+      expect(prisma.reconciliationRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReconciliationStatus.RECONCILED,
+            discrepancy_count: 0,
+            issues: {
+              create: [],
+            },
+          }),
+        }),
+      );
+    });
+
+    it('7. regression: duplicate BUYER items for the same CallCommercial in the same batch must be detected', async () => {
+      const mockBatch: any = {
+        id: 'batch-dup-buyer',
+        batch_number: 'SB-007',
+        workspace_id: 'ws-1',
+        settlement_status: SettlementStatus.CLOSED,
+        payment_status: PaymentStatus.SUCCEEDED,
+        currency: 'USD',
+        gross_amount: new Prisma.Decimal('200.0000'),
+        adjustments_amount: new Prisma.Decimal('0.0000'),
+        net_amount: new Prisma.Decimal('200.0000'),
+        participant_type: SettlementParticipantType.BUYER,
+        items: [
+          {
+            id: 'item-buyer-1',
+            call_commercial_id: 'comm-dup-buyer',
+            amount: new Prisma.Decimal('100.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.BUYER,
+          },
+          {
+            id: 'item-buyer-2',
+            call_commercial_id: 'comm-dup-buyer', // Duplicate BUYER!
+            amount: new Prisma.Decimal('100.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.BUYER,
+          },
+        ],
+        adjustments: [],
+        payment_instruction: {
+          currency: 'USD',
+          executions: [
+            {
+              id: 'exec-1',
+              status: ExecutionStatus.SUCCEEDED,
+              amount: new Prisma.Decimal('200.0000'),
+              currency: 'USD',
+            },
+          ],
+        },
+      };
+
+      vi.spyOn(prisma.settlementBatch, 'findFirst').mockResolvedValue(mockBatch);
+      vi.spyOn(prisma.settlementItem, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
+        id: 'run-dup-buyer',
+        status: ReconciliationStatus.DISCREPANCY,
+      } as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      await service.runBatchReconciliation('ws-1', 'batch-dup-buyer');
+
+      expect(prisma.reconciliationRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReconciliationStatus.DISCREPANCY,
+            issues: {
+              create: expect.arrayContaining([
+                expect.objectContaining({
+                  issue_type: ReconciliationIssueType.DUPLICATE_CALL,
+                  call_commercial_id: 'comm-dup-buyer',
+                  description: expect.stringContaining('BUYER'),
+                }),
+              ]),
+            },
+          }),
+        }),
+      );
+    });
+
+    it('8. regression: duplicate VENDOR items for the same CallCommercial in the same batch must be detected', async () => {
+      const mockBatch: any = {
+        id: 'batch-dup-vendor',
+        batch_number: 'SB-008',
+        workspace_id: 'ws-1',
+        settlement_status: SettlementStatus.CLOSED,
+        payment_status: PaymentStatus.SUCCEEDED,
+        currency: 'USD',
+        gross_amount: new Prisma.Decimal('80.0000'),
+        adjustments_amount: new Prisma.Decimal('0.0000'),
+        net_amount: new Prisma.Decimal('80.0000'),
+        participant_type: SettlementParticipantType.VENDOR,
+        items: [
+          {
+            id: 'item-vendor-1',
+            call_commercial_id: 'comm-dup-vendor',
+            amount: new Prisma.Decimal('40.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.VENDOR,
+          },
+          {
+            id: 'item-vendor-2',
+            call_commercial_id: 'comm-dup-vendor', // Duplicate VENDOR!
+            amount: new Prisma.Decimal('40.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.VENDOR,
+          },
+        ],
+        adjustments: [],
+        payment_instruction: {
+          currency: 'USD',
+          executions: [
+            {
+              id: 'exec-1',
+              status: ExecutionStatus.SUCCEEDED,
+              amount: new Prisma.Decimal('80.0000'),
+              currency: 'USD',
+            },
+          ],
+        },
+      };
+
+      vi.spyOn(prisma.settlementBatch, 'findFirst').mockResolvedValue(mockBatch);
+      vi.spyOn(prisma.settlementItem, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
+        id: 'run-dup-vendor',
+        status: ReconciliationStatus.DISCREPANCY,
+      } as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      await service.runBatchReconciliation('ws-1', 'batch-dup-vendor');
+
+      expect(prisma.reconciliationRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReconciliationStatus.DISCREPANCY,
+            issues: {
+              create: expect.arrayContaining([
+                expect.objectContaining({
+                  issue_type: ReconciliationIssueType.DUPLICATE_CALL,
+                  call_commercial_id: 'comm-dup-vendor',
+                  description: expect.stringContaining('VENDOR'),
+                }),
+              ]),
+            },
+          }),
+        }),
+      );
+    });
+
+    it('9. regression: historical settlement records with same CallCommercial across separate batches for BUYER and VENDOR must NOT conflict', async () => {
+      // Historical batch: VENDOR item for 'comm-historical-1'
+      // Current batch: BUYER item for 'comm-historical-1'
+      const mockBatch: any = {
+        id: 'batch-buyer-hist',
+        batch_number: 'SB-009',
+        workspace_id: 'ws-1',
+        settlement_status: SettlementStatus.CLOSED,
+        payment_status: PaymentStatus.SUCCEEDED,
+        currency: 'USD',
+        gross_amount: new Prisma.Decimal('100.0000'),
+        adjustments_amount: new Prisma.Decimal('0.0000'),
+        net_amount: new Prisma.Decimal('100.0000'),
+        participant_type: SettlementParticipantType.BUYER,
+        items: [
+          {
+            id: 'item-buyer',
+            call_commercial_id: 'comm-historical-1',
+            amount: new Prisma.Decimal('100.0000'),
+            currency: 'USD',
+            participant_type: SettlementParticipantType.BUYER,
+          },
+        ],
+        adjustments: [],
+        payment_instruction: {
+          currency: 'USD',
+          executions: [
+            {
+              id: 'exec-1',
+              status: ExecutionStatus.SUCCEEDED,
+              amount: new Prisma.Decimal('100.0000'),
+              currency: 'USD',
+            },
+          ],
+        },
+      };
+
+      vi.spyOn(prisma.settlementBatch, 'findFirst').mockResolvedValue(mockBatch);
+      // Querying settlementItem for BUYER returns empty because existing item is for VENDOR
+      vi.spyOn(prisma.settlementItem, 'findMany').mockImplementation(async (args: any) => {
+        if (args?.where?.participant_type === SettlementParticipantType.BUYER) {
+          return []; // No other BUYER item exists
+        }
+        return [
+          {
+            id: 'item-vendor-hist',
+            call_commercial_id: 'comm-historical-1',
+            settlement_batch_id: 'batch-vendor-hist',
+            participant_type: SettlementParticipantType.VENDOR,
+          } as any,
+        ];
+      });
+      vi.spyOn(prisma.reconciliationRun, 'create').mockResolvedValue({
+        id: 'run-clean-hist',
+        status: ReconciliationStatus.RECONCILED,
+        discrepancy_count: 0,
+      } as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      await service.runBatchReconciliation('ws-1', 'batch-buyer-hist');
+
+      expect(prisma.reconciliationRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: ReconciliationStatus.RECONCILED,
+            discrepancy_count: 0,
+            issues: {
+              create: [],
             },
           }),
         }),

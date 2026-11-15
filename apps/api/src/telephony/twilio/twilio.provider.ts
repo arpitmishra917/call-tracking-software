@@ -71,6 +71,7 @@ export class TwilioProvider implements TelephonyProvider {
     from: string,
     connectionId: string,
     timeoutSecs: number,
+    clientState?: string,
   ): Promise<string> {
     if (!this.client) {
       this.logger.debug(
@@ -112,7 +113,7 @@ export class TwilioProvider implements TelephonyProvider {
     );
   }
 
-  async hangupCall(callId: string): Promise<void> {
+  async hangupCall(callId: string, _reason?: 'BUSY' | 'NORMAL'): Promise<void> {
     if (!this.client) {
       this.logger.debug(`[MOCK] Hanging up call ${callId}`);
       return;
@@ -126,6 +127,14 @@ export class TwilioProvider implements TelephonyProvider {
         `Hangup failed/ignored for call ${callId}: ${error.message}`,
       );
     }
+  }
+
+  async startRingback(callId: string, _ringbackUrl?: string): Promise<void> {
+    this.logger.debug(`[Twilio] Starting ringback on call ${callId}`);
+  }
+
+  async stopRingback(callId: string): Promise<void> {
+    this.logger.debug(`[Twilio] Stopping ringback on call ${callId}`);
   }
 
   async startRecording(callId: string): Promise<void> {

@@ -41,6 +41,14 @@ export class TelnyxWebhookController {
     try {
       const publicKey = process.env.TELNYX_PUBLIC_KEY;
       if (!publicKey) {
+        if (
+          process.env.APP_ENV === 'qa' ||
+          process.env.NODE_ENV === 'production'
+        ) {
+          throw new BadRequestException(
+            'TELNYX_PUBLIC_KEY is required for webhook signature verification in QA and production environments',
+          );
+        }
         this.logger.warn(
           'TELNYX_PUBLIC_KEY is not configured. Falling back to mock verification for dev/tests.',
         );
@@ -48,7 +56,7 @@ export class TelnyxWebhookController {
       } else {
         // @ts-ignore - handling standard/default import variance
         const telnyxFactory = Telnyx as any;
-        const client = new telnyxFactory('dummy');
+        const client = new telnyxFactory({ apiKey: 'dummy' });
         const payloadStr = rawBody.toString('utf8');
 
         telnyxEvent = await client.webhooks.unwrap(
@@ -75,13 +83,13 @@ export class TelnyxWebhookController {
       return res.status(200).send('Ignored');
     }
 
-    const { canProcess, id: internalId } = await this.idempotency.acquireLock(
+    const { canProcess, id: internalId, leaseToken } = await this.idempotency.acquireLock(
       'telnyx',
       eventId,
       telnyxEvent,
     );
 
-    if (!canProcess) {
+    if (!canProcess || !internalId || !leaseToken) {
       this.logger.debug(`Duplicate/Pending event ignored: ${eventId}`);
       return res.status(200).send('Duplicate');
     }
@@ -93,13 +101,13 @@ export class TelnyxWebhookController {
     if (normalizedEvent.type !== 'UNKNOWN') {
       try {
         await this.callController.handleEvent(normalizedEvent);
-        await this.idempotency.markProcessed(internalId!);
+        await this.idempotency.markProcessed(internalId!, leaseToken);
       } catch (err: any) {
         this.logger.error(`Error routing event: ${err.message}`, err.stack);
-        await this.idempotency.markFailed(internalId!, err.message);
+        await this.idempotency.markFailed(internalId!, err.message, leaseToken);
       }
     } else {
-      await this.idempotency.markIgnored(internalId!, 'Unknown event type');
+      await this.idempotency.markIgnored(internalId!, 'Unknown event type', leaseToken);
     }
 
     return res.status(200).send('OK');
@@ -115,12 +123,20 @@ export class TelnyxWebhookController {
     if (eventType === 'call.initiated') type = CallEventType.CALL_INITIATED;
     else if (eventType === 'call.answered') type = CallEventType.CALL_ANSWERED;
     else if (eventType === 'call.hangup') type = CallEventType.CALL_HANGUP;
+    else if (eventType === 'call.bridged') type = CallEventType.CALL_BRIDGED;
     else if (eventType === 'call.recording.saved')
       type = CallEventType.CALL_RECORDING_SAVED;
 
     if (!type) {
       return { type: 'UNKNOWN' };
     }
+
+    const rawCause =
+      payload.hangup_cause ||
+      payload.cause ||
+      payload.sip_hangup_cause ||
+      event.data?.payload?.hangup_cause;
+    const hangupCause = rawCause ? String(rawCause).toUpperCase() : undefined;
 
     const normalized: NormalizedCallEvent = {
       type,
@@ -129,6 +145,8 @@ export class TelnyxWebhookController {
       connectionId: payload.connection_id,
       from: payload.from,
       to: payload.to,
+      clientState: payload.client_state,
+      hangupCause,
       timestamp:
         event.data?.occurred_at ||
         event.occurred_at ||

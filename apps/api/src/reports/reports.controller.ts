@@ -19,7 +19,6 @@ import { RequirePermission } from '../authorization/permissions.decorator.js';
 
 @Controller('workspaces/:workspaceId/reports')
 @UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
-@RequirePermission('report:read')
 export class ReportsController {
 
   @Post('export')
@@ -49,6 +48,7 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   @Post()
+  @RequirePermission('report:manage')
   async createReport(
     @Param('workspaceId') workspaceId: string,
     @Body() body: any,
@@ -58,6 +58,7 @@ export class ReportsController {
   }
 
   @Get()
+  @RequirePermission('report:read')
   async getReports(
     @Param('workspaceId') workspaceId: string,
     @Request() req: any,
@@ -66,6 +67,7 @@ export class ReportsController {
   }
 
   @Get(':reportId')
+  @RequirePermission('report:read')
   async getReport(
     @Param('workspaceId') workspaceId: string,
     @Param('reportId') reportId: string,
@@ -75,6 +77,7 @@ export class ReportsController {
   }
 
   @Patch(':reportId')
+  @RequirePermission('report:manage')
   async updateReport(
     @Param('workspaceId') workspaceId: string,
     @Param('reportId') reportId: string,
@@ -85,6 +88,7 @@ export class ReportsController {
   }
 
   @Delete(':reportId')
+  @RequirePermission('report:manage')
   async deleteReport(
     @Param('workspaceId') workspaceId: string,
     @Param('reportId') reportId: string,

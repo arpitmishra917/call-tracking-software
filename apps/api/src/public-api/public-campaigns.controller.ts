@@ -30,6 +30,7 @@ export class PublicCampaignsController {
   }
 
   @Get(':id')
+  @RequirePermission('campaign:read')
   @RequireResourceScope('campaign', 'id')
   async getCampaign(
     @Param('workspaceId') workspaceId: string,

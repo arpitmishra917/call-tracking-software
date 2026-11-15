@@ -15,6 +15,8 @@ export interface TelephonyProvider {
     from: string,
     connectionId: string,
     timeoutSecs: number,
+    clientState?: string,
+    customHeaders?: Array<{ name: string; value: string }>,
   ): Promise<string>;
 
   /**
@@ -25,7 +27,17 @@ export interface TelephonyProvider {
   /**
    * Hang up a call.
    */
-  hangupCall(callId: string): Promise<void>;
+  hangupCall(callId: string, reason?: 'BUSY' | 'NORMAL'): Promise<void>;
+
+  /**
+   * Play ringback tone audio to a call leg while waiting for buyer.
+   */
+  startRingback?(callId: string, ringbackUrl?: string): Promise<void>;
+
+  /**
+   * Stop ringback tone audio on a call leg.
+   */
+  stopRingback?(callId: string): Promise<void>;
 
   /**
    * Start recording a call.

@@ -27,6 +27,7 @@ export class CallsController {
     @Request() req: any,
     @Query('campaignId') campaignId?: string,
     @Query('buyerId') buyerId?: string,
+    @Query('vendorId') vendorId?: string,
     @Query('status') status?: CallState,
     @Query('callerNumber') callerNumber?: string,
     @Query('startDate') startDate?: string,
@@ -62,7 +63,7 @@ export class CallsController {
       throw new BadRequestException('minDurationSecs cannot be greater than maxDurationSecs');
     }
 
-    return this.callsService.getCalls(workspaceId, req.user.userId, {
+    return this.callsService.getCalls(workspaceId, req?.user?.userId || '', {
       campaignId,
       buyerId,
       status,
@@ -86,6 +87,7 @@ export class CallsController {
     @Query('endDate') endDate?: string,
     @Query('campaignId') campaignId?: string,
     @Query('buyerId') buyerId?: string,
+    @Query('vendorId') vendorId?: string,
     @Query('trackingNumber') trackingNumber?: string,
     @Query('callerNumber') callerNumber?: string,
     @Query('status') status?: string,
@@ -94,7 +96,7 @@ export class CallsController {
     @Query('bucket') bucket?: string,
   ) {
     return this.callsService.getMetrics(workspaceId, req.user.userId, {
-      startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration, bucket
+      startDate, endDate, campaignId, buyerId, vendorId, trackingNumber, callerNumber, status, minDuration, maxDuration, bucket
     });
   }
 

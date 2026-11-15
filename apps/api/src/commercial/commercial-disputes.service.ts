@@ -13,6 +13,10 @@ import {
   WorkspaceRole,
   CallDispute,
   CallFinancialAdjustment,
+  SettlementStatus,
+  SettlementParticipantType,
+  AdjustmentDirection,
+  AdjustmentStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditLogsService } from '../audit-logs/audit-logs.service.js';
@@ -63,9 +67,20 @@ export class CommercialDisputesService {
       throw new ForbiddenException('Only buyer participants can create disputes');
     }
 
-    // 2. Fetch CallCommercial within tenant workspace
+    // 2. Fetch CallCommercial within tenant workspace with dispute and settlement item info
     const commercial = await this.prisma.callCommercial.findUnique({
       where: { id: params.callCommercialId },
+      include: {
+        dispute: true,
+        settlement_items: {
+          where: {
+            participant_type: SettlementParticipantType.BUYER,
+          },
+          include: {
+            batch: true,
+          },
+        },
+      },
     });
 
     if (!commercial || commercial.workspace_id !== params.workspaceId) {
@@ -81,17 +96,62 @@ export class CommercialDisputesService {
       throw new ForbiddenException('Buyer can only dispute calls attributed to their own buyer account');
     }
 
-    // 4. One dispute per CallCommercial check
-    const existingDispute = await this.prisma.callDispute.findUnique({
-      where: { call_commercial_id: params.callCommercialId },
-    });
-
-    if (existingDispute) {
-      throw new ConflictException('A dispute already exists for this call commercial record');
+    // 4. Commercial status check
+    if (commercial.status === CommercialStatus.ADJUSTED) {
+      throw new ConflictException('Cannot dispute a commercial call that has already been adjusted');
     }
 
-    // 5. Create dispute inside transaction with unique constraint safety
+    // 5. Existing dispute check (one dispute per CallCommercial, terminal lifecycle)
+    const existingDispute =
+      commercial.dispute ||
+      (await this.prisma.callDispute.findUnique({
+        where: { call_commercial_id: params.callCommercialId },
+      }));
+
+    if (existingDispute) {
+      if (existingDispute.status === DisputeStatus.PENDING) {
+        throw new ConflictException('A dispute already exists for this call commercial record');
+      }
+      throw new ConflictException(
+        `A dispute has already been resolved for this call commercial record (status: ${existingDispute.status})`,
+      );
+    }
+
+    // 6. Settlement batch lifecycle boundary
+    // Check if call is currently part of any settlement batch on Buyer side
+    const buyerSettlementItem = (commercial as any).settlement_items?.[0];
+    if (buyerSettlementItem) {
+      const batchStatus = buyerSettlementItem.batch?.settlement_status;
+      if (batchStatus === SettlementStatus.DRAFT) {
+        throw new ConflictException(
+          'Cannot dispute a call while it is included in an open DRAFT settlement batch. The draft batch must be finalized or canceled first.',
+        );
+      }
+      // If batchStatus is FINALIZED or CLOSED:
+      // Post-settlement dispute is allowed under COMM-10/COMM-11 rules.
+      // When resolved as ACCEPTED, a SettlementAdjustment will be created.
+    }
+
+    // 7. Create dispute inside transaction with unique constraint safety
     return this.prisma.$transaction(async (tx) => {
+      if (typeof (tx as any).$queryRaw === 'function') {
+        try {
+          await (tx as any).$queryRaw`
+            SELECT id FROM call_commercials WHERE id = ${params.callCommercialId} FOR UPDATE
+          `;
+        } catch {
+          // In unit-test / mock environments, ignore raw query
+        }
+      }
+
+      const txExistingDispute = await tx.callDispute.findUnique({
+        where: { call_commercial_id: params.callCommercialId },
+      });
+
+      if (txExistingDispute) {
+        throw new ConflictException('A dispute already exists for this call commercial record');
+      }
+
       try {
         const dispute = await tx.callDispute.create({
           data: {
@@ -116,6 +176,8 @@ export class CommercialDisputesService {
             callCommercialId: dispute.call_commercial_id,
             buyerId: dispute.buyer_id,
             reason: dispute.reason,
+            isPostSettlement: !!buyerSettlementItem,
+            sourceBatchId: buyerSettlementItem?.settlement_batch_id ?? null,
           },
         });
 
@@ -273,6 +335,61 @@ export class CommercialDisputesService {
         },
       });
 
+      // Post-settlement check: if call was previously settled in a finalized/closed settlement batch
+      let settlementAdjustment: any = null;
+      if (tx.settlementItem && tx.settlementAdjustment) {
+        const settledBuyerItem = await tx.settlementItem.findFirst({
+          where: {
+            call_commercial_id: commercial.id,
+            participant_type: SettlementParticipantType.BUYER,
+            workspace_id: params.workspaceId,
+          },
+          include: {
+            batch: true,
+          },
+        });
+
+        if (
+          settledBuyerItem &&
+          settledBuyerItem.batch &&
+          (settledBuyerItem.batch.settlement_status === SettlementStatus.FINALIZED ||
+            settledBuyerItem.batch.settlement_status === SettlementStatus.CLOSED)
+        ) {
+          settlementAdjustment = await tx.settlementAdjustment.create({
+            data: {
+              workspace_id: params.workspaceId,
+              call_financial_adjustment_id: adjustment.id,
+              source_call_commercial_id: commercial.id,
+              source_settlement_batch_id: settledBuyerItem.settlement_batch_id,
+              participant_type: SettlementParticipantType.BUYER,
+              buyer_id: commercial.buyer_id,
+              direction: AdjustmentDirection.CREDIT,
+              amount: originalRevenue,
+              currency: commercial.currency,
+              reason: params.resolutionNotes?.trim() || dispute.reason,
+              status: AdjustmentStatus.PENDING,
+            },
+          });
+
+          await this.auditLogsService.logAction({
+            workspaceId: params.workspaceId,
+            actorUserId: params.userId,
+            actorMemberId: member.id,
+            action: 'settlement.adjustment.created',
+            targetType: 'SettlementAdjustment',
+            targetId: settlementAdjustment.id,
+            metadata: {
+              disputeId: dispute.id,
+              callCommercialId: commercial.id,
+              sourceSettlementBatchId: settledBuyerItem.settlement_batch_id,
+              amount: originalRevenue.toString(),
+              direction: 'CREDIT',
+              participantType: 'BUYER',
+            },
+          });
+        }
+      }
+
       // Emit audit events
       await this.auditLogsService.logAction({
         workspaceId: params.workspaceId,
@@ -304,7 +421,7 @@ export class CommercialDisputesService {
         },
       });
 
-      return { dispute: updatedDispute, adjustment };
+      return { dispute: updatedDispute, adjustment, settlementAdjustment };
     });
   }
 
@@ -437,4 +554,151 @@ export class CommercialDisputesService {
 
     return dispute;
   }
+
+  /**
+   * List disputes within workspace with pagination, status filtering, and role scoping.
+   */
+  async listDisputes(
+    workspaceId: string,
+    userId: string,
+    params: {
+      status?: DisputeStatus;
+      buyerId?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<{
+    items: any[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspace_id_user_id: {
+          workspace_id: workspaceId,
+          user_id: userId,
+        },
+      },
+    });
+
+    if (!member) {
+      throw new ForbiddenException('User is not a member of this workspace');
+    }
+
+    if (member.participant_type === 'VENDOR') {
+      throw new ForbiddenException('Vendors cannot view buyer disputes');
+    }
+
+    const where: Prisma.CallDisputeWhereInput = {
+      workspace_id: workspaceId,
+    };
+
+    if (params.status) {
+      where.status = params.status;
+    }
+
+    if (member.participant_type === 'BUYER') {
+      if (!member.buyer_id) {
+        throw new ForbiddenException('Buyer participant is not linked to a buyer account');
+      }
+      where.buyer_id = member.buyer_id;
+    } else if (params.buyerId) {
+      where.buyer_id = params.buyerId;
+    }
+
+    const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
+    const offset = Math.max(params.offset ?? 0, 0);
+
+    const isBuyer = member.participant_type === 'BUYER';
+
+    const [disputes, total] = await Promise.all([
+      this.prisma.callDispute.findMany({
+        where,
+        include: {
+          buyer: true,
+          adjustment: true,
+          commercial: {
+            select: {
+              id: true,
+              call_id: true,
+              revenue: true,
+              currency: true,
+              payout: !isBuyer,
+              cost: !isBuyer,
+              profit: !isBuyer,
+              vendor_id: !isBuyer,
+            },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+        skip: offset,
+        take: limit,
+      }),
+      this.prisma.callDispute.count({ where }),
+    ]);
+
+    const items = disputes.map((d: any) => {
+      let adjustment = d.adjustment;
+      if (isBuyer && adjustment) {
+        const { original_payout, adjusted_payout, ...adjRest } = adjustment as any;
+        adjustment = adjRest;
+      }
+
+      const createdAtStr =
+        d.created_at instanceof Date
+          ? d.created_at.toISOString()
+          : typeof d.created_at === 'string'
+          ? d.created_at
+          : new Date().toISOString();
+
+      const resolvedAtStr = d.resolved_at
+        ? d.resolved_at instanceof Date
+          ? d.resolved_at.toISOString()
+          : typeof d.resolved_at === 'string'
+          ? d.resolved_at
+          : null
+        : null;
+
+      return {
+        id: d.id,
+        call_id: d.commercial?.call_id || '',
+        call_commercial_id: d.call_commercial_id,
+        status: d.status,
+        reason: d.reason,
+        description: d.description ?? null,
+        resolution_notes: d.resolution_notes ?? null,
+        resolved_at: resolvedAtStr,
+        created_at: createdAtStr,
+        buyer: d.buyer ? { id: d.buyer.id, name: d.buyer.name } : null,
+        revenue: d.commercial?.revenue != null ? Number(d.commercial.revenue) : null,
+        currency: d.commercial?.currency || 'USD',
+        adjustment: adjustment
+          ? {
+              id: adjustment.id,
+              original_revenue: Number(adjustment.original_revenue),
+              adjusted_revenue: Number(adjustment.adjusted_revenue),
+              original_payout:
+                adjustment.original_payout != null
+                  ? Number(adjustment.original_payout)
+                  : undefined,
+              adjusted_payout:
+                adjustment.adjusted_payout != null
+                  ? Number(adjustment.adjusted_payout)
+                  : undefined,
+              reason: adjustment.reason,
+            }
+          : null,
+        commercial: d.commercial,
+      };
+    });
+
+    return {
+      items,
+      total,
+      limit,
+      offset,
+    };
+  }
+
 }

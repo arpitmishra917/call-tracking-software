@@ -1,6 +1,6 @@
 import { PermissionsGuard } from '../authorization/permissions.guard.js';
 import { RequirePermission, RequireResourceScope } from '../authorization/permissions.decorator.js';
-import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { PhoneNumbersService } from './phone-numbers.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
@@ -67,16 +67,34 @@ export class PhoneNumbersController {
     );
   }
 
+  @Get(':id')
+  @RequirePermission('phone_number:read')
+  @RequireResourceScope('phone_number', 'id')
+  @RequireWorkspaceRoles(
+    WorkspaceRole.OWNER,
+    WorkspaceRole.ADMIN,
+    WorkspaceRole.MEMBER,
+    WorkspaceRole.VIEWER,
+  )
+  async getNumber(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    return this.phoneNumbersService.getNumber(workspaceId, id, req?.user?.userId);
+  }
+
   @RequirePermission('phone_number:manage')
   @Put(':id')
+  @Patch(':id')
   @RequireResourceScope('phone_number', 'id')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async updateNumber(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body('name') name: string,
+    @Body() body: { name?: string; vendorId?: string | null },
   ) {
-    return this.phoneNumbersService.updateNumber(workspaceId, id, name);
+    return this.phoneNumbersService.updateNumber(workspaceId, id, body);
   }
 
   @RequirePermission('phone_number:manage')

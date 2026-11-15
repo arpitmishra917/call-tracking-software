@@ -12,21 +12,25 @@ import { ApiKeysService } from './api-keys.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission } from '../authorization/permissions.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/api-keys')
-@UseGuards(JwtAuthGuard, WorkspaceRolesGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class ApiKeysController {
   constructor(private readonly apiKeysService: ApiKeysService) {}
 
   @Get()
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('api_key:read')
   async listKeys(@Param('workspaceId') workspaceId: string) {
     return this.apiKeysService.listApiKeys(workspaceId);
   }
 
   @Post()
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('api_key:manage')
   async createKey(
     @Param('workspaceId') workspaceId: string,
     @Body('name') name: string,
@@ -37,6 +41,7 @@ export class ApiKeysController {
 
   @Delete(':id')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('api_key:manage')
   async revokeKey(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,

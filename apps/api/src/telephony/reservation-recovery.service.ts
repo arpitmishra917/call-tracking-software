@@ -60,13 +60,25 @@ export class ReservationRecoveryService implements OnModuleInit, OnModuleDestroy
         orderBy: { updated_at: 'asc' },
       });
 
-      if (staleReservations.length === 0) return;
-
-      this.logger.log(`reservation.recovery.started: Found ${staleReservations.length} stale reservations`);
-
-      for (const reservation of staleReservations) {
-        await this.reconcileReservation(reservation.call_id);
+      if (staleReservations.length > 0) {
+        this.logger.log(`reservation.recovery.started: Found ${staleReservations.length} stale reservations`);
+        for (const reservation of staleReservations) {
+          await this.reconcileReservation(reservation.call_id);
+        }
       }
+
+      // Also clean up any orphaned buyer reservations for terminal calls
+      await this.prisma.buyerReservation.updateMany({
+        where: {
+          status: 'ACTIVE',
+          call: {
+            state: { in: ['COMPLETED', 'NO_ANSWER', 'FAILED', 'CANCELED'] },
+          },
+        },
+        data: {
+          status: 'RELEASED',
+        },
+      });
     } finally {
       this.isProcessing = false;
     }
@@ -115,15 +127,15 @@ export class ReservationRecoveryService implements OnModuleInit, OnModuleDestroy
           data: { updated_at: new Date() },
         });
         
-        // Technically we should check if extension is needed based on available balance,
-        // but since the call is verified active, we'll let the provider keep running.
-        // If funds truly run out, the regular extension timeout (if alive) or next heartbeat will catch it.
-        // If the timer died, the call will just run until completion (potential slight negative balance, but acceptable given it's actively bridged).
         return;
       }
 
       if (providerState === 'NOT_FOUND') {
-        const isLocalTerminal = call.state === 'COMPLETED' || call.state === 'FAILED' || call.state === 'CANCELED';
+        const isLocalTerminal =
+          call.state === 'COMPLETED' ||
+          call.state === 'FAILED' ||
+          call.state === 'CANCELED' ||
+          call.state === 'NO_ANSWER';
         if (!isLocalTerminal) {
           // Rule #1: Do NOT automatically convert a non-terminal local call into COMPLETED
           // merely because the provider lookup returns NOT_FOUND. 
@@ -132,14 +144,69 @@ export class ReservationRecoveryService implements OnModuleInit, OnModuleDestroy
         }
       }
 
-      if (providerState === 'TERMINAL' || (providerState === 'NOT_FOUND' && (call.state === 'COMPLETED' || call.state === 'FAILED' || call.state === 'CANCELED'))) {
+      if (
+        providerState === 'TERMINAL' ||
+        (providerState === 'NOT_FOUND' &&
+          (call.state === 'COMPLETED' ||
+            call.state === 'FAILED' ||
+            call.state === 'CANCELED' ||
+            call.state === 'NO_ANSWER'))
+      ) {
         this.logger.log(`reservation.recovery.provider_terminal: Call ${callId} reported dead by provider (or safely terminal). Proceeding to settlement.`);
+
+        // Durable QA isolation: Never settle or debit calls in QA workspace
+        const qaWorkspaceId = process.env.QA_WORKSPACE_ID;
+        if (qaWorkspaceId && workspaceId.trim().toLowerCase() === qaWorkspaceId.trim().toLowerCase()) {
+          this.logger.log(`reservation.recovery.qa_bypass: Call ${callId} is in QA workspace. Releasing reservation without debit.`);
+          await this.walletService.releaseReservation(workspaceId, callId).catch((err) => {
+            this.logger.warn(`Failed to release QA reservation ${callId}: ${err.message}`);
+          });
+          await this.prisma.buyerReservation.updateMany({
+            where: { call_id: callId, status: 'ACTIVE' },
+            data: { status: 'RELEASED' },
+          });
+          return;
+        }
+
+        // Unanswered calls should be canceled/released rather than billed
+        if (!call.answered_at) {
+          this.logger.log(`reservation.recovery.unanswered: Call ${callId} was never answered. Releasing reservation without usage debit.`);
+          if (
+            call.state !== 'COMPLETED' &&
+            call.state !== 'FAILED' &&
+            call.state !== 'CANCELED' &&
+            call.state !== 'NO_ANSWER'
+          ) {
+            await this.prisma.call.update({
+              where: { id: callId },
+              data: {
+                state: 'CANCELED',
+                ended_at: call.ended_at || new Date(),
+              },
+            });
+          }
+
+          await this.walletService.releaseReservation(workspaceId, callId).catch((err) => {
+            this.logger.warn(`Failed to release reservation for unanswered call ${callId}: ${err.message}`);
+          });
+
+          await this.prisma.buyerReservation.updateMany({
+            where: { call_id: callId, status: 'ACTIVE' },
+            data: { status: 'RELEASED' },
+          });
+          return;
+        }
 
         // We use the existing usageBillingService.billCallUsage logic to perform the settlement.
         // `billCallUsage` already fetches the latest call timestamps and handles locking safely.
         
         // We first update the Call state to COMPLETED if it's not already (which it already should be if we reach here for NOT_FOUND, but for TERMINAL we might need to sync it)
-        if (call.state !== 'COMPLETED' && call.state !== 'FAILED' && call.state !== 'CANCELED') {
+        if (
+          call.state !== 'COMPLETED' &&
+          call.state !== 'FAILED' &&
+          call.state !== 'CANCELED' &&
+          call.state !== 'NO_ANSWER'
+        ) {
            await this.prisma.call.update({
              where: { id: callId },
              data: {
@@ -175,6 +242,13 @@ export class ReservationRecoveryService implements OnModuleInit, OnModuleDestroy
              this.logger.error(`reservation.recovery.failed: Settlement error for call ${callId}: ${err.message}`);
           }
         }
+
+        // Release any buyer reservations for this call
+        await this.prisma.buyerReservation.updateMany({
+          where: { call_id: callId, status: 'ACTIVE' },
+          data: { status: 'RELEASED' },
+        });
+
         return;
       }
 

@@ -7,6 +7,7 @@ import {
   UseGuards,
   Request,
   BadRequestException,
+  Query,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { PermissionsGuard } from '../authorization/permissions.guard.js';
@@ -112,6 +113,45 @@ export class CommercialDisputesController {
       userId: req.user.userId,
       status: DisputeStatus.REJECTED,
       resolutionNotes: body?.resolution_notes,
+    });
+  }
+
+  /**
+   * List disputes in the workspace with pagination and status filtering.
+   */
+  @Get('disputes')
+  @RequirePermission('commercial:read')
+  async listDisputes(
+    @Param('workspaceId') workspaceId: string,
+    @Request() req: any,
+    @Query('status') status?: string,
+    @Query('buyerId') buyerId?: string,
+    @Query('limit') limitStr?: string,
+    @Query('offset') offsetStr?: string,
+  ) {
+    let disputeStatus: DisputeStatus | undefined;
+    if (status && status !== 'ALL') {
+      if (!Object.values(DisputeStatus).includes(status as DisputeStatus)) {
+        throw new BadRequestException(`Invalid dispute status: ${status}`);
+      }
+      disputeStatus = status as DisputeStatus;
+    }
+
+    const limit = limitStr ? parseInt(limitStr, 10) : undefined;
+    if (limit !== undefined && (isNaN(limit) || limit < 1)) {
+      throw new BadRequestException('Limit must be a positive integer');
+    }
+
+    const offset = offsetStr ? parseInt(offsetStr, 10) : undefined;
+    if (offset !== undefined && (isNaN(offset) || offset < 0)) {
+      throw new BadRequestException('Offset must be a non-negative integer');
+    }
+
+    return this.disputesService.listDisputes(workspaceId, req?.user?.userId, {
+      status: disputeStatus,
+      buyerId,
+      limit,
+      offset,
     });
   }
 

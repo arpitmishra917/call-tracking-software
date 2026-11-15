@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { normalizeE164 } from '../common/phone.utils.js';
+import { normalizeE164, isValidPhoneNumber } from '../common/phone.utils.js';
 
 @Injectable()
 export class BlockedCallersService {
@@ -24,6 +24,9 @@ export class BlockedCallersService {
   }
 
   async blockCaller(workspaceId: string, phoneNumber: string, reason?: string) {
+    if (!phoneNumber || !isValidPhoneNumber(phoneNumber)) {
+      throw new BadRequestException('Invalid phone number');
+    }
     const e164 = normalizeE164(phoneNumber);
     if (!e164) throw new BadRequestException('Invalid phone number');
 

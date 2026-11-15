@@ -1,7 +1,13 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PermissionsService } from '../permissions/permissions.service.js';
-import { ForbiddenException } from '@nestjs/common';
 import { TelnyxProvisioningService } from './telnyx-provisioning.service.js';
 import { UsageService } from '../usage/usage.service.js';
 import { PhoneNumberStatus } from '@prisma/client';
@@ -15,7 +21,38 @@ export class PhoneNumbersService {
     private readonly permissionsService: PermissionsService,
   ) {}
 
-  async listWorkspaceNumbers(workspaceId: string, userId: string = '', params: any = {}) {
+  async listWorkspaceNumbers(
+    workspaceId: string,
+    userIdOrParams: string | any = '',
+    params: any = {},
+  ) {
+    if (!workspaceId || typeof workspaceId !== 'string') {
+      throw new ForbiddenException('Invalid or missing workspace identifier');
+    }
+
+    let userId = '';
+    let queryParams: any = {};
+
+    if (typeof userIdOrParams === 'string') {
+      userId = userIdOrParams;
+      queryParams = (typeof params === 'object' && params !== null && !Array.isArray(params)) ? params : {};
+    } else if (typeof userIdOrParams === 'object' && userIdOrParams !== null && !Array.isArray(userIdOrParams)) {
+      queryParams = userIdOrParams;
+      userId = typeof params === 'string' ? params : '';
+    } else {
+      queryParams = (typeof params === 'object' && params !== null && !Array.isArray(params)) ? params : {};
+    }
+
+    const assertWorkspaceMemberDelegate = () => {
+      if (!this.prisma.workspaceMember) {
+        throw new InternalServerErrorException('WorkspaceMember repository is not available');
+      }
+    };
+
+    if (userId) {
+      assertWorkspaceMemberDelegate();
+    }
+
     const permissions = await this.permissionsService.getPermissionsForUser(workspaceId, userId);
     const readPerms = permissions.filter((p: any) => p.key === 'phone_number:read');
     if (readPerms.length === 0) throw new ForbiddenException('Missing phone_number:read permission');
@@ -25,17 +62,25 @@ export class PhoneNumbersService {
     const campaignIds = readPerms.filter((p: any) => p.scope_type === 'CAMPAIGN' && p.resource_id).map((p: any) => p.resource_id);
     const phoneIds = readPerms.filter((p: any) => p.scope_type === 'PHONE_NUMBER' && p.resource_id).map((p: any) => p.resource_id);
     const buyerIds = readPerms.filter((p: any) => p.scope_type === 'BUYER' && p.resource_id).map((p: any) => p.resource_id);
+    const vendorIds = readPerms.filter((p: any) => p.scope_type === 'VENDOR' && p.resource_id).map((p: any) => p.resource_id);
 
     const where: any = { workspace_id: workspaceId, status: { not: PhoneNumberStatus.RELEASED } };
 
     if (!hasAll) {
       let authOrConditions: any[] = [];
       if (hasAssigned) {
+        if (!userId) {
+          return { items: [], total: 0 };
+        }
+        assertWorkspaceMemberDelegate();
         const member = await this.prisma.workspaceMember.findUnique({
           where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } }
         });
         if (member?.buyer_id) {
           authOrConditions.push({ campaign: { buyers: { some: { buyer_id: member.buyer_id } } } });
+        }
+        if (member?.vendor_id) {
+          authOrConditions.push({ vendor_id: member.vendor_id });
         }
       }
       
@@ -50,6 +95,10 @@ export class PhoneNumbersService {
       if (buyerIds.length > 0) {
         authOrConditions.push({ campaign: { buyers: { some: { buyer_id: { in: buyerIds } } } } });
       }
+
+      if (vendorIds.length > 0) {
+        authOrConditions.push({ vendor_id: { in: vendorIds } });
+      }
       
       if (authOrConditions.length === 0) {
         return { items: [], total: 0 };
@@ -57,11 +106,10 @@ export class PhoneNumbersService {
       where.AND = [{ OR: authOrConditions }];
     }
 
-    
     // Opportunistically reconcile any numbers stuck in PROVISIONING
-    const pendingNumbers = await this.prisma.phoneNumber.findMany({
+    const pendingNumbers = (await this.prisma.phoneNumber.findMany({
       where: { workspace_id: workspaceId, status: PhoneNumberStatus.PROVISIONING },
-    });
+    })) || [];
     
     for (const pending of pendingNumbers) {
       if (pending.provider_number_id?.startsWith('order:')) {
@@ -69,21 +117,53 @@ export class PhoneNumbersService {
       }
     }
 
-    const [items, total] = await Promise.all([
+    const rawLimit = Number(queryParams.limit);
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 50;
+
+    const rawOffset = Number(queryParams.offset);
+    const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+
+    const [itemsResult, total = 0] = await Promise.all([
       this.prisma.phoneNumber.findMany({
         where,
         include: {
           campaign: {
             select: { id: true, name: true }
+          },
+          vendor: {
+            select: { id: true, name: true }
           }
         },
         orderBy: { created_at: 'desc' },
-        skip: params.offset || 0,
-        take: params.limit || 50,
+        skip: offset,
+        take: limit,
       }),
       this.prisma.phoneNumber.count({ where }),
     ]);
-    return { items, total };
+
+    const items = itemsResult || [];
+
+    const member = userId
+      ? await this.prisma.workspaceMember.findUnique({
+          where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
+        })
+      : null;
+    const isBuyer = member?.participant_type === 'BUYER';
+    const isVendor = member?.participant_type === 'VENDOR';
+
+    const mappedItems = isBuyer
+      ? items.map((pn: any) => {
+          const { vendor_id, vendor, ...rest } = pn;
+          return rest;
+        })
+      : isVendor
+      ? items.map((pn: any) => {
+          const { provider_number_id, connection_id, ...rest } = pn;
+          return rest;
+        })
+      : items;
+
+    return { items: mappedItems, total };
   }
 
   async searchAvailableNumbers(countryCode: string = 'US', limit: number = 5, numberType?: string, prefix?: string) {
@@ -205,7 +285,23 @@ export class PhoneNumbersService {
     return record;
   }
 
-  async updateNumber(workspaceId: string, id: string, name: string) {
+  async updateNumber(
+    workspaceId: string,
+    id: string,
+    nameOrData: string | { name?: string; vendorId?: string | null },
+  ) {
+    let name: string | undefined;
+    let vendorId: string | null | undefined;
+
+    if (typeof nameOrData === 'string') {
+      name = nameOrData;
+    } else if (typeof nameOrData === 'object' && nameOrData !== null) {
+      name = nameOrData.name;
+      vendorId = nameOrData.vendorId;
+    } else {
+      throw new BadRequestException('Invalid update payload');
+    }
+
     const number = await this.prisma.phoneNumber.findUnique({
       where: { id },
     });
@@ -214,10 +310,96 @@ export class PhoneNumbersService {
       throw new NotFoundException('Phone number not found');
     }
 
+    if (number.status === PhoneNumberStatus.RELEASED) {
+      throw new BadRequestException('Cannot update a released phone number');
+    }
+
+    const data: any = {};
+    if (name !== undefined) {
+      data.name = name;
+    }
+
+    if (vendorId !== undefined) {
+      if (vendorId === null) {
+        data.vendor_id = null;
+      } else if (typeof vendorId === 'string') {
+        const trimmed = vendorId.trim();
+        if (!trimmed) {
+          throw new BadRequestException('Invalid vendorId: cannot be empty string');
+        }
+        const vendor = await this.prisma.vendor.findFirst({
+          where: { id: trimmed, workspace_id: workspaceId },
+        });
+        if (!vendor) {
+          throw new NotFoundException('Vendor not found in workspace');
+        }
+        data.vendor_id = vendor.id;
+      } else {
+        throw new BadRequestException('Invalid vendorId: must be a string or null');
+      }
+    }
+
     return this.prisma.phoneNumber.update({
       where: { id },
-      data: { name },
+      data,
+      include: {
+        campaign: { select: { id: true, name: true } },
+        vendor: { select: { id: true, name: true } },
+      },
     });
+  }
+
+  async getNumber(workspaceId: string, id: string, userId?: string) {
+    if (!workspaceId) {
+      throw new ForbiddenException('Invalid or missing workspace identifier');
+    }
+
+    const number = await this.prisma.phoneNumber.findUnique({
+      where: { id },
+      include: {
+        campaign: {
+          select: {
+            id: true,
+            name: true,
+            buyers: { select: { buyer_id: true } },
+          },
+        },
+        vendor: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!number || number.workspace_id !== workspaceId || number.status === PhoneNumberStatus.RELEASED) {
+      throw new NotFoundException('Phone number not found');
+    }
+
+    if (userId) {
+      const member = await this.prisma.workspaceMember.findUnique({
+        where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
+      });
+
+      if (!member) {
+        throw new ForbiddenException('You do not have access to this workspace');
+      }
+
+      if (member.participant_type === 'VENDOR') {
+        if (!member.vendor_id || number.vendor_id !== member.vendor_id) {
+          throw new ForbiddenException('You do not have access to this phone number');
+        }
+        const { provider_number_id, connection_id, ...rest } = number;
+        return rest;
+      }
+
+      if (member.participant_type === 'BUYER') {
+        const hasAccess = number.campaign?.buyers?.some((b: any) => b.buyer_id === member.buyer_id);
+        if (!hasAccess) {
+          throw new ForbiddenException('You do not have access to this phone number');
+        }
+        const { vendor_id, vendor, ...rest } = number;
+        return rest;
+      }
+    }
+
+    return number;
   }
 
   // Release protection: we do not automatically release or delete from provider.

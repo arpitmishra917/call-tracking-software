@@ -28,6 +28,13 @@ export class ApiKeyAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or revoked API key');
     }
 
+    // Workspace Status Check: Reject access if workspace is suspended or archived
+    if ((apiKeyRecord as any).workspace && (apiKeyRecord as any).workspace.status !== 'ACTIVE') {
+      throw new ForbiddenException(
+        `Workspace is ${(apiKeyRecord as any).workspace.status.toLowerCase()}`,
+      );
+    }
+
     // Tenant Isolation Check
     const requestedWorkspaceId =
       request.params.workspaceId ||

@@ -41,13 +41,27 @@ export class BuyersController {
   @RequirePermission('buyer:create')
   create(
     @Param('workspaceId') workspaceId: string,
-    @Body() body: { name: string; destinationNumber: string; timeout?: number },
+    @Body()
+    body: {
+      name: string;
+      email?: string;
+      destinationNumber?: string;
+      timeout?: number;
+      max_concurrent_calls?: any;
+      maxConcurrentCalls?: any;
+    },
   ) {
+    const maxCalls =
+      body.max_concurrent_calls !== undefined
+        ? body.max_concurrent_calls
+        : body.maxConcurrentCalls;
     return this.buyersService.createBuyer(
       workspaceId,
       body.name,
+      body.email,
       body.destinationNumber,
       body.timeout,
+      maxCalls,
     );
   }
 
@@ -77,7 +91,16 @@ export class BuyersController {
   update(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body() body: { name?: string; destinationNumber?: string; timeout?: number; status?: string },
+    @Body()
+    body: {
+      name?: string;
+      email?: string;
+      destinationNumber?: string;
+      timeout?: number;
+      max_concurrent_calls?: any;
+      maxConcurrentCalls?: any;
+      status?: string;
+    },
   ) {
     return this.buyersService.updateBuyer(workspaceId, id, body);
   }

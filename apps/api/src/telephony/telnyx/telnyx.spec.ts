@@ -18,10 +18,10 @@ describe('Telnyx Adapter', () => {
     idempotencyMock = {
       acquireLock: vi
         .fn()
-        .mockResolvedValue({ canProcess: true, id: 'mock-id' }),
-      markProcessed: vi.fn().mockResolvedValue(undefined),
-      markFailed: vi.fn().mockResolvedValue(undefined),
-      markIgnored: vi.fn().mockResolvedValue(undefined),
+        .mockResolvedValue({ canProcess: true, id: 'mock-id', leaseToken: 'mock-lease-token' }),
+      markProcessed: vi.fn().mockResolvedValue(true),
+      markFailed: vi.fn().mockResolvedValue(true),
+      markIgnored: vi.fn().mockResolvedValue(true),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -227,9 +227,119 @@ describe('Telnyx Adapter', () => {
       expect(mockRes.send).toHaveBeenCalledWith('OK');
     });
 
+    it('should reject webhook with 400 when TELNYX_PUBLIC_KEY is missing in QA environment', async () => {
+      const originalAppEnv = process.env.APP_ENV;
+      process.env.APP_ENV = 'qa';
+      delete process.env.TELNYX_PUBLIC_KEY;
+
+      const mockEvent = {
+        data: {
+          id: 'evt_qa_unverified',
+          event_type: 'call.initiated',
+        },
+      };
+
+      const mockReq = {
+        rawBody: Buffer.from(JSON.stringify(mockEvent)),
+        body: mockEvent,
+        headers: {
+          'telnyx-signature-ed25519': 'fake-sig',
+          'telnyx-timestamp': '123456789',
+        },
+      } as any;
+      const mockRes = {
+        status: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      } as any;
+
+      try {
+        await webhookController.handleWebhook(mockReq, mockRes);
+        expect(mockRes.status).toHaveBeenCalledWith(400);
+        expect(mockRes.send).toHaveBeenCalledWith(
+          expect.stringContaining('TELNYX_PUBLIC_KEY is required'),
+        );
+      } finally {
+        if (originalAppEnv !== undefined) {
+          process.env.APP_ENV = originalAppEnv;
+        } else {
+          delete process.env.APP_ENV;
+        }
+      }
+    });
+
+    it('should reject webhook with 400 when TELNYX_PUBLIC_KEY is missing in production environment', async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      delete process.env.TELNYX_PUBLIC_KEY;
+
+      const mockEvent = {
+        data: {
+          id: 'evt_prod_unverified',
+          event_type: 'call.initiated',
+        },
+      };
+
+      const mockReq = {
+        rawBody: Buffer.from(JSON.stringify(mockEvent)),
+        body: mockEvent,
+        headers: {
+          'telnyx-signature-ed25519': 'fake-sig',
+          'telnyx-timestamp': '123456789',
+        },
+      } as any;
+      const mockRes = {
+        status: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      } as any;
+
+      try {
+        await webhookController.handleWebhook(mockReq, mockRes);
+        expect(mockRes.status).toHaveBeenCalledWith(400);
+        expect(mockRes.send).toHaveBeenCalledWith(
+          expect.stringContaining('TELNYX_PUBLIC_KEY is required'),
+        );
+      } finally {
+        if (originalNodeEnv !== undefined) {
+          process.env.NODE_ENV = originalNodeEnv;
+        } else {
+          delete process.env.NODE_ENV;
+        }
+      }
+    });
+
+    it('should reject webhook with 400 when cryptographic signature verification fails', async () => {
+      process.env.TELNYX_PUBLIC_KEY = 'invalid-or-dummy-key';
+
+      const mockEvent = {
+        data: {
+          id: 'evt_bad_sig',
+          event_type: 'call.initiated',
+        },
+      };
+
+      const mockReq = {
+        rawBody: Buffer.from(JSON.stringify(mockEvent)),
+        body: mockEvent,
+        headers: {
+          'telnyx-signature-ed25519': 'forged_sig',
+          'telnyx-timestamp': '123456789',
+        },
+      } as any;
+      const mockRes = {
+        status: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      } as any;
+
+      await webhookController.handleWebhook(mockReq, mockRes);
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.send).toHaveBeenCalledWith(
+        expect.stringContaining('Webhook Error:'),
+      );
+    });
+
     it('should ignore duplicate events (idempotency)', async () => {
       idempotencyMock.acquireLock
-        .mockResolvedValueOnce({ canProcess: true, id: 'mock-id' })
+        .mockResolvedValueOnce({ canProcess: true, id: 'mock-id', leaseToken: 'mock-lease-token' })
         .mockResolvedValueOnce({ canProcess: false, id: 'mock-id' });
 
       const mockEvent = {

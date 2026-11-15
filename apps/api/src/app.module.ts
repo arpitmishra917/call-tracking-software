@@ -20,6 +20,7 @@ import { PublicApiModule } from './public-api/public-api.module.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
 import { CommercialModule } from './commercial/commercial.module.js';
 import { SettlementModule } from './settlement/settlement.module.js';
+import { HealthModule } from './health/health.module.js';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { SettlementModule } from './settlement/settlement.module.js';
     AuditLogsModule,
     CommercialModule,
     SettlementModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

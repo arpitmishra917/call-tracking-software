@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { PhoneNumberStatus } from '@prisma/client';
 import Stripe from 'stripe';
 
 @Injectable()
@@ -97,6 +98,12 @@ export class BillingService {
       plans,
       usage: {
         summary: usageSummary,
+        active_phone_numbers: await this.prisma.phoneNumber.count({
+          where: {
+            workspace_id: workspaceId,
+            status: PhoneNumberStatus.ACTIVE,
+          },
+        }),
         period_start: workspace.subscription?.current_period_start || null,
         period_end: workspace.subscription?.current_period_end || null,
       },

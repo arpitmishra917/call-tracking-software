@@ -19,22 +19,18 @@ export class TwilioWebhookController {
   async handleWebhook(@Req() req: Request, @Res() res: Response) {
     const signature = req.headers['x-twilio-signature'] as string;
 
-    // Auth token check
+    // Auth token check - Twilio is retired; fail closed strictly
     const authToken = process.env.TWILIO_AUTH_TOKEN;
-    if (authToken && signature) {
-      const fullUrl =
-        (process.env.BASE_URL || `https://${req.hostname}`) + req.originalUrl;
-      if (!this.twilioProvider.validateWebhook(signature, fullUrl, req.body)) {
-        this.logger.warn('Invalid Twilio signature');
-        return res.status(400).send('Invalid Twilio signature');
-      }
-    } else if (authToken && !signature) {
-      this.logger.warn('Missing Twilio signature');
-      return res.status(400).send('Missing Twilio signature');
-    } else {
-      this.logger.debug(
-        'TWILIO_AUTH_TOKEN not configured. Bypassing signature verification.',
-      );
+    if (!authToken || !signature) {
+      this.logger.warn('Twilio webhook rejected: Twilio provider is retired and signature verification cannot be bypassed.');
+      return res.status(403).send('Forbidden: Twilio provider is retired');
+    }
+
+    const fullUrl =
+      (process.env.BASE_URL || `https://${req.hostname}`) + req.originalUrl;
+    if (!this.twilioProvider.validateWebhook(signature, fullUrl, req.body)) {
+      this.logger.warn('Invalid Twilio signature');
+      return res.status(400).send('Invalid Twilio signature');
     }
 
     const body = req.body || {};
@@ -44,13 +40,13 @@ export class TwilioWebhookController {
     const callSid = body.CallSid || 'unknown_sid';
     const eventId = `tw_${callSid}_${callStatus}_${seq}`;
 
-    const { canProcess, id: internalId } = await this.idempotency.acquireLock(
+    const { canProcess, id: internalId, leaseToken } = await this.idempotency.acquireLock(
       'twilio',
       eventId,
       body,
     );
 
-    if (!canProcess) {
+    if (!canProcess || !internalId || !leaseToken) {
       // Duplicate / Already Processed / Pending
       res.type('text/xml');
       if (callStatus === 'ringing' || callStatus === 'queued') {
@@ -67,13 +63,13 @@ export class TwilioWebhookController {
     if (normalizedEvent.type !== 'UNKNOWN') {
       try {
         await this.callController.handleEvent(normalizedEvent);
-        await this.idempotency.markProcessed(internalId!);
+        await this.idempotency.markProcessed(internalId!, leaseToken);
       } catch (err: any) {
         this.logger.error(`Error routing event: ${err.message}`, err.stack);
-        await this.idempotency.markFailed(internalId!, err.message);
+        await this.idempotency.markFailed(internalId!, err.message, leaseToken);
       }
     } else {
-      await this.idempotency.markIgnored(internalId!, 'Unknown event type');
+      await this.idempotency.markIgnored(internalId!, 'Unknown event type', leaseToken);
     }
 
     res.type('text/xml');

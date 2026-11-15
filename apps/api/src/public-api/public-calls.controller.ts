@@ -29,6 +29,7 @@ export class PublicCallsController {
   }
 
   @Get(':id')
+  @RequirePermission('call:read')
   @RequireResourceScope('call', 'id')
   async getCall(
     @Param('workspaceId') workspaceId: string,

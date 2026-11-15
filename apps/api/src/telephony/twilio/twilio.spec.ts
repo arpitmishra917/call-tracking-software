@@ -1,4 +1,4 @@
-import { vi } from 'vitest';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TwilioProvider } from './twilio.provider.js';
 import { TwilioWebhookController } from './twilio.webhook.controller.js';
@@ -6,7 +6,7 @@ import { CallController, TELEPHONY_PROVIDER } from '../call-controller.js';
 import { FakeTelephonyProvider } from '../fake.provider.js';
 import { WebhookIdempotencyService } from '../webhook-idempotency.service.js';
 
-describe('Twilio Adapter', () => {
+describe('Twilio Adapter (Isolated Legacy)', () => {
   let webhookController: TwilioWebhookController;
   let provider: TwilioProvider;
   let idempotencyMock: any;
@@ -61,18 +61,15 @@ describe('Twilio Adapter', () => {
     });
 
     it('should synthesize answered event asynchronously on answerCall', async () => {
-      // In NestJS tests, setImmediate is fast enough, but we should wrap it
       await new Promise<void>((resolve) => {
         provider.answerCall('tw_call_123');
         setImmediate(resolve);
       });
-      // Verification of internal callController state is done via E2E/mock tests.
-      // Here we just ensure it doesn't throw.
     });
   });
 
-  describe('TwilioWebhookController', () => {
-    it('should bypass signature verification if no auth token is set', async () => {
+  describe('TwilioWebhookController (Legacy Protection)', () => {
+    it('fails closed and rejects unauthenticated webhook requests with 403 Forbidden', async () => {
       const mockReq = {
         body: {
           CallSid: 'tw_call_mock',
@@ -92,13 +89,14 @@ describe('Twilio Adapter', () => {
 
       await webhookController.handleWebhook(mockReq, mockRes);
 
-      expect(mockRes.type).toHaveBeenCalledWith('text/xml');
-      expect(mockRes.send).toHaveBeenCalled();
-      const sendArg = mockRes.send.mock.calls[0][0];
-      expect(sendArg).toContain('<Conference');
+      expect(mockRes.status).toHaveBeenCalledWith(403);
+      expect(mockRes.send).toHaveBeenCalledWith('Forbidden: Twilio provider is retired');
     });
 
-    it('should ignore duplicate events (idempotency)', async () => {
+    it('should handle webhook when authenticated and process idempotency', async () => {
+      process.env.TWILIO_AUTH_TOKEN = 'test_token';
+      vi.spyOn(provider, 'validateWebhook').mockReturnValue(true);
+
       idempotencyMock.acquireLock
         .mockResolvedValueOnce({ canProcess: true, id: 'mock-id' })
         .mockResolvedValueOnce({ canProcess: false, id: 'mock-id' });
@@ -109,7 +107,7 @@ describe('Twilio Adapter', () => {
           CallStatus: 'in-progress',
           SequenceNumber: '1',
         },
-        headers: {},
+        headers: { 'x-twilio-signature': 'valid_sig' },
         originalUrl: '/webhooks/twilio',
       } as any;
       const mockRes = {

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentService } from './payment.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import {
   SettlementStatus,
   PaymentStatus,
@@ -51,6 +51,8 @@ describe('PaymentService Unit Tests', () => {
 
     service = module.get<PaymentService>(PaymentService);
     prisma = module.get<PrismaService>(PrismaService);
+    process.env.NODE_ENV = 'test';
+    process.env.WALLET_MOCK_PAYMENTS_ENABLED = 'true';
   });
 
   describe('createPaymentInstruction', () => {
@@ -346,6 +348,115 @@ describe('PaymentService Unit Tests', () => {
           provider: 'manual',
         }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('9. rejects mock execution in production mode even if mock flag is enabled', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.WALLET_MOCK_PAYMENTS_ENABLED = 'true';
+
+      await expect(
+        service.createPaymentExecution('ws-1', 'pi-mock-1', {
+          provider: 'mock',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+
+      process.env.NODE_ENV = 'test';
+    });
+
+    it('10. rejects mock execution in non-production when WALLET_MOCK_PAYMENTS_ENABLED is disabled or missing', async () => {
+      process.env.NODE_ENV = 'test';
+      delete process.env.WALLET_MOCK_PAYMENTS_ENABLED;
+
+      await expect(
+        service.createPaymentExecution('ws-1', 'pi-mock-2', {
+          provider: 'mock',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+
+      process.env.WALLET_MOCK_PAYMENTS_ENABLED = 'true';
+    });
+
+    it('11. allows mock execution in test mode with explicit enablement', async () => {
+      process.env.NODE_ENV = 'test';
+      process.env.WALLET_MOCK_PAYMENTS_ENABLED = 'true';
+
+      const mockInstruction: any = {
+        id: 'pi-mock-valid',
+        workspace_id: 'ws-1',
+        settlement_batch_id: 'batch-mock-1',
+        amount: new Prisma.Decimal('100.0000'),
+        currency: 'USD',
+        status: InstructionStatus.CREATED,
+        executions: [],
+        batch: {
+          id: 'batch-mock-1',
+          settlement_status: SettlementStatus.FINALIZED,
+          payment_status: PaymentStatus.PENDING,
+        },
+      };
+
+      vi.spyOn(prisma.paymentInstruction, 'findFirst').mockResolvedValue(mockInstruction);
+      vi.spyOn(prisma.paymentExecution, 'create').mockResolvedValue({
+        id: 'pe-mock-valid',
+        attempt_number: 1,
+        provider: 'mock',
+        status: ExecutionStatus.SUCCEEDED,
+      } as any);
+      vi.spyOn(prisma.paymentInstruction, 'update').mockResolvedValue({} as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      const result = await service.createPaymentExecution('ws-1', 'pi-mock-valid', {
+        provider: 'mock',
+        simulate_status: 'SUCCEEDED',
+      });
+
+      expect(result.provider).toBe('mock');
+      expect(prisma.paymentExecution.create).toHaveBeenCalled();
+    });
+
+    it('12. allows real payment execution (wire/manual) in production unaffected', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.WALLET_MOCK_PAYMENTS_ENABLED;
+
+      const mockInstruction: any = {
+        id: 'pi-wire-prod',
+        workspace_id: 'ws-1',
+        settlement_batch_id: 'batch-wire-prod',
+        amount: new Prisma.Decimal('500.0000'),
+        currency: 'USD',
+        status: InstructionStatus.CREATED,
+        executions: [],
+        batch: {
+          id: 'batch-wire-prod',
+          settlement_status: SettlementStatus.FINALIZED,
+          payment_status: PaymentStatus.PENDING,
+        },
+      };
+
+      vi.spyOn(prisma.paymentInstruction, 'findFirst').mockResolvedValue(mockInstruction);
+      vi.spyOn(prisma.paymentExecution, 'create').mockResolvedValue({
+        id: 'pe-wire-1',
+        attempt_number: 1,
+        provider: 'wire',
+        status: ExecutionStatus.SUCCEEDED,
+      } as any);
+      vi.spyOn(prisma.paymentInstruction, 'update').mockResolvedValue({} as any);
+      vi.spyOn(prisma.settlementBatch, 'update').mockResolvedValue({} as any);
+
+      const result = await service.createPaymentExecution('ws-1', 'pi-wire-prod', {
+        provider: 'wire',
+        simulate_status: 'SUCCEEDED',
+      });
+
+      expect(result.provider).toBe('wire');
+      expect(prisma.paymentExecution.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ provider: 'wire' }),
+        }),
+      );
+
+      process.env.NODE_ENV = 'test';
+      process.env.WALLET_MOCK_PAYMENTS_ENABLED = 'true';
     });
   });
 });

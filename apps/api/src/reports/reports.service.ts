@@ -3,6 +3,75 @@ import { CallsService } from '../calls/calls.service.js';
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WorkspaceRole } from '@prisma/client';
+import {
+  isValidPhoneNumber,
+  formatPhoneNumber,
+  maskCallerPhoneNumber,
+  formatCallerDisplay,
+} from '../common/phone.utils.js';
+
+export { isValidPhoneNumber, formatPhoneNumber, maskCallerPhoneNumber };
+
+export function getFinalDestinationDisplay(call: any): string {
+  if (!call) return '—';
+
+  const stateStr = (call.state || '').toString().toUpperCase();
+  const attempts: any[] = Array.isArray(call.attempts) ? call.attempts : [];
+  
+  const successfulAttempt = attempts.find((a: any) => {
+    const state = (a?.state || '').toString().toUpperCase();
+    return state === 'COMPLETED' || state === 'ANSWERED' || state === 'CONNECTED' || Boolean(a?.answered_at);
+  });
+
+  if (successfulAttempt) {
+    const rawNum = 
+      successfulAttempt?.buyer?.destination_number ||
+      successfulAttempt?.destination_number ||
+      call.destination_number ||
+      call.buyer?.destination_number;
+
+    if (isValidPhoneNumber(rawNum)) {
+      return formatPhoneNumber(rawNum);
+    }
+    
+    return 'Destination unavailable';
+  }
+
+  const isConnected = ['COMPLETED', 'CONNECTED', 'ANSWERED'].includes(stateStr) || Boolean(call.answered_at);
+  const rawDirectNum = call.destination_number || call.buyer?.destination_number;
+
+  if (isConnected && rawDirectNum) {
+    if (isValidPhoneNumber(rawDirectNum)) {
+      return formatPhoneNumber(rawDirectNum);
+    }
+    return 'Destination unavailable';
+  }
+
+  // If the call or an attempt is actively in progress, destination is pending
+  const isCallInProgress = ['ROUTING', 'RINGING', 'INITIATED', 'DIALING'].includes(stateStr);
+  const hasInProgressAttempt = attempts.some((a: any) => {
+    const aState = (a?.state || '').toString().toUpperCase();
+    return ['RINGING', 'INITIATED', 'DIALING'].includes(aState);
+  });
+  if (isCallInProgress || hasInProgressAttempt) {
+    return '—';
+  }
+
+  const hasFailedAttempts = attempts.length > 0 && attempts.every((a: any) => {
+    const state = (a?.state || '').toString().toUpperCase();
+    return ['FAILED', 'NO_ANSWER', 'CANCELED', 'BUSY', 'REJECTED'].includes(state);
+  });
+
+  const isFailedCall = ['FAILED', 'NO_ANSWER', 'BUSY', 'CANCELED', 'MISSED', 'ABANDONED', 'BLOCKED', 'VOICEMAIL', 'COMPLETED'].includes(
+    stateStr
+  );
+
+  if (hasFailedAttempts || isFailedCall) {
+    return 'No successful destination';
+  }
+
+  return '—';
+}
 
 @Injectable()
 export class ReportsService {
@@ -15,7 +84,7 @@ export class ReportsService {
     // Normalize Filters
     if (config.filters && typeof config.filters === 'object') {
       normalized.filters = {};
-      const validFilters = ['startDate', 'endDate', 'campaignId', 'buyerId', 'trackingNumber', 'callerNumber', 'status', 'minDuration', 'maxDuration', 'minDurationSecs', 'maxDurationSecs', 'durationType'];
+      const validFilters = ['startDate', 'endDate', 'campaignId', 'buyerId', 'vendorId', 'trackingNumber', 'callerNumber', 'status', 'minDuration', 'maxDuration', 'minDurationSecs', 'maxDurationSecs', 'durationType'];
       for (const k of validFilters) {
         if (config.filters[k] !== undefined) normalized.filters[k] = config.filters[k];
       }
@@ -34,7 +103,7 @@ export class ReportsService {
     // Normalize columns
     if (config.columns && Array.isArray(config.columns)) {
       normalized.columns = [];
-      const validColumnIds = new Set(['time', 'caller', 'trackingNumber', 'campaign', 'finalDestination', 'status', 'talkDuration', 'totalDuration', 'attempts', 'recording', 'actions']);
+      const validColumnIds = new Set(['time', 'caller', 'trackingNumber', 'campaign', 'finalDestination', 'status', 'talkDuration', 'totalDuration', 'revenue', 'payout', 'profit', 'commercial', 'attempts', 'recording', 'actions']);
       let hasActions = false;
       for (const col of config.columns) {
         if (col && col.id && validColumnIds.has(col.id)) {
@@ -62,13 +131,20 @@ export class ReportsService {
     // Explicitly validate filters through normalization to ensure tenant safety
     const normalizedFilters = this.normalizeConfiguration({ filters }).filters || {};
 
+    const ctx = await this.callsService.getParticipantContext(workspaceId, userId);
     const { items } = await this.callsService.getCalls(workspaceId, userId, { ...normalizedFilters, limit: 10001 });
 
     if (items.length > 10000) {
       throw new BadRequestException('Export limit of 10,000 rows exceeded. Please narrow your filters.');
     }
 
-    const exportCols = (columns || []).filter(c => c.visible && c.id !== 'actions').sort((a,b) => a.order - b.order);
+    let exportCols = (columns || []).filter(c => c.visible && c.id !== 'actions').sort((a,b) => a.order - b.order);
+    if (ctx.isBuyer) {
+      exportCols = exportCols.filter(c => c.id !== 'payout' && c.id !== 'profit');
+    }
+    if (ctx.isVendor) {
+      exportCols = exportCols.filter(c => c.id !== 'finalDestination' && c.id !== 'revenue' && c.id !== 'profit');
+    }
     
     const headerMap: Record<string, string> = {
       'time': 'Date / Time',
@@ -79,6 +155,10 @@ export class ReportsService {
       'status': 'Status',
       'talkDuration': 'Talk Duration',
       'totalDuration': 'Total Duration',
+      'revenue': 'Revenue',
+      'payout': 'Payout',
+      'profit': 'Profit',
+      'commercial': 'Commercial',
       'attempts': 'Attempts',
       'recording': 'Recording',
       'id': 'Call ID',
@@ -99,8 +179,8 @@ export class ReportsService {
 
     worksheet.columns = sheetColumns;
 
-    const formatDuration = (secs: number) => {
-      if (typeof secs !== 'number' || isNaN(secs)) return '00:00';
+    const formatDuration = (secs: number | null | undefined) => {
+      if (typeof secs !== 'number' || isNaN(secs)) return '—';
       const h = Math.floor(secs / 3600);
       const m = Math.floor((secs % 3600) / 60);
       const s = secs % 60;
@@ -111,17 +191,38 @@ export class ReportsService {
     items.forEach(call => {
       const row: any = {};
       row['time'] = call.created_at ? new Date(call.created_at).toISOString() : '';
-      row['caller'] = call.from_number || '';
+      row['caller'] = formatCallerDisplay(call.from_number, ctx.isVendor);
       row['trackingNumber'] = call.to_number || '';
       row['campaign'] = call.campaign?.name || '';
-      row['finalDestination'] = call.buyer?.name || '';
+      row['finalDestination'] = getFinalDestinationDisplay(call);
       row['status'] = call.state || '';
-      row['talkDuration'] = formatDuration(call.duration_secs || 0);
-      row['totalDuration'] = formatDuration(call.total_duration_secs || 0);
+      row['talkDuration'] = formatDuration(call.talkDurationSecs != null ? call.talkDurationSecs : (call.duration_secs != null ? call.duration_secs : null));
+      row['totalDuration'] = formatDuration(call.totalDurationSecs != null ? call.totalDurationSecs : null);
       row['attempts'] = call.attempts?.length || 0;
       row['recording'] = call.recordings && call.recordings.length > 0 ? 'Available' : 'None';
       
-        row['id'] = call.id;
+      if (exportCols.some(c => c.id === 'revenue')) {
+        row['revenue'] = call.commercial && call.commercial.revenue !== undefined ? call.commercial.revenue : '—';
+      }
+      if (exportCols.some(c => c.id === 'payout')) {
+        row['payout'] = call.commercial && call.commercial.payout !== undefined ? call.commercial.payout : '—';
+      }
+      if (exportCols.some(c => c.id === 'profit')) {
+        row['profit'] = call.commercial && call.commercial.profit !== undefined ? call.commercial.profit : '—';
+      }
+      if (exportCols.some(c => c.id === 'commercial')) {
+        if (call.commercial) {
+          const parts = [call.commercial.status || 'EVALUATED'];
+          if (call.commercial.converted) parts.push('Converted');
+          if (call.commercial.qualified) parts.push('Qualified');
+          if (call.commercial.duplicate) parts.push('Duplicate');
+          row['commercial'] = parts.join(' - ');
+        } else {
+          row['commercial'] = 'Not evaluated';
+        }
+      }
+
+      row['id'] = call.id;
 
         // Formula injection neutralization
         Object.keys(row).forEach(k => {

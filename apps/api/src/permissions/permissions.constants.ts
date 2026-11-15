@@ -30,6 +30,7 @@ export const PERMISSIONS_LIST = [
 
   { key: 'report:read', group: 'REPORTING', description: 'Read reports' },
   { key: 'report:export', group: 'REPORTING', description: 'Export reports' },
+  { key: 'report:manage', group: 'REPORTING', description: 'Create, update, or delete saved reports' },
 
   { key: 'webhook:read', group: 'WEBHOOKS', description: 'Read webhooks' },
   { key: 'webhook:manage', group: 'WEBHOOKS', description: 'Manage webhooks' },
@@ -70,4 +71,31 @@ export const ADMIN_BASELINE_PERMISSIONS = PERMISSIONS_LIST
   .map(p => p.key)
   .filter(key => key !== 'settlement:generate' && key !== 'payment:manage' && key !== 'reconciliation:run');
 
+// Participant Vendor baseline permissions:
+// Allows invited vendor members to view workspace details, read calls/metrics, read recordings, read/export reports, and view settlement batches.
+// Owner-only financial permissions (settlement:generate, payment:manage, reconciliation:run) and Buyer permissions (buyer:*, dispute:*, etc.) remain strictly excluded.
+export const VENDOR_BASELINE_PERMISSIONS = [
+  'workspace:read',
+  'call:read',
+  'call:recording_read',
+  'report:read',
+  'report:export',
+  'settlement:read',
+  'vendor:read',
+  'phone_number:read',
+];
 
+// Participant Buyer baseline permissions:
+export const BUYER_BASELINE_PERMISSIONS = [
+  'workspace:read',
+  'call:read',
+  'call:recording_read',
+  'report:read',
+  'report:export',
+  'commercial:read',
+  'dispute:create',
+  'settlement:read',
+  'campaign:read',
+  'buyer:read',
+  'phone_number:read',
+];

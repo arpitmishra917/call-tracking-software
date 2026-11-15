@@ -48,7 +48,8 @@ describe('CallsController', () => {
       'ws-1',
       { user: { userId: 'user-1' } },
       'camp-1',
-      undefined,
+      undefined, // buyerId
+      undefined, // vendorId
       CallState.COMPLETED,
       '+123',
       '2026-01-01',

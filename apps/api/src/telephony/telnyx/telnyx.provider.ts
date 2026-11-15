@@ -15,7 +15,7 @@ export class TelnyxProvider implements TelephonyProvider {
     const apiKey = process.env.TELNYX_API_KEY;
     if (apiKey) {
       const telnyxFactory = Telnyx as any;
-      this.telnyxClient = new telnyxFactory(apiKey);
+      this.telnyxClient = new telnyxFactory({ apiKey });
     } else {
       this.logger.warn(
         'TELNYX_API_KEY not provided. TelnyxProvider is running in mock mode for development/tests.',
@@ -23,13 +23,23 @@ export class TelnyxProvider implements TelephonyProvider {
     }
   }
 
+  private isMockCallId(callId?: string): boolean {
+    if (!callId) return false;
+    return (
+      callId.startsWith('mock_') ||
+      callId.startsWith('fake_') ||
+      callId.startsWith('recovery-mock-') ||
+      callId.startsWith('test_')
+    );
+  }
+
   async answerCall(callId: string): Promise<void> {
-    if (!this.telnyxClient) {
+    if (!this.telnyxClient || this.isMockCallId(callId)) {
       this.logger.debug(`[MOCK] Answering call ${callId}`);
       return;
     }
     try {
-      await this.telnyxClient.calls.actions.answer(callId);
+      await this.telnyxClient.calls.actions.answer(callId, {});
     } catch (error: any) {
       this.logger.error(`Failed to answer call ${callId}`, error);
       throw new TelephonyProviderError(
@@ -45,19 +55,32 @@ export class TelnyxProvider implements TelephonyProvider {
     from: string,
     connectionId: string,
     timeoutSecs: number,
+    clientState?: string,
+    customHeaders?: Array<{ name: string; value: string }>,
   ): Promise<string> {
     if (!this.telnyxClient) {
       this.logger.debug(`[MOCK] Dialing buyer to ${to} from ${from}`);
       return 'mock_buyer_leg_id_' + Date.now();
     }
     try {
-      const res = await this.telnyxClient.calls.dial({
+      const dialParams: any = {
         to,
         from,
         connection_id: connectionId,
         timeout_secs: timeoutSecs,
-      });
-      return res.data.call_control_id;
+      };
+      if (clientState) {
+        dialParams.client_state = clientState;
+      }
+      if (customHeaders && Array.isArray(customHeaders) && customHeaders.length > 0) {
+        dialParams.custom_headers = customHeaders;
+      }
+      const res = await this.telnyxClient.calls.dial(dialParams);
+      const callControlId = res?.data?.call_control_id || res?.data?.call_leg_id;
+      if (!callControlId) {
+        throw new Error('Telnyx dial response missing call_control_id');
+      }
+      return callControlId;
     } catch (error: any) {
       this.logger.error(`Failed to dial buyer ${to}`, error);
       throw new TelephonyProviderError(
@@ -73,13 +96,22 @@ export class TelnyxProvider implements TelephonyProvider {
       this.logger.debug(`[MOCK] Bridging calls ${callId} and ${buyerCallId}`);
       return;
     }
+    if (this.isMockCallId(callId) || this.isMockCallId(buyerCallId)) {
+      this.logger.warn(
+        `Mock call ID rejected for live bridging: ${callId} <-> ${buyerCallId}`,
+      );
+      throw new TelephonyProviderError(
+        TelephonyErrorType.ROUTING_FAILED,
+        `Cannot bridge mock call ID with live provider: ${callId} <-> ${buyerCallId}`,
+      );
+    }
     try {
       await this.telnyxClient.calls.actions.bridge(callId, {
-        call_control_id: buyerCallId,
+        call_control_id_to_bridge_with: buyerCallId,
       });
     } catch (error: any) {
       this.logger.error(
-        `Failed to bridge calls ${callId} <-> ${buyerCallId}`,
+        `Failed to bridge calls ${callId} <-> ${buyerCallId}: ${error.message}`,
         error,
       );
       throw new TelephonyProviderError(
@@ -90,23 +122,91 @@ export class TelnyxProvider implements TelephonyProvider {
     }
   }
 
-  async hangupCall(callId: string): Promise<void> {
-    if (!this.telnyxClient) {
-      this.logger.debug(`[MOCK] Hanging up call ${callId}`);
+  async hangupCall(callId: string, reason?: 'BUSY' | 'NORMAL'): Promise<void> {
+    if (!this.telnyxClient || this.isMockCallId(callId)) {
+      this.logger.debug(`[MOCK] Hanging up call ${callId} (reason: ${reason || 'NORMAL'})`);
       return;
     }
     try {
-      await this.telnyxClient.calls.actions.hangup(callId);
+      const params: any = {};
+      if (reason === 'BUSY') {
+        params.cause = 'USER_BUSY';
+      }
+      await this.telnyxClient.calls.actions.hangup(callId, params);
     } catch (error: any) {
-      // Ignored for hangup to match POC fallback behavior safely
-      this.logger.warn(
-        `Hangup failed/ignored for call ${callId}: ${error.message}`,
+      const msg = (error?.message || error?.raw?.message || '').toLowerCase();
+      const status = error?.status || error?.statusCode || error?.raw?.status || error?.raw?.statusCode || error?.response?.status;
+      if (
+        msg.includes('already') ||
+        msg.includes('not found') ||
+        status === 404
+      ) {
+        this.logger.debug(
+          `Hangup safely completed (call ${callId} already terminal/not found): ${msg}`,
+        );
+        return;
+      }
+      this.logger.error(
+        `Hangup failed for call ${callId}: ${error.message}`,
+        error,
+      );
+      throw new TelephonyProviderError(
+        TelephonyErrorType.ROUTING_FAILED,
+        `Failed to hangup call ${callId}: ${error.message}`,
+        error,
       );
     }
   }
 
+  async startRingback(callId: string, ringbackUrl?: string): Promise<void> {
+    if (!this.telnyxClient || this.isMockCallId(callId)) {
+      this.logger.debug(`[MOCK] Starting ringback on call ${callId}`);
+      return;
+    }
+    const audioUrl =
+      ringbackUrl ||
+      process.env.RINGBACK_AUDIO_URL ||
+      'https://assets.mixkit.co/active_storage/sfx/2874/2874-preview.mp3';
+    try {
+      await this.telnyxClient.calls.actions.startPlayback(callId, {
+        audio_url: audioUrl,
+        loop: 'infinity',
+        overlay: false,
+        target_legs: 'self',
+      });
+      this.logger.log(`ringback.started: Playing ringback tone on call ${callId}`);
+    } catch (error: any) {
+      this.logger.warn(`Failed to start ringback on call ${callId}: ${error.message}`);
+    }
+  }
+
+  async stopRingback(callId: string): Promise<void> {
+    if (!this.telnyxClient || this.isMockCallId(callId)) {
+      this.logger.debug(`[MOCK] Stopping ringback on call ${callId}`);
+      return;
+    }
+    try {
+      await this.telnyxClient.calls.actions.stopPlayback(callId, {
+        stop: 'all',
+      });
+      this.logger.log(`ringback.stopped: Stopped ringback on call ${callId}`);
+    } catch (error: any) {
+      const isEndedError =
+        error?.raw?.errors?.[0]?.code === '90018' ||
+        error?.message?.includes('90018') ||
+        error?.message?.includes('already ended') ||
+        error?.status === 404 ||
+        error?.status === 422;
+      if (isEndedError) {
+        this.logger.debug(`Stop ringback on ended/inactive call ${callId} suppressed`);
+        return;
+      }
+      this.logger.debug(`Stop ringback ignored/failed on call ${callId}: ${error.message}`);
+    }
+  }
+
   async startRecording(callId: string): Promise<void> {
-    if (!this.telnyxClient) {
+    if (!this.telnyxClient || this.isMockCallId(callId)) {
       this.logger.debug(`[MOCK] Starting recording for call ${callId}`);
       return;
     }
@@ -118,20 +218,21 @@ export class TelnyxProvider implements TelephonyProvider {
     } catch (error: any) {
       this.logger.error(
         `Start recording failed for call ${callId}: ${error.message}`,
+        error,
       );
       throw new Error(`Telnyx startRecording failed: ${error.message}`);
     }
   }
 
   async getRecordingUrl(recordingId: string): Promise<string> {
-    if (!this.telnyxClient) {
+    if (!this.telnyxClient || this.isMockCallId(recordingId)) {
       return `https://mock.recording.url/${recordingId}.mp3`;
     }
     try {
       const recording = (await this.telnyxClient.recordings.retrieve(
         recordingId,
       )) as any;
-      const url = recording.data?.download_urls?.mp3;
+      const url = recording.data?.download_urls?.mp3 || recording.data?.download_urls?.wav;
       if (!url) {
         throw new Error('No download URL returned by Telnyx');
       }
@@ -145,8 +246,8 @@ export class TelnyxProvider implements TelephonyProvider {
   }
 
   async getCallStatus(callId: string): Promise<'ACTIVE' | 'TERMINAL' | 'NOT_FOUND' | 'UNKNOWN'> {
-    if (!this.telnyxClient) {
-      return 'UNKNOWN'; // Mock mode defaults to unknown to force reconciliation retry
+    if (!this.telnyxClient || this.isMockCallId(callId)) {
+      return 'UNKNOWN'; // Mock mode or mock/test IDs default to unknown to avoid real provider lookup
     }
     try {
       // Telnyx `Call Control` API to retrieve call state

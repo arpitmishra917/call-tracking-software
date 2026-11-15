@@ -81,6 +81,11 @@ export class ApiKeysService {
         hashed_secret: hashedSecret,
         revoked_at: null,
       },
+      include: {
+        workspace: {
+          select: { id: true, status: true },
+        },
+      },
     });
 
     if (key) {

@@ -231,7 +231,14 @@ describe('Routing Concurrency Tests', () => {
 
     expect(callsService.handleBuyerHangup).toHaveBeenCalledWith('call_1', 'att_1');
     expect(callsService.prepareNextBuyer).toHaveBeenCalledWith('call_1');
-    expect(provider.dialBuyer).toHaveBeenCalledWith('+222', '+15550001111', '', undefined);
+    expect(provider.dialBuyer).toHaveBeenCalledWith(
+      '+222',
+      '+15550001111',
+      '',
+      30,
+      expect.any(String),
+      undefined,
+    );
   });
 
   it('TEST 7: Successful higher-priority buyer -> does NOT dial next', async () => {

@@ -10,6 +10,7 @@ import {
   ReconciliationStatus,
   ReconciliationIssueType,
   ExecutionStatus,
+  SettlementParticipantType,
   Prisma,
 } from '@prisma/client';
 
@@ -123,37 +124,48 @@ export class ReconciliationService {
     }
 
     // 4. Audit Duplicate Commercial Participation
-    // Check intra-batch item duplicates
-    const seenCallIds = new Set<string>();
+    // Check intra-batch item duplicates (participant-aware)
+    const seenItemKeys = new Set<string>();
     for (const item of batch.items) {
-      if (seenCallIds.has(item.call_commercial_id)) {
+      const pType = item.participant_type || batch.participant_type;
+      const key = `${item.call_commercial_id}_${pType}`;
+      if (seenItemKeys.has(key)) {
         issues.push({
           issue_type: ReconciliationIssueType.DUPLICATE_CALL,
-          description: `Duplicate call commercial ID detected in batch: ${item.call_commercial_id}`,
+          description: `Duplicate call commercial ID detected in batch for participant ${pType}: ${item.call_commercial_id}`,
           call_commercial_id: item.call_commercial_id,
         });
       }
-      seenCallIds.add(item.call_commercial_id);
+      seenItemKeys.add(key);
     }
 
     // Check cross-batch duplicates for same participant_type in workspace
     if (batch.items.length > 0) {
-      const callCommercialIds = batch.items.map((i) => i.call_commercial_id);
-      const duplicateOtherItems = await this.prisma.settlementItem.findMany({
-        where: {
-          workspace_id: workspaceId,
-          participant_type: batch.participant_type,
-          settlement_batch_id: { not: batch.id },
-          call_commercial_id: { in: callCommercialIds },
-        },
-      });
+      const itemsByParticipant = new Map<SettlementParticipantType, string[]>();
+      for (const item of batch.items) {
+        const pType = item.participant_type || batch.participant_type;
+        const list = itemsByParticipant.get(pType) || [];
+        list.push(item.call_commercial_id);
+        itemsByParticipant.set(pType, list);
+      }
 
-      for (const dup of duplicateOtherItems) {
-        issues.push({
-          issue_type: ReconciliationIssueType.DUPLICATE_CALL,
-          description: `Call commercial ID ${dup.call_commercial_id} is already settled in batch ${dup.settlement_batch_id}`,
-          call_commercial_id: dup.call_commercial_id,
+      for (const [pType, callCommercialIds] of itemsByParticipant.entries()) {
+        const duplicateOtherItems = await this.prisma.settlementItem.findMany({
+          where: {
+            workspace_id: workspaceId,
+            participant_type: pType,
+            settlement_batch_id: { not: batch.id },
+            call_commercial_id: { in: callCommercialIds },
+          },
         });
+
+        for (const dup of duplicateOtherItems) {
+          issues.push({
+            issue_type: ReconciliationIssueType.DUPLICATE_CALL,
+            description: `Call commercial ID ${dup.call_commercial_id} for participant ${pType} is already settled in batch ${dup.settlement_batch_id}`,
+            call_commercial_id: dup.call_commercial_id,
+          });
+        }
       }
     }
 

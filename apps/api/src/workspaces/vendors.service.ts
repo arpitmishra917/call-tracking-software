@@ -6,7 +6,11 @@ import { PermissionsService } from '../permissions/permissions.service.js';
 export class VendorsService {
   constructor(private readonly prisma: PrismaService, private readonly permissionsService: PermissionsService) {}
 
-  async listVendors(workspaceId: string, userId: string) {
+  async listVendors(
+    workspaceId: string,
+    userId: string = '',
+    filters?: { search?: string; status?: string; limit?: number; offset?: number },
+  ) {
     const permissions = await this.permissionsService.getPermissionsForUser(workspaceId, userId);
     const readPerms = permissions.filter(p => p.key === 'vendor:read');
     if (readPerms.length === 0) throw new ForbiddenException('Missing vendor:read permission');
@@ -31,33 +35,77 @@ export class VendorsService {
         authOrConditions.push({ id: { in: allowedResourceIds } });
       }
       if (authOrConditions.length === 0) {
-        return { items: [] };
+        return { items: [], total: 0 };
       }
       where.AND = [{ OR: authOrConditions }];
     }
 
-    const items = await this.prisma.vendor.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-    });
-    return { items };
+    if (filters?.search) {
+      where.name = { contains: filters.search, mode: 'insensitive' };
+    }
+    if (filters?.status) {
+      where.status = filters.status;
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.vendor.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip: filters?.offset || 0,
+        take: filters?.limit !== undefined ? filters.limit : 50,
+      }),
+      this.prisma.vendor.count({ where }),
+    ]);
+
+    return { items, total };
   }
 
   async getVendor(workspaceId: string, id: string) {
     const vendor = await this.prisma.vendor.findFirst({
       where: { id, workspace_id: workspaceId },
+      include: {
+        phone_numbers: {
+          include: {
+            campaign: true,
+          },
+        },
+      },
     });
     if (!vendor) throw new NotFoundException('Vendor not found');
     return vendor;
   }
 
   async createVendor(workspaceId: string, name: string) {
-    if (!name) throw new BadRequestException('Name is required');
+    if (!name || !name.trim()) throw new BadRequestException('Name is required');
     return this.prisma.vendor.create({
       data: {
         workspace_id: workspaceId,
-        name,
+        name: name.trim(),
         status: 'ACTIVE',
+      },
+    });
+  }
+
+  async updateVendor(
+    workspaceId: string,
+    id: string,
+    data: { name?: string; status?: string }
+  ) {
+    const vendor = await this.getVendor(workspaceId, id);
+
+    if (data.name !== undefined && (!data.name || !data.name.trim())) {
+      throw new BadRequestException('Name cannot be empty');
+    }
+
+    if (data.status !== undefined && !['ACTIVE', 'INACTIVE'].includes(data.status)) {
+      throw new BadRequestException('Invalid status. Must be ACTIVE or INACTIVE');
+    }
+
+    return this.prisma.vendor.update({
+      where: { id: vendor.id },
+      data: {
+        ...(data.name && { name: data.name.trim() }),
+        ...(data.status && { status: data.status }),
       },
     });
   }

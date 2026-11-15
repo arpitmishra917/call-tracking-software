@@ -28,6 +28,7 @@ describe('BillingService', () => {
               findUnique: vi.fn(),
             },
             usageRecord: { groupBy: vi.fn() },
+            phoneNumber: { count: vi.fn() },
             workspaceBalance: { findUnique: vi.fn() },
             webhookEvent: {
               findUnique: vi.fn(),
@@ -126,6 +127,98 @@ describe('BillingService', () => {
       const result = await service.getBillingState('ws-1');
       expect(result.usage.summary.CALL_MINUTE).toBe(50);
       expect(result.usage.summary.PHONE_NUMBER).toBe(0);
+    });
+
+    it('should return active phone numbers inventory count of 3 when three ACTIVE numbers exist', async () => {
+      vi.spyOn(prisma.workspace, 'findUnique').mockResolvedValue({
+        id: 'ws-1',
+      } as any);
+      vi.spyOn(prisma.invoice, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.plan, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.usageRecord, 'groupBy').mockResolvedValue([]);
+      const countSpy = vi.spyOn(prisma.phoneNumber, 'count').mockResolvedValue(3);
+
+      const result = await service.getBillingState('ws-1');
+      expect(result.usage.active_phone_numbers).toBe(3);
+      expect(countSpy).toHaveBeenCalledWith({
+        where: {
+          workspace_id: 'ws-1',
+          status: 'ACTIVE',
+        },
+      });
+    });
+
+    it('should exclude RELEASED numbers from active phone numbers inventory', async () => {
+      vi.spyOn(prisma.workspace, 'findUnique').mockResolvedValue({
+        id: 'ws-1',
+      } as any);
+      vi.spyOn(prisma.invoice, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.plan, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.usageRecord, 'groupBy').mockResolvedValue([]);
+      const countSpy = vi.spyOn(prisma.phoneNumber, 'count').mockResolvedValue(3);
+
+      const result = await service.getBillingState('ws-1');
+      expect(countSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: 'ACTIVE',
+          }),
+        }),
+      );
+      expect(countSpy.mock.calls[0][0].where.status).not.toBe('RELEASED');
+      expect(result.usage.active_phone_numbers).toBe(3);
+    });
+
+    it('should exclude numbers belonging to another workspace', async () => {
+      vi.spyOn(prisma.workspace, 'findUnique').mockResolvedValue({
+        id: 'ws-tenant-a',
+      } as any);
+      vi.spyOn(prisma.invoice, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.plan, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.usageRecord, 'groupBy').mockResolvedValue([]);
+      const countSpy = vi.spyOn(prisma.phoneNumber, 'count').mockResolvedValue(2);
+
+      await service.getBillingState('ws-tenant-a');
+      expect(countSpy).toHaveBeenCalledWith({
+        where: {
+          workspace_id: 'ws-tenant-a',
+          status: 'ACTIVE',
+        },
+      });
+    });
+
+    it('should preserve PHONE_NUMBER UsageRecord aggregation unchanged', async () => {
+      vi.spyOn(prisma.workspace, 'findUnique').mockResolvedValue({
+        id: 'ws-1',
+      } as any);
+      vi.spyOn(prisma.invoice, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.plan, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.usageRecord, 'groupBy').mockResolvedValue([
+        { type: 'PHONE_NUMBER', _sum: { quantity: 7 } } as any,
+      ]);
+      vi.spyOn(prisma.phoneNumber, 'count').mockResolvedValue(3);
+
+      const result = await service.getBillingState('ws-1');
+      expect(result.usage.summary.PHONE_NUMBER).toBe(7);
+      expect(result.usage.active_phone_numbers).toBe(3);
+    });
+
+    it('should preserve CALL_MINUTE and RECORDING_STORAGE metrics unchanged', async () => {
+      vi.spyOn(prisma.workspace, 'findUnique').mockResolvedValue({
+        id: 'ws-1',
+      } as any);
+      vi.spyOn(prisma.invoice, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.plan, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.usageRecord, 'groupBy').mockResolvedValue([
+        { type: 'CALL_MINUTE', _sum: { quantity: 120 } } as any,
+        { type: 'RECORDING_STORAGE', _sum: { quantity: 45 } } as any,
+      ]);
+      vi.spyOn(prisma.phoneNumber, 'count').mockResolvedValue(3);
+
+      const result = await service.getBillingState('ws-1');
+      expect(result.usage.summary.CALL_MINUTE).toBe(120);
+      expect(result.usage.summary.RECORDING_STORAGE).toBe(45);
+      expect(result.usage.active_phone_numbers).toBe(3);
     });
   });
 

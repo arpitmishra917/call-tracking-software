@@ -2,6 +2,7 @@ export enum CallEventType {
   CALL_INITIATED = 'CALL_INITIATED',
   CALL_ANSWERED = 'CALL_ANSWERED',
   CALL_HANGUP = 'CALL_HANGUP',
+  CALL_BRIDGED = 'CALL_BRIDGED',
   CALL_RECORDING_SAVED = 'CALL_RECORDING_SAVED',
 }
 
@@ -15,4 +16,6 @@ export interface NormalizedCallEvent {
   timestamp: string; // ISO string
   recordingId?: string;
   recordingUrl?: string;
+  clientState?: string;
+  hangupCause?: string;
 }

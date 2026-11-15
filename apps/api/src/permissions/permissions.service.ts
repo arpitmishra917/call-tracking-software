@@ -1,7 +1,8 @@
 import { Injectable, OnModuleInit, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditLogsService } from '../audit-logs/audit-logs.service.js';
-import { PERMISSIONS_LIST, ADMIN_BASELINE_PERMISSIONS } from './permissions.constants.js';
+import { isCallAuthorizedForVendor } from '../calls/call-authorization.util.js';
+import { PERMISSIONS_LIST, ADMIN_BASELINE_PERMISSIONS, VENDOR_BASELINE_PERMISSIONS, BUYER_BASELINE_PERMISSIONS } from './permissions.constants.js';
 
 @Injectable()
 export class PermissionsService implements OnModuleInit {
@@ -53,6 +54,56 @@ export class PermissionsService implements OnModuleInit {
       throw new NotFoundException('Workspace member not found');
     }
 
+    if (member.participant_type === 'VENDOR') {
+      const vendorPerms = PERMISSIONS_LIST
+        .filter(p => VENDOR_BASELINE_PERMISSIONS.includes(p.key))
+        .map(p => ({
+          ...p,
+          scope_type: (p.key === 'vendor:read' || p.key === 'phone_number:read') ? 'ASSIGNED' : 'ALL',
+          resource_id: p.key === 'vendor:read' ? member.vendor_id : null,
+        }));
+      const customPerms = member.workspaceMemberPermissions.map(wmp => ({
+        ...wmp.permission,
+        scope_type: wmp.scope_type,
+        resource_id: wmp.resource_id,
+      }));
+      const customKeys = new Set(customPerms.map(cp => cp.key));
+      return [...vendorPerms.filter(vp => !customKeys.has(vp.key)), ...customPerms];
+    }
+
+    if (member.participant_type === 'BUYER') {
+      let buyerIds: string[] = [];
+      if (this.prisma.workspaceMemberBuyer?.findMany) {
+        const links = await this.prisma.workspaceMemberBuyer.findMany({
+          where: { workspace_member_id: member.id, workspace_id: workspaceId },
+        });
+        if (links && links.length > 0) {
+          buyerIds = links.map((l: any) => l.buyer_id);
+        } else if (links && links.length === 0) {
+          buyerIds = [];
+        } else if (member.buyer_id) {
+          buyerIds = [member.buyer_id];
+        }
+      } else if (member.buyer_id) {
+        buyerIds = [member.buyer_id];
+      }
+
+      const buyerPerms = PERMISSIONS_LIST
+        .filter(p => BUYER_BASELINE_PERMISSIONS.includes(p.key))
+        .map(p => ({
+          ...p,
+          scope_type: (p.key === 'buyer:read' || p.key === 'campaign:read' || p.key === 'phone_number:read' || p.key === 'call:read' || p.key === 'call:recording_read') ? 'ASSIGNED' : 'ALL',
+          resource_id: p.key === 'buyer:read' ? (buyerIds[0] || member.buyer_id || null) : null,
+        }));
+      const customPerms = member.workspaceMemberPermissions.map(wmp => ({
+        ...wmp.permission,
+        scope_type: wmp.scope_type,
+        resource_id: wmp.resource_id,
+      }));
+      const customKeys = new Set(customPerms.map(cp => cp.key));
+      return [...buyerPerms.filter(bp => !customKeys.has(bp.key)), ...customPerms];
+    }
+
     if (member.role === 'OWNER') {
       return PERMISSIONS_LIST.map(p => ({ ...p, scope_type: 'ALL', resource_id: null }));
     }
@@ -76,6 +127,26 @@ export class PermissionsService implements OnModuleInit {
     });
 
     if (!member) return false;
+    if (member.participant_type === 'VENDOR') {
+      if (VENDOR_BASELINE_PERMISSIONS.includes(permissionKey)) return true;
+      const count = await this.prisma.workspaceMemberPermission.count({
+        where: {
+          workspace_member_id: member.id,
+          permission: { key: permissionKey }
+        }
+      });
+      return count > 0;
+    }
+    if (member.participant_type === 'BUYER') {
+      if (BUYER_BASELINE_PERMISSIONS.includes(permissionKey)) return true;
+      const count = await this.prisma.workspaceMemberPermission.count({
+        where: {
+          workspace_member_id: member.id,
+          permission: { key: permissionKey }
+        }
+      });
+      return count > 0;
+    }
     if (member.role === 'OWNER') return true;
     if (member.role === 'ADMIN' && ADMIN_BASELINE_PERMISSIONS.includes(permissionKey)) return true;
 
@@ -94,6 +165,26 @@ export class PermissionsService implements OnModuleInit {
     });
 
     if (!member) return false;
+    if (member.participant_type === 'VENDOR') {
+      if (permissionKeys.some(k => VENDOR_BASELINE_PERMISSIONS.includes(k))) return true;
+      const count = await this.prisma.workspaceMemberPermission.count({
+        where: {
+          workspace_member_id: member.id,
+          permission: { key: { in: permissionKeys } }
+        }
+      });
+      return count > 0;
+    }
+    if (member.participant_type === 'BUYER') {
+      if (permissionKeys.some(k => BUYER_BASELINE_PERMISSIONS.includes(k))) return true;
+      const count = await this.prisma.workspaceMemberPermission.count({
+        where: {
+          workspace_member_id: member.id,
+          permission: { key: { in: permissionKeys } }
+        }
+      });
+      return count > 0;
+    }
     if (member.role === 'OWNER') return true;
     if (member.role === 'ADMIN' && permissionKeys.some(k => ADMIN_BASELINE_PERMISSIONS.includes(k))) return true;
 
@@ -112,6 +203,107 @@ export class PermissionsService implements OnModuleInit {
     });
 
     if (!member) return false;
+
+    if (member.participant_type === 'VENDOR') {
+      if (!VENDOR_BASELINE_PERMISSIONS.includes(permissionKey)) return false;
+      if (!member.vendor_id) return false;
+
+      if (permissionKey === 'vendor:read') {
+        return member.vendor_id === resourceId;
+      }
+
+      if (permissionKey === 'phone_number:read') {
+        const pn = await this.prisma.phoneNumber.findUnique({
+          where: { id: resourceId },
+        });
+        if (!pn || pn.workspace_id !== workspaceId) return false;
+        return pn.vendor_id === member.vendor_id;
+      }
+
+      if (permissionKey === 'call:read') {
+        const call = await this.prisma.call.findUnique({
+          where: { id: resourceId },
+          include: { commercial: true },
+        });
+        return isCallAuthorizedForVendor(call, workspaceId, member.vendor_id);
+      }
+
+      if (permissionKey === 'call:recording_read') {
+        const rec = await this.prisma.recording.findUnique({
+          where: { id: resourceId },
+          include: { call: { include: { commercial: true } } },
+        });
+        if (!rec || !rec.call) return false;
+        return isCallAuthorizedForVendor(rec.call, workspaceId, member.vendor_id);
+      }
+
+      return true;
+    }
+
+    if (member.participant_type === 'BUYER') {
+      if (!BUYER_BASELINE_PERMISSIONS.includes(permissionKey)) return false;
+
+      let buyerIds: string[] = [];
+      if (this.prisma.workspaceMemberBuyer?.findMany) {
+        const links = await this.prisma.workspaceMemberBuyer.findMany({
+          where: { workspace_member_id: member.id, workspace_id: workspaceId },
+        });
+        if (links && links.length > 0) {
+          buyerIds = links.map((l: any) => l.buyer_id);
+        } else if (links && links.length === 0) {
+          buyerIds = [];
+        } else if (member.buyer_id) {
+          buyerIds = [member.buyer_id];
+        }
+      } else if (member.buyer_id) {
+        buyerIds = [member.buyer_id];
+      }
+
+      if (buyerIds.length === 0) return false;
+
+      if (permissionKey === 'buyer:read') {
+        return buyerIds.includes(resourceId);
+      }
+
+      if (permissionKey === 'campaign:read') {
+        const cb = await this.prisma.campaignBuyer.findFirst({
+          where: { campaign_id: resourceId, buyer_id: { in: buyerIds } }
+        });
+        return !!cb;
+      }
+
+      if (permissionKey === 'phone_number:read') {
+        const pn = await this.prisma.phoneNumber.findUnique({
+          where: { id: resourceId },
+          include: { campaign: { include: { buyers: true } } }
+        });
+        return !!pn?.campaign?.buyers.some(b => buyerIds.includes(b.buyer_id));
+      }
+
+      if (permissionKey === 'call:read') {
+        const call = await this.prisma.call.findUnique({
+          where: { id: resourceId },
+          include: { commercial: true, attempts: true }
+        });
+        if (!call || call.workspace_id !== workspaceId) return false;
+        if (call.commercial?.buyer_id != null && buyerIds.includes(call.commercial.buyer_id)) {
+          return true;
+        }
+        return call.attempts?.some((a: any) => a.buyer_id != null && buyerIds.includes(a.buyer_id)) || false;
+      }
+
+      if (permissionKey === 'call:recording_read') {
+        const rec = await this.prisma.recording.findUnique({
+          where: { id: resourceId },
+          include: { call: { include: { commercial: true } } }
+        });
+        if (!rec || !rec.call || rec.call.workspace_id !== workspaceId) return false;
+        return Boolean(rec.call.commercial?.buyer_id != null && buyerIds.includes(rec.call.commercial.buyer_id));
+      }
+
+      return true;
+    }
+
     if (member.role === 'OWNER') return true;
     if (member.role === 'ADMIN' && ADMIN_BASELINE_PERMISSIONS.includes(permissionKey)) return true;
 
@@ -156,27 +348,43 @@ export class PermissionsService implements OnModuleInit {
       const permDef = await this.prisma.permission.findUnique({ where: { key: permissionKey } });
       if (!permDef) return false;
 
+      let memberBuyerIds: string[] = [];
+      if (this.prisma.workspaceMemberBuyer?.findMany) {
+        const links = await this.prisma.workspaceMemberBuyer.findMany({
+          where: { workspace_member_id: member.id, workspace_id: workspaceId },
+        });
+        if (links && links.length > 0) {
+          memberBuyerIds = links.map((l: any) => l.buyer_id);
+        } else if (links && links.length === 0) {
+          memberBuyerIds = [];
+        } else if (member.buyer_id) {
+          memberBuyerIds = [member.buyer_id];
+        }
+      } else if (member.buyer_id) {
+        memberBuyerIds = [member.buyer_id];
+      }
+
       // BUYER resource: direct check
-      if (permDef.group === 'BUYERS' && member.buyer_id === resourceId) return true;
+      if (permDef.group === 'BUYERS' && (member.buyer_id === resourceId || memberBuyerIds.includes(resourceId))) return true;
       
       // VENDOR resource: direct check
       if (permDef.group === 'VENDORS' && member.vendor_id === resourceId) return true;
       
       // CAMPAIGN resource
-      if (permDef.group === 'CAMPAIGNS' && member.buyer_id) {
-        const cb = await this.prisma.campaignBuyer.findUnique({
-          where: { campaign_id_buyer_id: { campaign_id: resourceId, buyer_id: member.buyer_id } }
+      if (permDef.group === 'CAMPAIGNS' && memberBuyerIds.length > 0) {
+        const cb = await this.prisma.campaignBuyer.findFirst({
+          where: { campaign_id: resourceId, buyer_id: { in: memberBuyerIds } }
         });
         if (cb) return true;
       }
       
       // PHONE_NUMBER resource
-      if (permDef.group === 'PHONE_NUMBERS' && member.buyer_id) {
+      if (permDef.group === 'PHONE_NUMBERS' && memberBuyerIds.length > 0) {
         const pn = await this.prisma.phoneNumber.findUnique({
           where: { id: resourceId },
           include: { campaign: { include: { buyers: true } } }
         });
-        if (pn?.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
+        if (pn?.campaign?.buyers.some(b => memberBuyerIds.includes(b.buyer_id))) return true;
       }
 
 
@@ -193,9 +401,9 @@ export class PermissionsService implements OnModuleInit {
         if (!call) return false;
         
         // 1. Implicit ASSIGNED scope
-        if (member.buyer_id) {
-          if (call.attempts.some(a => a.buyer_id === member.buyer_id)) return true;
-          if (call.campaign?.buyers.some(b => b.buyer_id === member.buyer_id)) return true;
+        if (memberBuyerIds.length > 0) {
+          if (call.attempts.some(a => memberBuyerIds.includes(a.buyer_id))) return true;
+          if (call.campaign?.buyers.some(b => memberBuyerIds.includes(b.buyer_id))) return true;
         }
       }
 

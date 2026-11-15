@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Profile {
@@ -13,8 +14,9 @@ model Profile {
   created_at    DateTime          @default(now())
   updated_at    DateTime          @updatedAt
   memberships   WorkspaceMember[]
-  api_keys      ApiKey[]
-  saved_reports SavedReport[]
+  api_keys              ApiKey[]
+  saved_reports         SavedReport[]
+  password_reset_tokens PasswordResetToken[]
 
   @@map("profiles")
 }
@@ -46,9 +48,12 @@ model Workspace {
   wallet_txs                 WalletTransaction[]
   callReservations           CallReservation[]
   callReservationExtensions  CallReservationExtension[]
+  buyerReservations          BuyerReservation[]
   saved_reports              SavedReport[]
   workspaceMemberPermissions WorkspaceMemberPermission[]
   securityAuditLogs          SecurityAuditLog[]
+  destination_numbers        DestinationNumber[]
+  campaign_destination_numbers CampaignDestinationNumber[]
   callCommercials            CallCommercial[]
   callDisputes               CallDispute[]
   callFinancialAdjustments   CallFinancialAdjustment[]
@@ -58,6 +63,7 @@ model Workspace {
   payment_instructions       PaymentInstruction[]
   payment_executions         PaymentExecution[]
   reconciliation_runs        ReconciliationRun[]
+  workspace_member_buyers    WorkspaceMemberBuyer[]
 
   @@map("workspaces")
 }
@@ -117,6 +123,7 @@ model Vendor {
   settlement_batches    SettlementBatch[]
   settlement_adjustments SettlementAdjustment[]
   payment_instructions  PaymentInstruction[]
+  calls                 Call[]                @relation("VendorCalls")
 
   @@index([workspace_id])
   @@map("vendors")
@@ -140,6 +147,7 @@ model WorkspaceMember {
   buyer  Buyer?  @relation(fields: [buyer_id], references: [id], onDelete: SetNull)
 
   workspaceMemberPermissions WorkspaceMemberPermission[]
+  workspace_member_buyers    WorkspaceMemberBuyer[]
   audit_actions              SecurityAuditLog[] @relation("AuditLogActor")
 
   @@unique([workspace_id, user_id])
@@ -200,6 +208,7 @@ model PhoneNumber {
   workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   campaign  Campaign? @relation(fields: [campaign_id], references: [id], onDelete: SetNull)
   vendor    Vendor?   @relation(fields: [vendor_id], references: [id], onDelete: SetNull)
+  calls     Call[]    @relation("PhoneNumberCalls")
 
   @@index([workspace_id])
   @@index([campaign_id])
@@ -223,6 +232,7 @@ model Campaign {
   workspace        Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   phone_numbers    PhoneNumber[]
   buyers           CampaignBuyer[]
+  destination_numbers CampaignDestinationNumber[]
   calls            Call[]
   call_commercials CallCommercial[]
 
@@ -234,17 +244,22 @@ model Buyer {
   id                 String   @id @default(uuid())
   workspace_id       String
   name               String
-  destination_number String // E.164
+  email              String?  // Buyer Organization email
+  destination_number String?  @default("") // Legacy E.164 preserved for Step 2 compatibility
   status             String   @default("ACTIVE") // ACTIVE, INACTIVE
-  timeout            Int      @default(30)
+  timeout            Int?     @default(30)
+  max_concurrent_calls Int?   @default(1)
   created_at         DateTime @default(now())
   updated_at         DateTime @updatedAt
 
   workspace             Workspace             @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   workspace_members     WorkspaceMember[]
+  workspace_member_buyers WorkspaceMemberBuyer[]
   workspace_invitations WorkspaceInvitation[]
+  destination_numbers   DestinationNumber[]   // 1:N Destination Numbers
   campaigns             CampaignBuyer[]
   call_attempts         CallAttempt[]
+  buyer_reservations    BuyerReservation[]
   call_commercials      CallCommercial[]
   call_disputes         CallDispute[]
   settlement_batches    SettlementBatch[]
@@ -253,6 +268,51 @@ model Buyer {
 
   @@index([workspace_id])
   @@map("buyers")
+}
+
+model DestinationNumber {
+  id                   String   @id @default(uuid())
+  workspace_id         String
+  buyer_id             String
+  destination_number   String   // E.164
+  name                 String?  // Label e.g. "Primary Office", "East Coast"
+  timeout              Int      @default(30)
+  max_concurrent_calls Int      @default(1)
+  status               String   @default("ACTIVE") // ACTIVE, INACTIVE
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  workspace            Workspace                   @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  buyer                Buyer                       @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
+  campaign_assignments CampaignDestinationNumber[]
+  call_attempts        CallAttempt[]
+
+  @@unique([workspace_id, destination_number])
+  @@index([workspace_id])
+  @@index([buyer_id])
+  @@map("destination_numbers")
+}
+
+model CampaignDestinationNumber {
+  id                    String            @id @default(uuid())
+  workspace_id          String
+  campaign_id           String
+  destination_number_id String
+  priority              Int               @default(1)
+  weight                Int               @default(100)
+  status                String            @default("ACTIVE") // ACTIVE, INACTIVE
+  created_at            DateTime          @default(now())
+  updated_at            DateTime          @updatedAt
+
+  workspace             Workspace         @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  campaign              Campaign          @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+  destination_number    DestinationNumber @relation(fields: [destination_number_id], references: [id], onDelete: Cascade)
+
+  @@unique([campaign_id, destination_number_id])
+  @@index([workspace_id])
+  @@index([campaign_id])
+  @@index([destination_number_id])
+  @@map("campaign_destination_numbers")
 }
 
 model CampaignBuyer {
@@ -309,54 +369,70 @@ enum CallAttemptState {
 }
 
 model Call {
-  id               String    @id @default(uuid())
-  workspace_id     String
-  campaign_id      String?
-  provider         String
-  provider_call_id String    @unique
-  from_number      String
-  to_number        String
-  state            CallState @default(INITIATED)
-  duration_secs    Int?
-  started_at       DateTime?
-  answered_at      DateTime?
-  ended_at         DateTime?
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
+  id                   String    @id @default(uuid())
+  workspace_id         String
+  campaign_id          String?
+  phone_number_id      String?   @db.Text
+  vendor_id            String?   @db.Text
+  attributed_vendor_id String?   @db.Text
+  attribution_source   String?   @db.Text
+  provider             String
+  provider_call_id     String    @unique
+  from_number          String
+  to_number            String
+  state                CallState @default(INITIATED)
+  duration_secs        Int?
+  started_at           DateTime?
+  answered_at          DateTime?
+  ended_at             DateTime?
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
 
   workspace                 Workspace                  @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   campaign                  Campaign?                  @relation(fields: [campaign_id], references: [id], onDelete: SetNull)
+  phone_number              PhoneNumber?               @relation("PhoneNumberCalls", fields: [phone_number_id], references: [id], onDelete: SetNull)
+  vendor                    Vendor?                    @relation("VendorCalls", fields: [vendor_id], references: [id], onDelete: SetNull)
   attempts                  CallAttempt[]
   recordings                Recording[]
   callReservation           CallReservation?
   callReservationExtensions CallReservationExtension[]
+  buyerReservations         BuyerReservation[]
   commercial                CallCommercial?
   duplicate_calls           CallCommercial[]           @relation("DuplicateOfCall")
 
   @@index([workspace_id])
+  @@index([workspace_id, created_at])
+  @@index([workspace_id, attributed_vendor_id, created_at])
+  @@index([workspace_id, vendor_id, created_at])
   @@index([campaign_id])
   @@index([provider_call_id])
+  @@index([phone_number_id])
   @@map("calls")
 }
 
 model CallAttempt {
-  id               String           @id @default(uuid())
-  call_id          String
-  buyer_id         String
-  provider_call_id String?          @unique
-  state            CallAttemptState @default(INITIATED)
-  duration_secs    Int?
-  started_at       DateTime?
-  answered_at      DateTime?
-  ended_at         DateTime?
-  created_at       DateTime         @default(now())
-  updated_at       DateTime         @updatedAt
+  id                    String           @id @default(uuid())
+  call_id               String
+  buyer_id              String
+  destination_number_id String?
+  destination_number    String?          // Immutable snapshot of dialed E.164 string
+  provider_call_id      String?          @unique
+  state                 CallAttemptState @default(INITIATED)
+  duration_secs         Int?
+  started_at            DateTime?
+  answered_at           DateTime?
+  ended_at              DateTime?
+  created_at            DateTime         @default(now())
+  updated_at            DateTime         @updatedAt
 
-  call  Call  @relation(fields: [call_id], references: [id], onDelete: Cascade)
-  buyer Buyer @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
+  call             Call               @relation(fields: [call_id], references: [id], onDelete: Cascade)
+  buyer            Buyer              @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
+  destination_ref  DestinationNumber? @relation(fields: [destination_number_id], references: [id], onDelete: SetNull)
+  buyerReservation BuyerReservation?
 
   @@index([call_id])
   @@index([buyer_id])
+  @@index([destination_number_id])
   @@map("call_attempts")
 }
 
@@ -636,6 +712,32 @@ model CallReservationExtension {
   @@index([reservation_id])
   @@index([call_id])
   @@map("call_reservation_extensions")
+}
+
+enum BuyerReservationStatus {
+  ACTIVE
+  RELEASED
+}
+
+model BuyerReservation {
+  id           String                 @id @default(uuid())
+  workspace_id String
+  buyer_id     String
+  call_id      String
+  attempt_id   String                 @unique
+  status       BuyerReservationStatus @default(ACTIVE)
+  created_at   DateTime               @default(now())
+  updated_at   DateTime               @updatedAt
+
+  workspace Workspace   @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  buyer     Buyer       @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
+  call      Call        @relation(fields: [call_id], references: [id], onDelete: Cascade)
+  attempt   CallAttempt @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+
+  @@index([buyer_id, status])
+  @@index([call_id])
+  @@index([workspace_id])
+  @@map("buyer_reservations")
 }
 
 enum ReportVisibility {
@@ -1071,6 +1173,49 @@ model ReconciliationIssue {
   @@index([reconciliation_run_id])
   @@map("reconciliation_issues")
 }
+
+enum PasswordResetStatus {
+  PENDING
+  USED
+  EXPIRED
+  REVOKED
+}
+
+model PasswordResetToken {
+  id         String              @id @default(uuid())
+  email      String
+  user_id    String?
+  token_hash String              @unique
+  status     PasswordResetStatus @default(PENDING)
+  expires_at DateTime
+  created_at DateTime            @default(now())
+  updated_at DateTime            @updatedAt
+
+  user       Profile?            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([token_hash])
+  @@map("password_reset_tokens")
+}
+
+model WorkspaceMemberBuyer {
+  id                  String          @id @default(uuid())
+  workspace_id        String
+  workspace_member_id String
+  buyer_id            String
+  created_at          DateTime        @default(now())
+
+  workspace       Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  workspaceMember WorkspaceMember @relation(fields: [workspace_member_id], references: [id], onDelete: Cascade)
+  buyer           Buyer           @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
+
+  @@unique([workspace_member_id, buyer_id])
+  @@index([workspace_id])
+  @@index([workspace_member_id])
+  @@index([buyer_id])
+  @@map("workspace_member_buyers")
+}
+
 
 
 

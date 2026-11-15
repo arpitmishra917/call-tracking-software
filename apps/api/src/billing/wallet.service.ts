@@ -168,8 +168,9 @@ export class WalletService {
       ...tx,
       amount_micro: tx.amount_micro ? tx.amount_micro.toString() : '0',
       balance_after_micro: tx.balance_after_micro
+
         ? tx.balance_after_micro.toString()
-        : '0',
+        : '0', is_mock: tx.reference_type === 'MOCK_PAYMENT',
     }));
   }
   // =========================================================================

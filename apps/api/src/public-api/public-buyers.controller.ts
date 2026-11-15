@@ -21,6 +21,7 @@ export class PublicBuyersController {
   }
 
   @Get(':id')
+  @RequirePermission('buyer:read')
   @RequireResourceScope('buyer', 'id')
   async getBuyer(
     @Param('workspaceId') workspaceId: string,

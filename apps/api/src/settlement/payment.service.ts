@@ -19,6 +19,7 @@ import {
   SettlementParticipantType,
   Prisma,
 } from '@prisma/client';
+import { assertMockPaymentPermitted } from '../billing/payment-safeguards.util.js';
 
 @Injectable()
 export class PaymentService {
@@ -217,6 +218,10 @@ export class PaymentService {
       throw new BadRequestException(
         `Invalid payment provider: ${dto.provider}. Allowed providers: ${validProviders.join(', ')}`,
       );
+    }
+
+    if (dto.provider === 'mock') {
+      assertMockPaymentPermitted('settlement-payment-execution');
     }
 
     const instruction = await this.prisma.paymentInstruction.findFirst({

@@ -33,17 +33,23 @@ export class CampaignsController {
   @Get(':id')
   @RequirePermission('campaign:read')
   @RequireResourceScope('campaign', 'id')
-  get(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
-    return this.campaignsService.getCampaign(workspaceId, id);
+  get(@Param('workspaceId') workspaceId: string, @Param('id') id: string, @Request() req: any) {
+    return this.campaignsService.getCampaign(workspaceId, id, req.user?.userId);
   }
 
   @Post()
   @RequirePermission('campaign:create')
   create(
     @Param('workspaceId') workspaceId: string,
-    @Body('name') name: string,
+    @Body() body: {
+      name: string;
+      default_revenue_amount?: number | string | null;
+      default_payout_amount?: number | string | null;
+      currency?: string;
+      conversion_duration_secs?: number | string | null;
+    },
   ) {
-    return this.campaignsService.createCampaign(workspaceId, name);
+    return this.campaignsService.createCampaign(workspaceId, body);
   }
 
   @Put(':id')
@@ -52,7 +58,14 @@ export class CampaignsController {
   update(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body() body: { name?: string; status?: string },
+    @Body() body: {
+      name?: string;
+      status?: string;
+      default_revenue_amount?: number | string | null;
+      default_payout_amount?: number | string | null;
+      currency?: string;
+      conversion_duration_secs?: number | string | null;
+    },
   ) {
     return this.campaignsService.updateCampaign(workspaceId, id, body);
   }
@@ -147,5 +160,52 @@ export class CampaignsController {
     @Body() body: { buyerIds: string[] },
   ) {
     return this.campaignsService.reorderBuyersInCampaign(workspaceId, id, body.buyerIds);
+  }
+
+  @Post(':id/destinations')
+  @RequirePermission('campaign:update')
+  @RequireResourceScope('campaign', 'id')
+  addDestination(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Body() body: { destinationNumberId: string; priority?: number; weight?: number },
+  ) {
+    return this.campaignsService.addDestinationToCampaign(
+      workspaceId,
+      id,
+      body.destinationNumberId,
+      body.priority,
+      body.weight,
+    );
+  }
+
+  @RequirePermission('campaign:update')
+  @Delete(':id/destinations/:destinationNumberId')
+  @RequireResourceScope('campaign', 'id')
+  removeDestination(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Param('destinationNumberId') destinationNumberId: string,
+  ) {
+    return this.campaignsService.removeDestinationFromCampaign(
+      workspaceId,
+      id,
+      destinationNumberId,
+    );
+  }
+
+  @RequirePermission('campaign:update')
+  @Put(':id/destinations/reorder')
+  @RequireResourceScope('campaign', 'id')
+  reorderDestinations(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Body() body: { destinationNumberIds: string[] },
+  ) {
+    return this.campaignsService.reorderDestinationsInCampaign(
+      workspaceId,
+      id,
+      body.destinationNumberIds,
+    );
   }
 }

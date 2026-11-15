@@ -12,6 +12,8 @@ import {
   ReconciliationStatus,
   CommercialStatus,
   DisputeStatus,
+  AdjustmentDirection,
+  AdjustmentStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -420,12 +422,57 @@ export class SettlementBatchService {
 
               const gross = aggregate._sum.amount ?? new Prisma.Decimal('0.0000');
               const count = aggregate._count.id;
-              const net = gross.add(batch!.adjustments_amount);
+
+              // Pull and apply pending SettlementAdjustments for this Buyer and currency
+              let totalAdjustments = new Prisma.Decimal('0.0000');
+              if (tx.settlementAdjustment) {
+                const pendingAdjustments = await tx.settlementAdjustment.findMany({
+                  where: {
+                    workspace_id,
+                    participant_type: SettlementParticipantType.BUYER,
+                    buyer_id: participantId,
+                    currency: currentCurrency,
+                    status: AdjustmentStatus.PENDING,
+                    target_settlement_batch_id: null,
+                  },
+                });
+
+                if (pendingAdjustments.length > 0) {
+                  const adjIds = pendingAdjustments.map((a: any) => a.id);
+                  await tx.settlementAdjustment.updateMany({
+                    where: { id: { in: adjIds } },
+                    data: {
+                      target_settlement_batch_id: batch!.id,
+                      status: AdjustmentStatus.APPLIED,
+                      applied_at: new Date(),
+                    },
+                  });
+                }
+
+                const batchAdjustments = await tx.settlementAdjustment.findMany({
+                  where: {
+                    target_settlement_batch_id: batch!.id,
+                    workspace_id,
+                  },
+                });
+
+                for (const adj of batchAdjustments) {
+                  // Buyer CREDIT reduces invoice amount (negative offset)
+                  if (adj.direction === AdjustmentDirection.CREDIT) {
+                    totalAdjustments = totalAdjustments.sub(adj.amount);
+                  } else {
+                    totalAdjustments = totalAdjustments.add(adj.amount);
+                  }
+                }
+              }
+
+              const net = gross.add(totalAdjustments);
 
               batch = await tx.settlementBatch.update({
                 where: { id: batch!.id },
                 data: {
                   gross_amount: gross,
+                  adjustments_amount: totalAdjustments,
                   net_amount: net,
                   item_count: count,
                 },
@@ -717,12 +764,57 @@ export class SettlementBatchService {
 
               const gross = aggregate._sum.amount ?? new Prisma.Decimal('0.0000');
               const count = aggregate._count.id;
-              const net = gross.add(batch!.adjustments_amount);
+
+              // Pull and apply pending SettlementAdjustments for this Vendor and currency
+              let totalAdjustments = new Prisma.Decimal('0.0000');
+              if (tx.settlementAdjustment) {
+                const pendingAdjustments = await tx.settlementAdjustment.findMany({
+                  where: {
+                    workspace_id,
+                    participant_type: SettlementParticipantType.VENDOR,
+                    vendor_id: participantId,
+                    currency: currentCurrency,
+                    status: AdjustmentStatus.PENDING,
+                    target_settlement_batch_id: null,
+                  },
+                });
+
+                if (pendingAdjustments.length > 0) {
+                  const adjIds = pendingAdjustments.map((a: any) => a.id);
+                  await tx.settlementAdjustment.updateMany({
+                    where: { id: { in: adjIds } },
+                    data: {
+                      target_settlement_batch_id: batch!.id,
+                      status: AdjustmentStatus.APPLIED,
+                      applied_at: new Date(),
+                    },
+                  });
+                }
+
+                const batchAdjustments = await tx.settlementAdjustment.findMany({
+                  where: {
+                    target_settlement_batch_id: batch!.id,
+                    workspace_id,
+                  },
+                });
+
+                for (const adj of batchAdjustments) {
+                  // Vendor CLAWBACK reduces payout amount (negative offset)
+                  if (adj.direction === AdjustmentDirection.CLAWBACK) {
+                    totalAdjustments = totalAdjustments.sub(adj.amount);
+                  } else {
+                    totalAdjustments = totalAdjustments.add(adj.amount);
+                  }
+                }
+              }
+
+              const net = gross.add(totalAdjustments);
 
               batch = await tx.settlementBatch.update({
                 where: { id: batch!.id },
                 data: {
                   gross_amount: gross,
+                  adjustments_amount: totalAdjustments,
                   net_amount: net,
                   item_count: count,
                 },

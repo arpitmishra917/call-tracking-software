@@ -1,5 +1,5 @@
-const url = 'https://uwycbvnqnpnfisvvbabu.supabase.co/rest/v1';
-const key = 'your_supabase_secret_key_placeholder';
+const url = process.env.SUPABASE_URL ? `${process.env.SUPABASE_URL}/rest/v1` : 'https://your-project.supabase.co/rest/v1';
+const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || 'your_supabase_secret_key_placeholder';
 
 async function fetchFromSupabase(path) {
   const res = await fetch(`${url}${path}`, {
