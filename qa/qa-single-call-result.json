@@ -1,0 +1,79 @@
+{
+  "testType": "Phase 7B-10S Single Controlled Live Carrier Native ARI Recording Verification",
+  "startedAt": "2026-11-11T22:08:19.237Z",
+  "endedAt": "2026-11-11T22:08:57.960Z",
+  "callDurationSeconds": 28.82,
+  "carrierCallPlaced": true,
+  "preCallTelnyxBalance": 1.87,
+  "postCallTelnyxBalance": 1.87,
+  "providerSpendUsd": 0,
+  "spendUnderLimit": true,
+  "runResult": {
+    "success": false,
+    "runId": "15f2f1d2-8ada-46a5-a9c8-405d424f552d",
+    "context": {
+      "runId": "15f2f1d2-8ada-46a5-a9c8-405d424f552d",
+      "secretToken": "6fee2d9045dc102f0151d07d7b7e9a9df7c81d2c23573587e4d9690ba988e846",
+      "expectedCallerCli": "+17252574041",
+      "trackingDid": "+17252574041",
+      "workspaceId": "5e20bafe-7306-4da7-9944-62c4c5575a5a",
+      "preserveRecordings": true,
+      "state": "FAILED",
+      "startedAt": 1794434904840,
+      "asteriskChannelId": "1794434906.29",
+      "buyerChannelId": "1794434922.30",
+      "callerRecordingName": "qa-caller-15f2f1d2-8ada-46a5-a9c8-405d424f552d",
+      "buyerRecordingName": "qa-buyer-15f2f1d2-8ada-46a5-a9c8-405d424f552d",
+      "recordingName": "qa-caller-15f2f1d2-8ada-46a5-a9c8-405d424f552d",
+      "callerSession": {
+        "leg": "caller",
+        "channelId": "1794434924.32",
+        "recordingName": "qa-caller-15f2f1d2-8ada-46a5-a9c8-405d424f552d",
+        "state": "CAPTURING",
+        "startedAt": 1794434924086,
+        "snoopChannelId": "1794434924.32"
+      },
+      "buyerSession": {
+        "leg": "buyer",
+        "channelId": "1794434924.31",
+        "recordingName": "qa-buyer-15f2f1d2-8ada-46a5-a9c8-405d424f552d",
+        "state": "CAPTURING",
+        "startedAt": 1794434924086,
+        "snoopChannelId": "1794434924.31"
+      },
+      "callerSnoopChannelId": "1794434924.32",
+      "buyerSnoopChannelId": "1794434924.31"
+    },
+    "cleanupSummary": {
+      "asteriskChannelHungUp": true,
+      "buyerChannelHungUp": true,
+      "telnyxLegHungUp": false,
+      "recordingStopped": true,
+      "recordingDeleted": false,
+      "testRunUnregistered": true,
+      "callBindingReleased": false,
+      "leasesCleaned": true,
+      "walletReservationReleased": false,
+      "webSocketDisconnected": true,
+      "callerSnoopHungUp": true,
+      "buyerSnoopHungUp": true
+    },
+    "error": "Insufficient remaining watchdog time (1938ms) for post-playback capture interval of 7000ms"
+  },
+  "preDbMetrics": {
+    "balance_micro": "0",
+    "reserved_micro": "0",
+    "walletTransactions": 0,
+    "callReservations": 0,
+    "calls": 5
+  },
+  "postDbMetrics": {
+    "balance_micro": "0",
+    "reserved_micro": "0",
+    "walletTransactions": 0,
+    "callReservations": 0,
+    "calls": 6
+  },
+  "financialIsolationPassed": true,
+  "lingeringChannels": []
+}

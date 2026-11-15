@@ -1,0 +1,426 @@
+{
+  "phase": "QA-2F-STAGE-2",
+  "timestamp": "2026-11-15T04:35:21.877Z",
+  "calls": {
+    "call1": {
+      "runId": "qa2f-c1-1794717323160",
+      "callerChannelId": "1794717323.7",
+      "buyerChannelId": "1794717329.8",
+      "buyerName": "Buyer A",
+      "recordings": {
+        "buyerRx": "qa2f-c1-buyer-rx-1794717331250",
+        "callerRx": "qa2f-c1-caller-rx-1794717333846"
+      },
+      "analysis": {
+        "buyerRx": {
+          "sampleRate": 8000,
+          "durationSeconds": 0,
+          "targetFreq": 1000,
+          "targetDb": -120,
+          "noiseDb": -120,
+          "snrDb": 0,
+          "detected": false
+        },
+        "callerRx": {
+          "sampleRate": 8000,
+          "durationSeconds": 2.52,
+          "targetFreq": 1500,
+          "targetDb": -16.58,
+          "noiseDb": -76.75,
+          "snrDb": 60.17,
+          "detected": true
+        }
+      },
+      "dbReservationId": "88fd2827-d6a1-4554-af8d-7d88b9768305"
+    },
+    "call2": {
+      "runId": "qa2f-c2-1794717336612",
+      "callerChannelId": "1794717336.9",
+      "buyerChannelId": "1794717341.10",
+      "buyerName": "Buyer A",
+      "recordings": {
+        "buyerRx": "qa2f-c2-buyer-rx-1794717343758",
+        "callerRx": "qa2f-c2-caller-rx-1794717346419"
+      },
+      "analysis": {
+        "buyerRx": {
+          "sampleRate": 8000,
+          "durationSeconds": 0,
+          "targetFreq": 1000,
+          "targetDb": -120,
+          "noiseDb": -120,
+          "snrDb": 0,
+          "detected": false
+        },
+        "callerRx": {
+          "sampleRate": 8000,
+          "durationSeconds": 1.32,
+          "targetFreq": 1500,
+          "targetDb": -13.76,
+          "noiseDb": -63.66,
+          "snrDb": 49.9,
+          "detected": true
+        }
+      }
+    },
+    "call3": {
+      "runId": "qa2f-c3-1794717349153",
+      "callerChannelId": "1794717348.11",
+      "buyerChannelId": "1794717353.12",
+      "buyerName": "Buyer B",
+      "recordings": {
+        "buyerRx": "qa2f-c3-buyer-b-rx-1794717356277",
+        "callerRx": "qa2f-c3-caller-rx-1794717358883"
+      },
+      "analysis": {
+        "buyerRx": {
+          "sampleRate": 8000,
+          "durationSeconds": 0,
+          "targetFreq": 1000,
+          "targetDb": -120,
+          "noiseDb": -120,
+          "snrDb": 0,
+          "detected": false
+        },
+        "callerRx": {
+          "sampleRate": 8000,
+          "durationSeconds": 2.18,
+          "targetFreq": 1500,
+          "targetDb": -15.27,
+          "noiseDb": -75.32,
+          "snrDb": 60.06,
+          "detected": true
+        }
+      }
+    }
+  },
+  "waterfallProof": {
+    "call1": {
+      "buyer": "Buyer A",
+      "slot": "1/2",
+      "runId": "qa2f-c1-1794717323160"
+    },
+    "call2": {
+      "buyer": "Buyer A",
+      "slot": "2/2",
+      "runId": "qa2f-c2-1794717336612"
+    },
+    "call3": {
+      "buyer": "Buyer B (OVERFLOW)",
+      "slot": "1/2",
+      "runId": "qa2f-c3-1794717349153"
+    },
+    "verdict": "WATERFALL_OVERFLOW_VERIFIED"
+  },
+  "concurrencySnapshot": {
+    "timestamp": "2026-11-15T04:36:02.119Z",
+    "asteriskChannelsCount": 6,
+    "asteriskChannels": [
+      {
+        "id": "1794717336.9",
+        "name": "PJSIP/telnyx-caller-00000009",
+        "state": "Up"
+      },
+      {
+        "id": "1794717341.10",
+        "name": "PJSIP/telnyx-buyer-0000000a",
+        "state": "Up"
+      },
+      {
+        "id": "1794717323.7",
+        "name": "PJSIP/telnyx-caller-00000007",
+        "state": "Up"
+      },
+      {
+        "id": "1794717353.12",
+        "name": "PJSIP/telnyx-buyer-b-0000000c",
+        "state": "Up"
+      },
+      {
+        "id": "1794717348.11",
+        "name": "PJSIP/telnyx-caller-0000000b",
+        "state": "Up"
+      },
+      {
+        "id": "1794717329.8",
+        "name": "PJSIP/telnyx-buyer-00000008",
+        "state": "Up"
+      }
+    ],
+    "telnyxCallsCount": 0,
+    "telnyxCalls": [],
+    "buyerReservationsCount": 3,
+    "buyerReservations": [
+      {
+        "buyerName": "QA Test SIP Buyer",
+        "buyerId": "7deb4e0a-8674-4b4b-a170-0aff3991f69c",
+        "attemptId": "022a29b0-c5d3-47f4-b344-7c8ff9aab455"
+      },
+      {
+        "buyerName": "QA Test SIP Buyer",
+        "buyerId": "7deb4e0a-8674-4b4b-a170-0aff3991f69c",
+        "attemptId": "6a6d7c61-7020-4c1f-993a-05c475dd0bc0"
+      },
+      {
+        "buyerName": "Synthetic Buyer B",
+        "buyerId": "b0000000-0000-0000-0000-000000000002",
+        "attemptId": "789f87c4-5bdf-468f-9bc4-b449d23110e3"
+      }
+    ]
+  },
+  "teardownVerification": {
+    "call3Released": true,
+    "call2Released": true,
+    "call1Released": true
+  },
+  "billingVerification": {
+    "preBalance": 1.8,
+    "postBalance": 1.8,
+    "netSpend": 0,
+    "unauthorizedPurchases": 0,
+    "withinBudget": true
+  },
+  "stasisEvents": [
+    {
+      "timestamp": "2026-11-15T04:35:25.990Z",
+      "type": "StasisStart",
+      "channelId": "1794717323.7",
+      "name": "PJSIP/telnyx-caller-00000007",
+      "args": [
+        "caller",
+        "qa2f-c1-1794717323160"
+      ],
+      "channel": {
+        "id": "1794717323.7",
+        "name": "PJSIP/telnyx-caller-00000007",
+        "state": "Up",
+        "protocol_id": "1yfudhWgGNvd0T1F7NxiNQSN4T2HCWYp",
+        "caller": {
+          "name": "+17207159445",
+          "number": "+17207159445"
+        },
+        "connected": {
+          "name": "",
+          "number": "+17207159445"
+        },
+        "accountcode": "",
+        "dialplan": {
+          "context": "from-telnyx-caller",
+          "exten": "s",
+          "priority": 1,
+          "app_name": "Stasis",
+          "app_data": "callflow-qa,caller,qa2f-c1-1794717323160"
+        },
+        "creationtime": "2026-11-15T04:35:23.267+0000",
+        "language": "en"
+      }
+    },
+    {
+      "timestamp": "2026-11-15T04:35:29.579Z",
+      "type": "StasisStart",
+      "channelId": "1794717329.8",
+      "name": "PJSIP/telnyx-buyer-00000008",
+      "args": [
+        "buyer",
+        "qa2f-c1-1794717323160"
+      ],
+      "channel": {
+        "id": "1794717329.8",
+        "name": "PJSIP/telnyx-buyer-00000008",
+        "state": "Up",
+        "protocol_id": "78c89a4b-c6a9-4b79-9390-77cfbc283b8d",
+        "caller": {
+          "name": "17252574041",
+          "number": "17252574041"
+        },
+        "connected": {
+          "name": "",
+          "number": ""
+        },
+        "accountcode": "",
+        "dialplan": {
+          "context": "from-telnyx-buyer",
+          "exten": "s",
+          "priority": 3,
+          "app_name": "Stasis",
+          "app_data": "callflow-qa,buyer,qa2f-c1-1794717323160"
+        },
+        "creationtime": "2026-11-15T04:35:29.060+0000",
+        "language": "en"
+      }
+    },
+    {
+      "timestamp": "2026-11-15T04:35:38.904Z",
+      "type": "StasisStart",
+      "channelId": "1794717336.9",
+      "name": "PJSIP/telnyx-caller-00000009",
+      "args": [
+        "caller",
+        "qa2f-c2-1794717336612"
+      ],
+      "channel": {
+        "id": "1794717336.9",
+        "name": "PJSIP/telnyx-caller-00000009",
+        "state": "Up",
+        "protocol_id": "tR01vPzfpzJXK1G6nOSRdWLLWCwboQjJ",
+        "caller": {
+          "name": "+17207159445",
+          "number": "+17207159445"
+        },
+        "connected": {
+          "name": "",
+          "number": "+17207159445"
+        },
+        "accountcode": "",
+        "dialplan": {
+          "context": "from-telnyx-caller",
+          "exten": "s",
+          "priority": 1,
+          "app_name": "Stasis",
+          "app_data": "callflow-qa,caller,qa2f-c2-1794717336612"
+        },
+        "creationtime": "2026-11-15T04:35:36.628+0000",
+        "language": "en"
+      }
+    },
+    {
+      "timestamp": "2026-11-15T04:35:42.176Z",
+      "type": "StasisStart",
+      "channelId": "1794717341.10",
+      "name": "PJSIP/telnyx-buyer-0000000a",
+      "args": [
+        "buyer",
+        "qa2f-c2-1794717336612"
+      ],
+      "channel": {
+        "id": "1794717341.10",
+        "name": "PJSIP/telnyx-buyer-0000000a",
+        "state": "Up",
+        "protocol_id": "22c8e1c0-01fa-47cc-bb58-0f4636ead7d5",
+        "caller": {
+          "name": "17252574041",
+          "number": "17252574041"
+        },
+        "connected": {
+          "name": "",
+          "number": ""
+        },
+        "accountcode": "",
+        "dialplan": {
+          "context": "from-telnyx-buyer",
+          "exten": "s",
+          "priority": 3,
+          "app_name": "Stasis",
+          "app_data": "callflow-qa,buyer,qa2f-c2-1794717336612"
+        },
+        "creationtime": "2026-11-15T04:35:41.673+0000",
+        "language": "en"
+      }
+    },
+    {
+      "timestamp": "2026-11-15T04:35:50.974Z",
+      "type": "StasisStart",
+      "channelId": "1794717348.11",
+      "name": "PJSIP/telnyx-caller-0000000b",
+      "args": [
+        "caller",
+        "qa2f-c3-1794717349153"
+      ],
+      "channel": {
+        "id": "1794717348.11",
+        "name": "PJSIP/telnyx-caller-0000000b",
+        "state": "Up",
+        "protocol_id": "bHS95SbWAdLrSn9985S0hNOPlcc77.N9",
+        "caller": {
+          "name": "+17207159445",
+          "number": "+17207159445"
+        },
+        "connected": {
+          "name": "",
+          "number": "+17207159445"
+        },
+        "accountcode": "",
+        "dialplan": {
+          "context": "from-telnyx-caller",
+          "exten": "s",
+          "priority": 1,
+          "app_name": "Stasis",
+          "app_data": "callflow-qa,caller,qa2f-c3-1794717349153"
+        },
+        "creationtime": "2026-11-15T04:35:48.979+0000",
+        "language": "en"
+      }
+    },
+    {
+      "timestamp": "2026-11-15T04:35:54.503Z",
+      "type": "StasisStart",
+      "channelId": "1794717353.12",
+      "name": "PJSIP/telnyx-buyer-b-0000000c",
+      "args": [
+        "buyer-b",
+        "qa2f-c3-1794717349153"
+      ],
+      "channel": {
+        "id": "1794717353.12",
+        "name": "PJSIP/telnyx-buyer-b-0000000c",
+        "state": "Up",
+        "protocol_id": "713d50e1-8ad6-43ab-b471-ad0c6476cab0",
+        "caller": {
+          "name": "17252574041",
+          "number": "17252574041"
+        },
+        "connected": {
+          "name": "",
+          "number": ""
+        },
+        "accountcode": "",
+        "dialplan": {
+          "context": "from-telnyx-buyer-b",
+          "exten": "s",
+          "priority": 3,
+          "app_name": "Stasis",
+          "app_data": "callflow-qa,buyer-b,qa2f-c3-1794717349153"
+        },
+        "creationtime": "2026-11-15T04:35:53.808+0000",
+        "language": "en"
+      }
+    },
+    {
+      "timestamp": "2026-11-15T04:36:02.131Z",
+      "type": "StasisEnd",
+      "channelId": "1794717348.11"
+    },
+    {
+      "timestamp": "2026-11-15T04:36:02.150Z",
+      "type": "StasisEnd",
+      "channelId": "1794717353.12"
+    },
+    {
+      "timestamp": "2026-11-15T04:36:04.327Z",
+      "type": "StasisEnd",
+      "channelId": "1794717336.9"
+    },
+    {
+      "timestamp": "2026-11-15T04:36:04.349Z",
+      "type": "StasisEnd",
+      "channelId": "1794717341.10"
+    },
+    {
+      "timestamp": "2026-11-15T04:36:06.401Z",
+      "type": "StasisEnd",
+      "channelId": "1794717323.7"
+    },
+    {
+      "timestamp": "2026-11-15T04:36:06.427Z",
+      "type": "StasisEnd",
+      "channelId": "1794717329.8"
+    }
+  ],
+  "finalState": {
+    "asteriskChannels": 0,
+    "asteriskBridges": 0,
+    "telnyxActiveCalls": 0,
+    "activeReservations": 0,
+    "allClean": true
+  }
+}

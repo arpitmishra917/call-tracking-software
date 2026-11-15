@@ -1,0 +1,135 @@
+{
+  "test": "QA-2E: LOCAL ASTERISK MEDIA CONCURRENCY",
+  "runId": "qa2e-1794703616639",
+  "timestamp": "2026-11-15T00:46:56.628Z",
+  "activeCallsTested": 2,
+  "call1": {
+    "callerBridgeLeg": "1794703616.38",
+    "callerFarEnd": "1794703616.39",
+    "buyerBridgeLeg": "1794703616.40",
+    "buyerFarEnd": "1794703616.41",
+    "bridgeId": "3b61d9e3-bc20-4a4b-b34c-ae75b65f78bd",
+    "tones": {
+      "callerTx": 700,
+      "buyerTx": 1000
+    }
+  },
+  "call2": {
+    "callerBridgeLeg": "1794703618.48",
+    "callerFarEnd": "1794703618.49",
+    "buyerBridgeLeg": "1794703618.46",
+    "buyerFarEnd": "1794703618.47",
+    "bridgeId": "e786fc12-b1c9-4753-80ef-6d39b4137a7c",
+    "tones": {
+      "callerTx": 1400,
+      "buyerTx": 1800
+    }
+  },
+  "results": [
+    {
+      "recording": "qa2e-1794703616639-call1-bridge",
+      "label": "Call 1 Bridge Mix",
+      "bytes": 69804,
+      "durationSeconds": 4.36,
+      "powersDb": {
+        "700": -23.434215427254856,
+        "1000": -23.86344973445487,
+        "1400": -97.16681018176158,
+        "1800": -103.59863835864145
+      },
+      "isolationRatioDb": 73.3033604473067,
+      "validDuration": true,
+      "tonesPresent": true,
+      "isolationClean": true,
+      "passed": true
+    },
+    {
+      "recording": "qa2e-1794703616639-call1-caller-rx",
+      "label": "Call 1 Caller RX (Hears Buyer 1000 Hz)",
+      "bytes": 66924,
+      "durationSeconds": 4.18,
+      "powersDb": {
+        "700": -95.02308676361353,
+        "1000": -23.98467615618769,
+        "1400": -99.82985720579187,
+        "1800": -106.57655859275562
+      },
+      "isolationRatioDb": 71.03841060742585,
+      "validDuration": true,
+      "tonesPresent": true,
+      "isolationClean": true,
+      "passed": true
+    },
+    {
+      "recording": "qa2e-1794703616639-call1-buyer-rx",
+      "label": "Call 1 Buyer RX (Hears Caller 700 Hz)",
+      "bytes": 67564,
+      "durationSeconds": 4.22,
+      "powersDb": {
+        "700": -23.223315977968294,
+        "1000": -97.73179663941185,
+        "1400": -106.49431542605016,
+        "1800": -111.3234492521818
+      },
+      "isolationRatioDb": 74.50848066144356,
+      "validDuration": true,
+      "tonesPresent": true,
+      "isolationClean": true,
+      "passed": true
+    },
+    {
+      "recording": "qa2e-1794703616639-call2-bridge",
+      "label": "Call 2 Bridge Mix",
+      "bytes": 68844,
+      "durationSeconds": 4.3,
+      "powersDb": {
+        "700": -102.7706640010509,
+        "1000": -99.77854612954202,
+        "1400": -21.871079559892607,
+        "1800": -21.86816202160946
+      },
+      "isolationRatioDb": 77.90746656964942,
+      "validDuration": true,
+      "tonesPresent": true,
+      "isolationClean": true,
+      "passed": true
+    },
+    {
+      "recording": "qa2e-1794703616639-call2-caller-rx",
+      "label": "Call 2 Caller RX (Hears Buyer 1800 Hz)",
+      "bytes": 67884,
+      "durationSeconds": 4.24,
+      "powersDb": {
+        "700": -110.46387743522564,
+        "1000": -108.58411895501119,
+        "1400": -103.77851700230244,
+        "1800": -21.74616945488614
+      },
+      "isolationRatioDb": 82.0323475474163,
+      "validDuration": true,
+      "tonesPresent": true,
+      "isolationClean": true,
+      "passed": true
+    },
+    {
+      "recording": "qa2e-1794703616639-call2-buyer-rx",
+      "label": "Call 2 Buyer RX (Hears Caller 1400 Hz)",
+      "bytes": 72684,
+      "durationSeconds": 4.54,
+      "powersDb": {
+        "700": -107.7796471847166,
+        "1000": -103.57751496571609,
+        "1400": -22.343003538837493,
+        "1800": -106.5622858017126
+      },
+      "isolationRatioDb": 81.2345114268786,
+      "validDuration": true,
+      "tonesPresent": true,
+      "isolationClean": true,
+      "passed": true
+    }
+  ],
+  "staggeredTeardownPassed": true,
+  "zeroOrphanedResources": true,
+  "verdict": "PASS"
+}

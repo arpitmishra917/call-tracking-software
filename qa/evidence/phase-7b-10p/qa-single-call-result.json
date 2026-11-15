@@ -1,0 +1,111 @@
+{
+  "testType": "Phase 7B-10P Single Controlled Live Bidirectional Audio Verification",
+  "startedAt": "2026-11-11T17:06:51.864Z",
+  "endedAt": "2026-11-11T17:07:20.647Z",
+  "callDurationSeconds": 21.55,
+  "carrierCallPlaced": true,
+  "preCallTelnyxBalance": 1.89,
+  "postCallTelnyxBalance": 1.89,
+  "providerSpendUsd": 0,
+  "spendUnderLimit": true,
+  "runResult": {
+    "success": false,
+    "runId": "ac62dec0-9be5-4741-9926-8c208f81fcab",
+    "context": {
+      "runId": "ac62dec0-9be5-4741-9926-8c208f81fcab",
+      "secretToken": "951f38fed033100edef67e990a7e7f37840a366151f099d4c655786934165f1e",
+      "expectedCallerCli": "+17252574041",
+      "trackingDid": "+17252574041",
+      "workspaceId": "5e20bafe-7306-4da7-9944-62c4c5575a5a",
+      "preserveRecordings": true,
+      "state": "FAILED",
+      "startedAt": 1794416815451,
+      "asteriskChannelId": "1794416816.10",
+      "buyerChannelId": "1794416823.11",
+      "callerRecordingName": "qa-caller-ac62dec0-9be5-4741-9926-8c208f81fcab",
+      "buyerRecordingName": "qa-buyer-ac62dec0-9be5-4741-9926-8c208f81fcab",
+      "recordingName": "qa-caller-ac62dec0-9be5-4741-9926-8c208f81fcab"
+    },
+    "audioAnalysis": {
+      "passed": false,
+      "metadata": {
+        "sampleRate": 8000,
+        "channels": 1,
+        "bitsPerSample": 16,
+        "durationSeconds": 0,
+        "sampleCount": 0
+      },
+      "targetFrequency": 1500,
+      "snrDb": 0,
+      "minSnrMet": false,
+      "durationSeconds": 0,
+      "minDurationMet": false,
+      "isSilent": true,
+      "rmsDbfs": -100,
+      "clippingRatio": 0,
+      "isClipped": false,
+      "reasons": [
+        "Duration 0.00s is below required minimum 2.00s",
+        "Audio is silent / dead air (RMS -100.0 dBFS < -50 dBFS)",
+        "Signal-to-Noise Ratio 0.0 dB is below required minimum 5 dB for 1500 Hz tone"
+      ]
+    },
+    "buyerAudioAnalysis": {
+      "passed": false,
+      "metadata": {
+        "sampleRate": 8000,
+        "channels": 1,
+        "bitsPerSample": 16,
+        "durationSeconds": 0,
+        "sampleCount": 0
+      },
+      "targetFrequency": 1000,
+      "snrDb": 0,
+      "minSnrMet": false,
+      "durationSeconds": 0,
+      "minDurationMet": false,
+      "isSilent": true,
+      "rmsDbfs": -100,
+      "clippingRatio": 0,
+      "isClipped": false,
+      "reasons": [
+        "Duration 0.00s is below required minimum 2.00s",
+        "Audio is silent / dead air (RMS -100.0 dBFS < -50 dBFS)",
+        "Signal-to-Noise Ratio 0.0 dB is below required minimum 5 dB for 1000 Hz tone"
+      ]
+    },
+    "cleanupSummary": {
+      "asteriskChannelHungUp": true,
+      "buyerChannelHungUp": true,
+      "telnyxLegHungUp": false,
+      "recordingStopped": false,
+      "recordingDeleted": false,
+      "testRunUnregistered": true,
+      "callBindingReleased": false,
+      "leasesCleaned": true,
+      "walletReservationReleased": false,
+      "webSocketDisconnected": true
+    },
+    "error": "Audio frequency analysis verification failed",
+    "callerAudioBase64": "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=",
+    "buyerAudioBase64": "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=",
+    "callerWavPath": "C:\\Projects\\callflow-agent-a\\qa\\recordings\\qa-caller-ac62dec0-9be5-4741-9926-8c208f81fcab.wav",
+    "buyerWavPath": "C:\\Projects\\callflow-agent-a\\qa\\recordings\\qa-buyer-ac62dec0-9be5-4741-9926-8c208f81fcab.wav"
+  },
+  "preDbMetrics": {
+    "balance_micro": "0",
+    "reserved_micro": "0",
+    "walletTransactions": 0,
+    "callReservations": 0,
+    "calls": 3
+  },
+  "postDbMetrics": {
+    "balance_micro": "0",
+    "reserved_micro": "0",
+    "walletTransactions": 0,
+    "callReservations": 0,
+    "calls": 4
+  },
+  "financialIsolationPassed": true,
+  "lingeringChannels": []
+}

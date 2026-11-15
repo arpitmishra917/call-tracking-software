@@ -1,0 +1,72 @@
+{
+  "phase": "Phase 7B-10U Dual-Leg Recording Live Carrier Call",
+  "timestamp": "2026-11-11T22:17:23.694Z",
+  "runId": "15f2f1d2-8ada-46a5-a9c8-405d424f552d",
+  "executionDurationSeconds": 28.82,
+  "spendUsd": 0,
+  "callerAudio": {
+    "path": "C:\\Projects\\callflow-agent-a\\qa\\recordings\\qa-caller-15f2f1d2-8ada-46a5-a9c8-405d424f552d.wav",
+    "sizeBytes": 76204,
+    "sha256": "d9344796c2d376713a91dde817b9cab138825d29d3bc9ac0b3f3309a5bf232e6",
+    "analysis": {
+      "passed": true,
+      "metadata": {
+        "sampleRate": 8000,
+        "channels": 1,
+        "bitsPerSample": 16,
+        "durationSeconds": 4.76,
+        "sampleCount": 38080
+      },
+      "targetFrequency": 1500,
+      "snrDb": 44.95858483117416,
+      "minSnrMet": true,
+      "durationSeconds": 4.76,
+      "minDurationMet": true,
+      "isSilent": false,
+      "rmsDbfs": -18.101902042288263,
+      "clippingRatio": 0,
+      "isClipped": false,
+      "reasons": []
+    },
+    "discrimination": {
+      "target1500Snr": 44.95858483117416,
+      "reject1000Snr": -29.989126939582928,
+      "reject440Snr": -27.518992703815314,
+      "correctlyDiscriminated": true
+    }
+  },
+  "buyerAudio": {
+    "path": "C:\\Projects\\callflow-agent-a\\qa\\recordings\\qa-buyer-15f2f1d2-8ada-46a5-a9c8-405d424f552d.wav",
+    "sizeBytes": 85164,
+    "sha256": "f0ef224b60e1d05fc978a0c3c1da632a100f7113ced0159b1ae045a90b41ea79",
+    "analysis": {
+      "passed": true,
+      "metadata": {
+        "sampleRate": 8000,
+        "channels": 1,
+        "bitsPerSample": 16,
+        "durationSeconds": 5.32,
+        "sampleCount": 42560
+      },
+      "targetFrequency": 1000,
+      "snrDb": 48.05639762214294,
+      "minSnrMet": true,
+      "durationSeconds": 5.32,
+      "minDurationMet": true,
+      "isSilent": false,
+      "rmsDbfs": -14.220108751787208,
+      "clippingRatio": 0,
+      "isClipped": false,
+      "reasons": []
+    },
+    "discrimination": {
+      "target1000Snr": 48.05639762214294,
+      "reject1500Snr": -28.50511948261247,
+      "reject440Snr": -23.989298560536717,
+      "correctlyDiscriminated": true
+    }
+  },
+  "financialIsolationPassed": true,
+  "lingeringChannels": [],
+  "verdict": "PASS"
+}

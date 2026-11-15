@@ -1,0 +1,226 @@
+{
+  "phase": "Phase 7B-10P",
+  "runId": "ac62dec0-9be5-4741-9926-8c208f81fcab",
+  "timestamp": "2026-11-11T17:06:51.864Z",
+  "callDurationSeconds": 21.55,
+  "carrierCallPlaced": true,
+  "spend": {
+    "preCallBalance": 1.89,
+    "postCallBalance": 1.89,
+    "providerSpendUsd": 0,
+    "spendUnderLimit": true
+  },
+  "rtpClassification": {
+    "totalPacketsParsed": 871,
+    "sipPacketsCount": 39,
+    "callerOutbound": {
+      "direction": "Caller Outbound (Asterisk -> Telnyx)",
+      "sourceIp": "172.19.0.3",
+      "sourcePort": 10008,
+      "destIp": "50.114.147.32",
+      "destPort": 31580,
+      "totalPackets": 113,
+      "rtpPackets": 113,
+      "audioPackets": 100,
+      "comfortNoisePackets": 13,
+      "payloadTypes": [
+        0,
+        13
+      ],
+      "ssrc": [
+        "0x4af4f5c5"
+      ],
+      "minSeq": 40262,
+      "maxSeq": 40374,
+      "expectedPackets": 113,
+      "packetLoss": 0,
+      "lossRatio": 0,
+      "durationSeconds": 14.997,
+      "mediaDurationSeconds": 2,
+      "firstPacketTime": "2026-11-11T17:07:00.872Z",
+      "lastPacketTime": "2026-11-11T17:07:15.869Z",
+      "totalBytes": 17347,
+      "packetsPerSecond": 7.5,
+      "isMediaPresent": true
+    },
+    "callerInbound": {
+      "direction": "Caller Inbound (Telnyx -> Asterisk)",
+      "sourceIp": "50.114.147.32",
+      "sourcePort": 31580,
+      "destIp": "172.19.0.3",
+      "destPort": 10008,
+      "totalPackets": 329,
+      "rtpPackets": 329,
+      "audioPackets": 329,
+      "comfortNoisePackets": 0,
+      "payloadTypes": [
+        0
+      ],
+      "ssrc": [
+        "0xfdc0e8d0"
+      ],
+      "minSeq": 16087,
+      "maxSeq": 16417,
+      "expectedPackets": 331,
+      "packetLoss": 2,
+      "lossRatio": 0.006,
+      "durationSeconds": 6.559,
+      "mediaDurationSeconds": 6.58,
+      "firstPacketTime": "2026-11-11T17:07:10.295Z",
+      "lastPacketTime": "2026-11-11T17:07:16.853Z",
+      "totalBytes": 56588,
+      "packetsPerSecond": 50.2,
+      "isMediaPresent": true
+    },
+    "buyerOutbound": {
+      "direction": "Buyer Outbound (Asterisk -> Telnyx)",
+      "sourceIp": "172.19.0.3",
+      "sourcePort": 10016,
+      "destIp": "50.114.144.84",
+      "destPort": 21376,
+      "totalPackets": 111,
+      "rtpPackets": 111,
+      "audioPackets": 100,
+      "comfortNoisePackets": 11,
+      "payloadTypes": [
+        0,
+        13
+      ],
+      "ssrc": [
+        "0x37a43186"
+      ],
+      "minSeq": 57609,
+      "maxSeq": 57719,
+      "expectedPackets": 111,
+      "packetLoss": 0,
+      "lossRatio": 0,
+      "durationSeconds": 11.999,
+      "mediaDurationSeconds": 2,
+      "firstPacketTime": "2026-11-11T17:07:04.367Z",
+      "lastPacketTime": "2026-11-11T17:07:16.367Z",
+      "totalBytes": 17321,
+      "packetsPerSecond": 9.3,
+      "isMediaPresent": true
+    },
+    "buyerInbound": {
+      "direction": "Buyer Inbound (Telnyx -> Asterisk)",
+      "sourceIp": "50.114.144.84",
+      "sourcePort": 21376,
+      "destIp": "172.19.0.3",
+      "destPort": 10016,
+      "totalPackets": 275,
+      "rtpPackets": 275,
+      "audioPackets": 275,
+      "comfortNoisePackets": 0,
+      "payloadTypes": [
+        0
+      ],
+      "ssrc": [
+        "0x6b0988b7"
+      ],
+      "minSeq": 22799,
+      "maxSeq": 23073,
+      "expectedPackets": 275,
+      "packetLoss": 0,
+      "lossRatio": 0,
+      "durationSeconds": 5.663,
+      "mediaDurationSeconds": 5.5,
+      "firstPacketTime": "2026-11-11T17:07:11.172Z",
+      "lastPacketTime": "2026-11-11T17:07:16.835Z",
+      "totalBytes": 47300,
+      "packetsPerSecond": 48.6,
+      "isMediaPresent": true
+    },
+    "allFourDirectionsVerified": true,
+    "unverifiedDirections": []
+  },
+  "extractedPcapAudioAnalysis": {
+    "callerInbound": {
+      "stream": "Stream 2 (Telnyx -> Asterisk port 10008)",
+      "packets": 329,
+      "durationSeconds": 6.58,
+      "targetFrequency": 1500,
+      "analysis": {
+        "passed": true,
+        "metadata": {
+          "sampleRate": 8000,
+          "channels": 1,
+          "bitsPerSample": 16,
+          "durationSeconds": 6.58,
+          "sampleCount": 52640
+        },
+        "targetFrequency": 1500,
+        "snrDb": 45.3206531104637,
+        "minSnrMet": true,
+        "durationSeconds": 6.58,
+        "minDurationMet": true,
+        "isSilent": false,
+        "rmsDbfs": -16.403607007918886,
+        "clippingRatio": 0,
+        "isClipped": false,
+        "reasons": []
+      },
+      "frequencyDiscrimination": {
+        "target1500Snr": 45.3206531104637,
+        "reject1000Snr": -30,
+        "reject440Snr": -30,
+        "correctlyDiscriminated": true
+      }
+    },
+    "buyerInbound": {
+      "stream": "Stream 4 (Telnyx -> Asterisk port 10016)",
+      "packets": 275,
+      "durationSeconds": 5.5,
+      "targetFrequency": 1000,
+      "analysis": {
+        "passed": true,
+        "metadata": {
+          "sampleRate": 8000,
+          "channels": 1,
+          "bitsPerSample": 16,
+          "durationSeconds": 5.5,
+          "sampleCount": 44000
+        },
+        "targetFrequency": 1000,
+        "snrDb": 48.06295945250088,
+        "minSnrMet": true,
+        "durationSeconds": 5.5,
+        "minDurationMet": true,
+        "isSilent": false,
+        "rmsDbfs": -13.537529074757355,
+        "clippingRatio": 0,
+        "isClipped": false,
+        "reasons": []
+      },
+      "frequencyDiscrimination": {
+        "target1000Snr": 48.06295945250088,
+        "reject1500Snr": -30,
+        "reject440Snr": -20.83817706948457,
+        "correctlyDiscriminated": true
+      }
+    }
+  },
+  "ariRecordingSpoolAnalysis": {
+    "callerFile": "qa-caller-ac62dec0-9be5-4741-9926-8c208f81fcab.wav",
+    "callerFileSizeBytes": 44,
+    "buyerFile": "qa-buyer-ac62dec0-9be5-4741-9926-8c208f81fcab.wav",
+    "buyerFileSizeBytes": 44,
+    "prematureStopMechanism": "Ari stopRecording was executed at 17:07:09 (2.0s post-playback), exactly 1.295 seconds before Telnyx carrier cloud-bridge media arrived at 17:07:10.295"
+  },
+  "financialIsolation": {
+    "walletTransactions": 0,
+    "balance_micro": "0",
+    "reserved_micro": "0",
+    "callReservations": 0,
+    "totalCalls": 4,
+    "zeroWalletDebits": true,
+    "zeroLingeringReservations": true
+  },
+  "conclusions": {
+    "fourDirectionRtpProven": true,
+    "bidirectionalAudioProven": true,
+    "carrierSpendCompliant": true,
+    "financialIsolationCompliant": true,
+    "cleanHangupsConfirmed": true
+  }
+}

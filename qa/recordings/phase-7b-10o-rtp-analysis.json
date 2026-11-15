@@ -1,0 +1,85 @@
+{
+  "flows": {
+    "sipCount": 27,
+    "callerOutCount": 107,
+    "callerInCount": 308,
+    "buyerOutCount": 106,
+    "buyerInCount": 289
+  },
+  "stats": {
+    "callerOut": {
+      "name": "Caller Outbound (Asterisk -> Telnyx)",
+      "totalPackets": 107,
+      "rtpPackets": 107,
+      "ssrc": [
+        "0x30225c60"
+      ],
+      "payloadTypes": [
+        13,
+        0
+      ],
+      "minSeq": 18129,
+      "maxSeq": 18235,
+      "durationSecs": 9.999,
+      "totalBytes": 17269,
+      "firstPacketTime": "2026-11-11T16:15:48.834Z",
+      "lastPacketTime": "2026-11-11T16:15:58.833Z",
+      "packetsPerSecond": 10.7
+    },
+    "callerIn": {
+      "name": "Caller Inbound (Telnyx -> Asterisk)",
+      "totalPackets": 308,
+      "rtpPackets": 308,
+      "ssrc": [
+        "0x7ffd5111"
+      ],
+      "payloadTypes": [
+        0
+      ],
+      "minSeq": 3992,
+      "maxSeq": 4299,
+      "durationSecs": 6.929,
+      "totalBytes": 52976,
+      "firstPacketTime": "2026-11-11T16:15:52.959Z",
+      "lastPacketTime": "2026-11-11T16:15:59.888Z",
+      "packetsPerSecond": 44.5
+    },
+    "buyerOut": {
+      "name": "Buyer Outbound (Asterisk -> Telnyx)",
+      "totalPackets": 106,
+      "rtpPackets": 106,
+      "ssrc": [
+        "0x46e3785c"
+      ],
+      "payloadTypes": [
+        13,
+        0
+      ],
+      "minSeq": 64460,
+      "maxSeq": 64565,
+      "durationSecs": 6.998,
+      "totalBytes": 17256,
+      "firstPacketTime": "2026-11-11T16:15:52.145Z",
+      "lastPacketTime": "2026-11-11T16:15:59.144Z",
+      "packetsPerSecond": 15.1
+    },
+    "buyerIn": {
+      "name": "Buyer Inbound (Telnyx -> Asterisk)",
+      "totalPackets": 289,
+      "rtpPackets": 289,
+      "ssrc": [
+        "0x331c8a96"
+      ],
+      "payloadTypes": [
+        0
+      ],
+      "minSeq": 4382,
+      "maxSeq": 4670,
+      "durationSecs": 5.845,
+      "totalBytes": 49708,
+      "firstPacketTime": "2026-11-11T16:15:54.111Z",
+      "lastPacketTime": "2026-11-11T16:15:59.955Z",
+      "packetsPerSecond": 49.4
+    }
+  }
+}

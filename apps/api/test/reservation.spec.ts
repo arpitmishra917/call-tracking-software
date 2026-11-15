@@ -23,7 +23,9 @@ describe('Phase 3C: Wallet Reservation Engine (Real DB)', () => {
   });
 
   afterAll(async () => {
-    await prisma.$disconnect();
+    if (prisma) {
+      await prisma.$disconnect();
+    }
   });
 
   const wsId = 'ws-test-phase3c';

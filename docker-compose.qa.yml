@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  asterisk:
+    image: andrius/asterisk:20-alpine
+    container_name: callflow-asterisk-qa
+    restart: unless-stopped
+    ports:
+      - "5060:5060/udp"
+      - "10000-10050:10000-10050/udp"
+      - "127.0.0.1:8088:8088"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TELNYX_QA_CALLER_SIP_USERNAME=${TELNYX_QA_CALLER_SIP_USERNAME}
+      - TELNYX_QA_CALLER_SIP_PASSWORD=${TELNYX_QA_CALLER_SIP_PASSWORD}
+      - TELNYX_QA_CALLER_ID=${TELNYX_QA_CALLER_ID}
+      - TELNYX_QA_BUYER_SIP_USERNAME=${TELNYX_QA_BUYER_SIP_USERNAME}
+      - TELNYX_QA_BUYER_SIP_PASSWORD=${TELNYX_QA_BUYER_SIP_PASSWORD}
+      - TELEPHONY_QA_ARI_USERNAME=${TELEPHONY_QA_ARI_USERNAME:-callflow_qa}
+      - TELEPHONY_QA_ARI_PASSWORD=${TELEPHONY_QA_ARI_PASSWORD:-cfqa_ari_1f044860de198dfa6fd829c7a40f23cbe9ae09b6}
+    volumes:
+      - ./qa/asterisk/pjsip.conf:/etc/asterisk/pjsip.conf:ro
+      - ./qa/asterisk/extensions.conf:/etc/asterisk/extensions.conf:ro
+      - ./qa/asterisk/rtp.conf:/etc/asterisk/rtp.conf:ro
+      - ./qa/asterisk/http.conf:/etc/asterisk/http.conf:ro
+      - ./qa/asterisk/ari.conf:/etc/asterisk/ari.conf:ro
+      - ./qa/asterisk/docker-entrypoint.sh:/docker-entrypoint.sh:ro
+      - ./qa/asterisk/sounds:/var/lib/asterisk/sounds/qa:ro
+      - ./qa/asterisk/recordings:/var/spool/asterisk/recording
+    entrypoint: ["/bin/bash", "/docker-entrypoint.sh"]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+
+  postgres-qa:
+    image: postgres:17-alpine
+    container_name: callflow-postgres-qa
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_DB: callflow_qa
+      POSTGRES_USER: callflow_qa_user
+    env_file:
+      - ./apps/api/.env.qa
+    volumes:
+      - callflow_qa_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U callflow_qa_user -d callflow_qa"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  callflow_qa_data:
+    name: callflow_qa_data

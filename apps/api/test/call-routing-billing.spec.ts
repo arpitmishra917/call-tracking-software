@@ -62,7 +62,7 @@ describe('Phase 3D: Call Routing Billing Integration', () => {
     await prisma.workspaceBalance.create({ data: { workspace_id: wsId, balance_micro: 50000000n, reserved_micro: 0n } });
     const baseCamp = await prisma.campaign.create({ data: { workspace_id: wsId, name: 'Base Camp' } });
     await prisma.phoneNumber.create({ data: { workspace_id: wsId, phone_number: trackNum, provider: 'telnyx', number_type: 'local', status: 'ACTIVE', campaign_id: baseCamp.id } });
-  });
+  }, 30000);
 
   it('TEST A: Inbound call with sufficient wallet', async () => {
     const callId = 'c_A';
@@ -96,8 +96,8 @@ describe('Phase 3D: Call Routing Billing Integration', () => {
     const cId = call?.id!;
 
     // create 2 buyers
-    const b1 = await prisma.buyer.create({ data: { workspace_id: wsId, name: 'B1', destination_number: '+b1' } });
-    const b2 = await prisma.buyer.create({ data: { workspace_id: wsId, name: 'B2', destination_number: '+b2' } });
+    const b1 = await prisma.buyer.create({ data: { workspace_id: wsId, name: 'B1', destination_number: '+b1', max_concurrent_calls: 1 } });
+    const b2 = await prisma.buyer.create({ data: { workspace_id: wsId, name: 'B2', destination_number: '+b2', max_concurrent_calls: 1 } });
     const camp = await prisma.campaign.create({ data: { workspace_id: wsId, name: 'Camp' } });
     await prisma.phoneNumber.update({ where: { phone_number: trackNum }, data: { campaign_id: camp.id } });
     await prisma.call.update({ where: { id: cId }, data: { campaign_id: camp.id } });

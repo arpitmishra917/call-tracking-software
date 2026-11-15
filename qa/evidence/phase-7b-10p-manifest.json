@@ -1,0 +1,30 @@
+{
+  "qa/recordings/phase-7b-10p-rtp.pcap": {
+    "bytes": 216947,
+    "sha256": "4cdfef6ca4a276ae6d3cbb7fa6fd144906c602ce184a3529ab41789eda8bf45d"
+  },
+  "qa/recordings/qa-caller-ac62dec0-9be5-4741-9926-8c208f81fcab.wav": {
+    "bytes": 44,
+    "sha256": "4f8734c5e13ac599e168cf247a51c1dd0758537ce00bf16d7fed1a3d14d07041"
+  },
+  "qa/recordings/qa-buyer-ac62dec0-9be5-4741-9926-8c208f81fcab.wav": {
+    "bytes": 44,
+    "sha256": "4f8734c5e13ac599e168cf247a51c1dd0758537ce00bf16d7fed1a3d14d07041"
+  },
+  "qa/recordings/pcap-extracted-caller-inbound.wav": {
+    "bytes": 105324,
+    "sha256": "714f681efa4b679c06f1a2081d978082bef5d7630287aec63e101603a924dd79"
+  },
+  "qa/recordings/pcap-extracted-buyer-inbound.wav": {
+    "bytes": 88044,
+    "sha256": "02acc5d6a36e377d14c85373f0182e7763997a13fdb588573aadb90e364fd436"
+  },
+  "qa/qa-phase-7b-10p-audit.json": {
+    "bytes": 6358,
+    "sha256": "fbe96c7a5c3b246a4744e65a45ef92b52703c2931c8f21e31c2a0ee9a84f3dac"
+  },
+  "qa/qa-single-call-result.json": {
+    "bytes": 3766,
+    "sha256": "0626385fdef938f891e32fa334d85e5c341aaf77a10c1168c17887d8f30ba2d5"
+  }
+}

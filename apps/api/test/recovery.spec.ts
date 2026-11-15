@@ -17,6 +17,11 @@ describe('Phase 3F: Reservation Recovery & Reconciliation', () => {
   let usageBilling: UsageBillingService;
 
   beforeAll(async () => {
+    const dbUrl = process.env.DATABASE_URL || '';
+    if (!dbUrl.includes('_test') && !dbUrl.includes('_isolated')) {
+      throw new Error('Refusing to run recovery integration tests against non-isolated development database. An isolated test database (e.g. ending in _test or _isolated) is required.');
+    }
+
     moduleRef = await Test.createTestingModule({
       providers: [
         PrismaService,
