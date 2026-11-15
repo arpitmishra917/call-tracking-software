@@ -36,7 +36,7 @@ describe('Payments Frontend & Security (COMM-INTEGRATION-8C)', () => {
       id: 'inst-1',
       workspace_id: 'ws-test-payments',
       settlement_batch_id: 'batch-101',
-      direction: 'PAYOUT',
+      direction: 'DISBURSEMENT',
       amount: '500.0000',
       currency: 'USD',
       participant_type: 'VENDOR',
@@ -93,7 +93,7 @@ describe('Payments Frontend & Security (COMM-INTEGRATION-8C)', () => {
       id: 'inst-3',
       workspace_id: 'ws-test-payments',
       settlement_batch_id: 'batch-103',
-      direction: 'PAYOUT',
+      direction: 'DISBURSEMENT',
       amount: '750.0000',
       currency: 'USD',
       participant_type: 'VENDOR',
@@ -517,6 +517,96 @@ describe('Payments Frontend & Security (COMM-INTEGRATION-8C)', () => {
     fireEvent.click(confirmBtn);
 
     expect(await screen.findByText(/Workspace mismatch for payment execution/)).toBeDefined();
+  });
+
+  describe('Direction filter alignment with PaymentDirection enum', () => {
+    beforeEach(() => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([
+            { id: 'ws-test-payments', name: 'Test WS', role: 'OWNER' },
+          ]);
+        }
+        if (url.includes('/payments/instructions')) {
+          return Promise.resolve({
+            items: mockInstructions,
+            total: 3,
+          });
+        }
+        return Promise.resolve({});
+      });
+    });
+
+    it('renders COLLECTION and DISBURSEMENT options and does not offer PAYOUT', async () => {
+      render(<PaymentsPage />);
+      await screen.findByText('inst-1');
+
+      const directionSelect = screen.getByLabelText('Direction');
+      expect(directionSelect).toBeDefined();
+
+      const options = Array.from((directionSelect as HTMLSelectElement).options).map(
+        (opt) => ({ text: opt.text, value: opt.value })
+      );
+
+      expect(options).toEqual([
+        { text: 'All Directions', value: '' },
+        { text: 'COLLECTION', value: 'COLLECTION' },
+        { text: 'DISBURSEMENT', value: 'DISBURSEMENT' },
+      ]);
+      expect(options.some((opt) => opt.value === 'PAYOUT' || opt.text === 'PAYOUT')).toBe(false);
+    });
+
+    it('passes COLLECTION selection unchanged to the backend query', async () => {
+      render(<PaymentsPage />);
+      await screen.findByText('inst-1');
+
+      const directionSelect = screen.getByLabelText('Direction');
+      fireEvent.change(directionSelect, { target: { value: 'COLLECTION' } });
+
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/payments/instructions?limit=25&offset=0&direction=COLLECTION')
+        );
+      });
+    });
+
+    it('passes DISBURSEMENT selection unchanged to the backend query', async () => {
+      render(<PaymentsPage />);
+      await screen.findByText('inst-1');
+
+      const directionSelect = screen.getByLabelText('Direction');
+      fireEvent.change(directionSelect, { target: { value: 'DISBURSEMENT' } });
+
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/payments/instructions?limit=25&offset=0&direction=DISBURSEMENT')
+        );
+      });
+    });
+
+    it('clearing the filter returns to all directions without direction parameter', async () => {
+      render(<PaymentsPage />);
+      await screen.findByText('inst-1');
+
+      const directionSelect = screen.getByLabelText('Direction');
+
+      // First select DISBURSEMENT
+      fireEvent.change(directionSelect, { target: { value: 'DISBURSEMENT' } });
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith(
+          expect.stringContaining('direction=DISBURSEMENT')
+        );
+      });
+
+      // Clear filter back to All Directions ("")
+      fireEvent.change(directionSelect, { target: { value: '' } });
+      await waitFor(() => {
+        const calls = vi.mocked(apiFetch).mock.calls;
+        const lastCall = calls[calls.length - 1][0];
+        expect(lastCall).toContain('/payments/instructions?limit=25&offset=0');
+        expect(lastCall).not.toContain('direction=');
+      });
+    });
   });
 });
 

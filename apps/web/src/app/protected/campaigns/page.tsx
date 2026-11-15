@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import Link from 'next/link';
@@ -47,6 +47,11 @@ interface Campaign {
   id: string;
   name: string;
   status: string;
+  conversion_duration_secs?: number | null;
+  duplicate_window_secs?: number | null;
+  default_revenue_amount?: number | string | null;
+  default_payout_amount?: number | string | null;
+  currency?: string;
   phone_numbers?: PhoneNumber[];
   buyers?: CampaignBuyer[];
 }
@@ -54,9 +59,20 @@ interface Campaign {
 export default function CampaignsPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
+  const requestGenRef = useRef(0);
   
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [availableBuyers, setAvailableBuyers] = useState<Buyer[]>([]);
+
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    requestGenRef.current++;
+    setCampaigns([]);
+    setAvailableBuyers([]);
+    setError(null);
+    setSuccess(null);
+  }, [workspaceId]);
   
   // Search & Filters
   const [statusTab, setStatusTab] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
@@ -72,6 +88,10 @@ export default function CampaignsPage() {
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newCampaignName, setNewCampaignName] = useState('');
+  const [newRevenue, setNewRevenue] = useState('');
+  const [newPayout, setNewPayout] = useState('');
+  const [newCurrency, setNewCurrency] = useState('USD');
+  const [newConversionDuration, setNewConversionDuration] = useState('90');
   const [isCreatingCampaign, setIsCreatingCampaign] = useState(false);
 
   // Add Buyer Modal State
@@ -91,6 +111,10 @@ export default function CampaignsPage() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [campaignToEdit, setCampaignToEdit] = useState<Campaign | null>(null);
   const [editCampaignName, setEditCampaignName] = useState('');
+  const [editRevenue, setEditRevenue] = useState('');
+  const [editPayout, setEditPayout] = useState('');
+  const [editCurrency, setEditCurrency] = useState('USD');
+  const [editConversionDuration, setEditConversionDuration] = useState('90');
   const [isEditingCampaign, setIsEditingCampaign] = useState(false);
 
   const [deactivateModalOpen, setDeactivateModalOpen] = useState(false);
@@ -101,6 +125,8 @@ export default function CampaignsPage() {
 
   const loadData = useCallback(async () => {
     if (!workspaceId) return;
+    const targetWs = workspaceId;
+    const currentGen = ++requestGenRef.current;
     setLoading(true);
     try {
       const offset = (page - 1) * limit;
@@ -108,12 +134,20 @@ export default function CampaignsPage() {
         apiFetch(`/workspaces/${workspaceId}/campaigns?status=${statusTab}&search=${encodeURIComponent(debouncedSearch)}&limit=${limit}&offset=${offset}`),
         apiFetch(`/workspaces/${workspaceId}/buyers`)
       ]);
+      if (currentGen !== requestGenRef.current || targetWs !== currentWorkspaceIdRef.current) {
+        return;
+      }
       setCampaigns(cData?.items || []);
       setAvailableBuyers(bData?.items || bData || []);
     } catch (e: unknown) {
+      if (currentGen !== requestGenRef.current || targetWs !== currentWorkspaceIdRef.current) {
+        return;
+      }
       setError('Failed to load campaigns/buyers: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
-      setLoading(false);
+      if (currentGen === requestGenRef.current && targetWs === currentWorkspaceIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [workspaceId, statusTab, debouncedSearch, page, limit]);
 
@@ -140,11 +174,50 @@ export default function CampaignsPage() {
     setIsCreatingCampaign(true);
     
     try {
+      if (newRevenue !== '' && (isNaN(Number(newRevenue)) || Number(newRevenue) < 0)) {
+        setError('Default buyer revenue cannot be negative');
+        setIsCreatingCampaign(false);
+        return;
+      }
+      if (newPayout !== '' && (isNaN(Number(newPayout)) || Number(newPayout) < 0)) {
+        setError('Default vendor payout cannot be negative');
+        setIsCreatingCampaign(false);
+        return;
+      }
+      if (newConversionDuration !== '') {
+        const cdNum = Number(newConversionDuration);
+        if (isNaN(cdNum) || !Number.isInteger(cdNum) || cdNum < 0) {
+          setError('Conversion duration threshold must be a non-negative whole number (seconds)');
+          setIsCreatingCampaign(false);
+          return;
+        }
+      }
+
+      const payload: {
+        name: string;
+        default_revenue_amount?: number | null;
+        default_payout_amount?: number | null;
+        currency?: string;
+        conversion_duration_secs?: number;
+      } = {
+        name: newCampaignName.trim(),
+        default_revenue_amount: newRevenue !== '' ? Number(newRevenue) : null,
+        default_payout_amount: newPayout !== '' ? Number(newPayout) : null,
+        currency: newCurrency.trim().toUpperCase() || 'USD',
+      };
+      if (newConversionDuration !== '') {
+        payload.conversion_duration_secs = Number(newConversionDuration);
+      }
+
       await apiFetch(`/workspaces/${workspaceId}/campaigns`, {
         method: 'POST',
-        body: JSON.stringify({ name: newCampaignName }),
+        body: JSON.stringify(payload),
       });
       setNewCampaignName('');
+      setNewRevenue('');
+      setNewPayout('');
+      setNewCurrency('USD');
+      setNewConversionDuration('90');
       setCreateModalOpen(false);
       setSuccess('Campaign created successfully.');
       setStatusTab('ACTIVE');
@@ -248,7 +321,8 @@ export default function CampaignsPage() {
       const eligible = allNumbers.filter((n: PhoneNumber) => !n.campaign_id);
       setAvailablePhoneNumbers(eligible);
     } catch (e) {
-      setError('Failed to fetch available phone numbers');
+      console.error(e);
+      setError('Failed to load tracking numbers.');
     }
   }
 
@@ -258,17 +332,18 @@ export default function CampaignsPage() {
     setIsAddingPhoneNumber(true);
     setError(null);
     setSuccess(null);
-    
+
     try {
       await apiFetch(`/workspaces/${workspaceId}/campaigns/${selectedCampaignId}/phone-numbers`, {
         method: 'POST',
         body: JSON.stringify({ phoneNumberId: selectedPhoneNumberId }),
       });
-      setSuccess('Tracking number assigned successfully.');
+      setSuccess('Tracking number assigned to campaign.');
       setAddTrackingNumberModalOpen(false);
+      setSelectedPhoneNumberId('');
       refreshCampaigns();
     } catch (e: unknown) {
-      setError('Failed to assign tracking number: ' + (e instanceof Error ? e.message : String(e)));
+      setError('Failed to add tracking number: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setIsAddingPhoneNumber(false);
     }
@@ -276,7 +351,7 @@ export default function CampaignsPage() {
 
   async function handleRemoveTrackingNumber(campaignId: string, phoneNumberId: string) {
     if (!workspaceId) return;
-    if (!confirm('Are you sure you want to remove this tracking number from the campaign? The number will not be released.')) return;
+    if (!confirm('Are you sure you want to remove this tracking number from the campaign?')) return;
     setError(null);
     setSuccess(null);
     try {
@@ -298,9 +373,44 @@ export default function CampaignsPage() {
     setSuccess(null);
 
     try {
+      if (editRevenue !== '' && (isNaN(Number(editRevenue)) || Number(editRevenue) < 0)) {
+        setError('Default buyer revenue cannot be negative');
+        setIsEditingCampaign(false);
+        return;
+      }
+      if (editPayout !== '' && (isNaN(Number(editPayout)) || Number(editPayout) < 0)) {
+        setError('Default vendor payout cannot be negative');
+        setIsEditingCampaign(false);
+        return;
+      }
+      if (editConversionDuration !== '') {
+        const cdNum = Number(editConversionDuration);
+        if (isNaN(cdNum) || !Number.isInteger(cdNum) || cdNum < 0) {
+          setError('Conversion duration threshold must be a non-negative whole number (seconds)');
+          setIsEditingCampaign(false);
+          return;
+        }
+      }
+
+      const payload: {
+        name: string;
+        default_revenue_amount?: number | null;
+        default_payout_amount?: number | null;
+        currency?: string;
+        conversion_duration_secs?: number;
+      } = {
+        name: editCampaignName.trim(),
+        default_revenue_amount: editRevenue !== '' ? Number(editRevenue) : null,
+        default_payout_amount: editPayout !== '' ? Number(editPayout) : null,
+        currency: editCurrency.trim().toUpperCase() || 'USD',
+      };
+      if (editConversionDuration !== '') {
+        payload.conversion_duration_secs = Number(editConversionDuration);
+      }
+
       await apiFetch(`/workspaces/${workspaceId}/campaigns/${campaignToEdit.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ name: editCampaignName }),
+        body: JSON.stringify(payload),
       });
       setSuccess('Campaign updated successfully.');
       setEditModalOpen(false);
@@ -316,6 +426,14 @@ export default function CampaignsPage() {
   function openEditModal(campaign: Campaign) {
     setCampaignToEdit(campaign);
     setEditCampaignName(campaign.name);
+    setEditRevenue(campaign.default_revenue_amount !== null && campaign.default_revenue_amount !== undefined ? String(campaign.default_revenue_amount) : '');
+    setEditPayout(campaign.default_payout_amount !== null && campaign.default_payout_amount !== undefined ? String(campaign.default_payout_amount) : '');
+    setEditCurrency(campaign.currency || 'USD');
+    setEditConversionDuration(
+      campaign.conversion_duration_secs !== null && campaign.conversion_duration_secs !== undefined
+        ? String(campaign.conversion_duration_secs)
+        : ''
+    );
     setEditModalOpen(true);
   }
 
@@ -374,7 +492,7 @@ export default function CampaignsPage() {
       </div>
       
       {error && (
-        <div className="bg-error-muted text-error-muted-foreground p-4 rounded-md text-sm border border-error-muted">
+        <div className="bg-error-muted text-error-muted-foreground p-4 rounded-md text-sm border border-error-muted" role="alert">
           {error}
         </div>
       )}
@@ -424,138 +542,194 @@ export default function CampaignsPage() {
             description={statusTab === 'ACTIVE' ? "Create a campaign above to start routing calls." : "No deactivated campaigns."}
           />
         ) : (
-          campaigns.map(c => (
-            <Card key={c.id} className="overflow-hidden">
-              <div className="bg-muted/30 px-6 py-4 border-b border-border flex justify-between items-center flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-lg font-semibold text-foreground">{c.name}</h2>
-                  <Badge variant={c.status === 'ACTIVE' ? 'success' : c.status === 'INACTIVE' ? 'warning' : 'default'}>
-                    {c.status}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-4 flex-wrap">
-                  <Link href={`/protected/campaigns/${c.id}?workspace=${workspaceId}`} className="text-sm font-medium text-primary hover:underline flex items-center gap-1">
-                    View Details
-                  </Link>
-                  <Button variant="outline" size="sm" onClick={() => openEditModal(c)}>
-                    Edit
-                  </Button>
-                  {c.status !== 'ACTIVE' ? (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleActivate(c.id)}
-                      isLoading={activatingCampaignId === c.id}
-                    >
-                      Activate
-                    </Button>
-                  ) : (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => openDeactivateModal(c)}
-                    >
-                      Deactivate
-                    </Button>
-                  )}
-                </div>
-              </div>
-              
-              <CardContent className="p-0">
-                <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-border">
-                  {/* Left Col: Numbers */}
-                  <div className="p-6">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tracking Numbers</h3>
-                    </div>
-                    {c.phone_numbers && c.phone_numbers.length > 0 ? (
-                      <div className="space-y-2 mb-4">
-                        {c.phone_numbers.map(pn => (
-                          <div key={pn.id} className="text-sm font-mono bg-muted/50 px-3 py-2 rounded-md border border-border flex justify-between items-center">
-                            <span>{pn.phone_number}</span>
-                            <Button variant="ghost" size="sm" className="h-6 text-error hover:text-error hover:bg-error/10 px-2" onClick={() => handleRemoveTrackingNumber(c.id, pn.id)}>
-                              Remove
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-sm text-muted-foreground mb-4">
-                        No tracking numbers assigned.
-                      </div>
-                    )}
-                    <Button variant="outline" size="sm" onClick={() => openAddTrackingNumberModal(c.id)}>
-                      + Add Tracking Number
-                    </Button>
-                  </div>
+          campaigns.map(c => {
+            const hasCommercialRates =
+              c.default_revenue_amount !== null &&
+              c.default_revenue_amount !== undefined &&
+              c.default_payout_amount !== null &&
+              c.default_payout_amount !== undefined;
 
-                  {/* Right Col: Buyers */}
-                  <div className="p-6 lg:col-span-2">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Routing Order (Buyers)</h3>
-                      <Button variant="outline" size="sm" onClick={() => openAddBuyerModal(c.id, c.buyers)}>
-                        + Add Buyer
-                      </Button>
-                    </div>
-                    
-                    {c.buyers && c.buyers.length > 0 ? (
-                      <div className="border border-border rounded-md overflow-hidden">
-                        <Table>
-                          <TableHeader>
-                            <TableRow className="bg-muted/50">
-                              <TableHead className="w-20 text-center min-w-[80px]">Priority</TableHead>
-                              <TableHead className="min-w-[150px]">Buyer</TableHead>
-                              <TableHead className="min-w-[150px]">Destination</TableHead>
-                              <TableHead className="text-right min-w-[100px]">Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {[...c.buyers].sort((a, b) => a.priority - b.priority).map((cb, index) => (
-                              <TableRow key={cb.buyer.id}>
-                                <TableCell className="text-center font-medium">
-                                  {cb.priority}
-                                </TableCell>
-                                <TableCell className="font-medium text-foreground">
-                                  {cb.buyer.name}
-                                </TableCell>
-                                <TableCell className="font-mono text-muted-foreground">
-                                  {cb.buyer.destination_number}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground" onClick={() => handleMoveBuyer(c.id, c.buyers || [], index, 'up')} disabled={index === 0}>↑</Button>
-                                    <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground" onClick={() => handleMoveBuyer(c.id, c.buyers || [], index, 'down')} disabled={index === c.buyers!.length - 1}>↓</Button>
-                                    <Button variant="ghost" size="sm" className="h-8 px-2 text-error hover:text-error hover:bg-error/10" onClick={() => handleRemoveBuyer(c.id, cb.buyer.id)}>Remove</Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
+            return (
+              <Card key={c.id} className="overflow-hidden">
+                <div className="bg-muted/30 px-6 py-4 border-b border-border flex justify-between items-center flex-wrap gap-4">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-semibold text-foreground">{c.name}</h2>
+                    <Badge variant={c.status === 'ACTIVE' ? 'success' : c.status === 'INACTIVE' ? 'warning' : 'default'}>
+                      {c.status}
+                    </Badge>
+                    {hasCommercialRates ? (
+                      <Badge variant="info">Commercial Active</Badge>
                     ) : (
-                      <div className="text-sm text-muted-foreground border border-dashed border-border rounded-md p-6 text-center">
-                        No buyers assigned. Calls to this campaign will fail.
-                      </div>
+                      <Badge variant="outline">Non-commercial</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <Link href={`/protected/campaigns/${c.id}?workspace=${workspaceId}`} className="text-sm font-medium text-primary hover:underline flex items-center gap-1">
+                      View Details
+                    </Link>
+                    <Button variant="outline" size="sm" onClick={() => openEditModal(c)}>
+                      Edit
+                    </Button>
+                    {c.status !== 'ACTIVE' ? (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleActivate(c.id)}
+                        isLoading={activatingCampaignId === c.id}
+                      >
+                        Activate
+                      </Button>
+                    ) : (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => openDeactivateModal(c)}
+                      >
+                        Deactivate
+                      </Button>
                     )}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          ))
+
+                {/* Commercial Rates Summary Banner */}
+                <div className="px-6 py-2.5 bg-muted/10 border-b border-border text-xs flex items-center gap-6 text-muted-foreground flex-wrap">
+                  <div>
+                    <span className="font-medium text-foreground">Buyer Revenue:</span>{' '}
+                    {c.default_revenue_amount !== null && c.default_revenue_amount !== undefined ? (
+                      <span className="font-mono text-foreground font-semibold">{c.currency || 'USD'} {Number(c.default_revenue_amount).toFixed(2)}</span>
+                    ) : (
+                      <span className="italic">Not configured</span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="font-medium text-foreground">Vendor Payout:</span>{' '}
+                    {c.default_payout_amount !== null && c.default_payout_amount !== undefined ? (
+                      <span className="font-mono text-foreground font-semibold">{c.currency || 'USD'} {Number(c.default_payout_amount).toFixed(2)}</span>
+                    ) : (
+                      <span className="italic">Not configured</span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="font-medium text-foreground">Currency:</span>{' '}
+                    <span className="font-mono">{c.currency || 'USD'}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-foreground">Conversion Threshold:</span>{' '}
+                    <span className="font-mono text-foreground font-semibold">
+                      {c.conversion_duration_secs !== null && c.conversion_duration_secs !== undefined
+                        ? `${c.conversion_duration_secs}s`
+                        : '90s (default)'}
+                    </span>
+                  </div>
+                </div>
+                
+                <CardContent className="p-0">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-border">
+                    {/* Left Col: Numbers */}
+                    <div className="p-6">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tracking Numbers</h3>
+                        <Button variant="ghost" size="sm" onClick={() => openAddTrackingNumberModal(c.id)}>+ Add</Button>
+                      </div>
+                      {c.phone_numbers && c.phone_numbers.length > 0 ? (
+                        <div className="space-y-2 mb-4">
+                          {c.phone_numbers.map(pn => (
+                            <div key={pn.id} className="text-sm font-mono bg-muted/50 px-3 py-2 rounded-md border border-border flex justify-between items-center">
+                              <span>{pn.phone_number}</span>
+                              <Button variant="ghost" size="sm" className="h-6 text-error hover:text-error hover:bg-error/10 px-2" onClick={() => handleRemoveTrackingNumber(c.id, pn.id)}>
+                                Remove
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground mb-4">No tracking numbers assigned.</p>
+                      )}
+                    </div>
+
+                    {/* Right Cols: Buyers */}
+                    <div className="p-6 lg:col-span-2">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Assigned Buyers (Priority Routing)</h3>
+                        <Button variant="ghost" size="sm" onClick={() => openAddBuyerModal(c.id, c.buyers)}>+ Add Buyer</Button>
+                      </div>
+                      
+                      {c.buyers && c.buyers.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-16">Priority</TableHead>
+                                <TableHead>Buyer Name</TableHead>
+                                <TableHead>Destination Number</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {c.buyers.map((cb, index) => (
+                                <TableRow key={cb.id}>
+                                  <TableCell className="font-semibold">{cb.priority}</TableCell>
+                                  <TableCell className="font-medium">{cb.buyer.name}</TableCell>
+                                  <TableCell className="font-mono text-muted-foreground">{cb.buyer.destination_number}</TableCell>
+                                  <TableCell className="text-right space-x-1">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      disabled={index === 0}
+                                      onClick={() => handleMoveBuyer(c.id, c.buyers || [], index, 'up')}
+                                    >
+                                      ▲
+                                    </Button>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      disabled={index === (c.buyers?.length || 0) - 1}
+                                      onClick={() => handleMoveBuyer(c.id, c.buyers || [], index, 'down')}
+                                    >
+                                      ▼
+                                    </Button>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      className="text-error hover:text-error hover:bg-error/10"
+                                      onClick={() => handleRemoveBuyer(c.id, cb.buyer.id)}
+                                    >
+                                      Remove
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No buyers assigned to this campaign yet.</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })
         )}
       </div>
 
+      {/* CREATE MODAL */}
       {createModalOpen && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md shadow-lg">
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+          <Card className="w-full max-w-lg shadow-lg">
             <CardHeader>
               <CardTitle>Create Campaign</CardTitle>
             </CardHeader>
             <form onSubmit={handleCreate}>
               <CardContent className="space-y-4">
+                {error && (
+                  <div className="bg-error-muted text-error-muted-foreground p-3 rounded-md text-xs border border-error-muted" role="alert">
+                    {error}
+                  </div>
+                )}
                 <div className="space-y-1.5">
-                  <Label htmlFor="newCampaignName">Campaign Name</Label>
+                  <Label htmlFor="newCampaignName">Campaign Name *</Label>
                   <Input 
                     id="newCampaignName"
                     type="text" 
@@ -565,9 +739,75 @@ export default function CampaignsPage() {
                     required
                   />
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="newRevenue">Default Buyer Revenue</Label>
+                    <Input 
+                      id="newRevenue"
+                      type="number"
+                      step="0.01"
+                      value={newRevenue} 
+                      onChange={e => setNewRevenue(e.target.value)}
+                      placeholder="e.g. 45.00" 
+                    />
+                    <p className="text-xs text-muted-foreground">Billed to buyer per qualifying call.</p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="newPayout">Default Vendor Payout</Label>
+                    <Input 
+                      id="newPayout"
+                      type="number"
+                      step="0.01"
+                      value={newPayout} 
+                      onChange={e => setNewPayout(e.target.value)}
+                      placeholder="e.g. 30.00" 
+                    />
+                    <p className="text-xs text-muted-foreground">Disbursed to vendor per qualifying call.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="newCurrency">Currency</Label>
+                  <select
+                    id="newCurrency"
+                    value={newCurrency}
+                    onChange={e => setNewCurrency(e.target.value)}
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="CAD">CAD ($)</option>
+                    <option value="GBP">GBP (£)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="newConversionDuration">Conversion Duration Threshold (seconds)</Label>
+                  <Input 
+                    id="newConversionDuration"
+                    type="number"
+                    placeholder="90"
+                    value={newConversionDuration} 
+                    onChange={e => setNewConversionDuration(e.target.value)} 
+                  />
+                  <p className="text-xs text-muted-foreground">Minimum connected talk time required for a call to convert. Set to 0 to convert on answer. Default: 90 seconds.</p>
+                </div>
+
+                <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground border border-border">
+                  Commercial evaluation and wallet settlement require both Buyer Revenue and Vendor Payout to be set.
+                </div>
               </CardContent>
               <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
-                <Button variant="outline" type="button" onClick={() => setCreateModalOpen(false)}>
+                <Button variant="outline" type="button" onClick={() => {
+                  setCreateModalOpen(false);
+                  setNewCampaignName('');
+                  setNewRevenue('');
+                  setNewPayout('');
+                  setNewCurrency('USD');
+                  setNewConversionDuration('90');
+                }}>
                   Cancel
                 </Button>
                 <Button type="submit" isLoading={isCreatingCampaign}>
@@ -579,16 +819,22 @@ export default function CampaignsPage() {
         </div>
       )}
 
+      {/* EDIT MODAL */}
       {editModalOpen && campaignToEdit && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md shadow-lg">
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+          <Card className="w-full max-w-lg shadow-lg">
             <CardHeader>
               <CardTitle>Edit Campaign</CardTitle>
             </CardHeader>
             <form onSubmit={handleEditSubmit}>
               <CardContent className="space-y-4">
+                {error && (
+                  <div className="bg-error-muted text-error-muted-foreground p-3 rounded-md text-xs border border-error-muted" role="alert">
+                    {error}
+                  </div>
+                )}
                 <div className="space-y-1.5">
-                  <Label htmlFor="editCampaignName">Campaign Name</Label>
+                  <Label htmlFor="editCampaignName">Campaign Name *</Label>
                   <Input 
                     id="editCampaignName"
                     type="text" 
@@ -596,6 +842,65 @@ export default function CampaignsPage() {
                     onChange={e => setEditCampaignName(e.target.value)}
                     required
                   />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="editRevenue">Default Buyer Revenue</Label>
+                    <Input 
+                      id="editRevenue"
+                      type="number"
+                      step="0.01"
+                      value={editRevenue} 
+                      onChange={e => setEditRevenue(e.target.value)}
+                      placeholder="e.g. 45.00" 
+                    />
+                    <p className="text-xs text-muted-foreground">Billed to buyer per qualifying call.</p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="editPayout">Default Vendor Payout</Label>
+                    <Input 
+                      id="editPayout"
+                      type="number"
+                      step="0.01"
+                      value={editPayout} 
+                      onChange={e => setEditPayout(e.target.value)}
+                      placeholder="e.g. 30.00" 
+                    />
+                    <p className="text-xs text-muted-foreground">Disbursed to vendor per qualifying call.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="editCurrency">Currency</Label>
+                  <select
+                    id="editCurrency"
+                    value={editCurrency}
+                    onChange={e => setEditCurrency(e.target.value)}
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="CAD">CAD ($)</option>
+                    <option value="GBP">GBP (£)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="editConversionDuration">Conversion Duration Threshold (seconds)</Label>
+                  <Input 
+                    id="editConversionDuration"
+                    type="number"
+                    placeholder="90"
+                    value={editConversionDuration} 
+                    onChange={e => setEditConversionDuration(e.target.value)} 
+                  />
+                  <p className="text-xs text-muted-foreground">Minimum connected talk time required for a call to convert. Set to 0 to convert on answer. Default: 90 seconds.</p>
+                </div>
+
+                <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground border border-border">
+                  Commercial evaluation and wallet settlement require both Buyer Revenue and Vendor Payout to be set. Existing evaluated calls will not be retroactively modified.
                 </div>
               </CardContent>
               <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
@@ -664,8 +969,8 @@ export default function CampaignsPage() {
                 <Button variant="outline" type="button" onClick={() => setAddTrackingNumberModalOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" isLoading={isAddingPhoneNumber} disabled={!selectedPhoneNumberId || availablePhoneNumbers.length === 0}>
-                  Add Number
+                <Button type="submit" disabled={availablePhoneNumbers.length === 0} isLoading={isAddingPhoneNumber}>
+                  Assign Number
                 </Button>
               </CardFooter>
             </form>
@@ -677,7 +982,7 @@ export default function CampaignsPage() {
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-md shadow-lg">
             <CardHeader>
-              <CardTitle>Add Buyer</CardTitle>
+              <CardTitle>Add Buyer to Campaign</CardTitle>
             </CardHeader>
             <form onSubmit={handleAddBuyerSubmit}>
               <CardContent className="space-y-4">
@@ -698,23 +1003,24 @@ export default function CampaignsPage() {
                     <p className="text-xs text-warning-muted-foreground mt-1">No buyers found in this workspace.</p>
                   )}
                 </div>
+
                 <div className="space-y-1.5">
-                  <Label>Priority (1 = Highest)</Label>
-                  <Input
+                  <Label>Priority</Label>
+                  <Input 
                     type="number"
                     min="1"
                     value={priority}
-                    onChange={(e) => setPriority(Number(e.target.value))}
+                    onChange={(e) => setPriority(parseInt(e.target.value, 10))}
                     required
                   />
-                  <p className="text-xs text-muted-foreground">Calls route to lower priority numbers first.</p>
+                  <p className="text-xs text-muted-foreground">Priority order for dialing (1 is tried first).</p>
                 </div>
               </CardContent>
               <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
                 <Button variant="outline" type="button" onClick={() => setAddBuyerModalOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" isLoading={isAddingBuyer} disabled={!selectedBuyerId || availableBuyers.length === 0}>
+                <Button type="submit" disabled={availableBuyers.length === 0} isLoading={isAddingBuyer}>
                   Add Buyer
                 </Button>
               </CardFooter>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { InlineRecordingPlayer } from '@/components/ui/recording-player';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -12,8 +13,10 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PhoneCall, Search, X, Play, AlertCircle } from 'lucide-react';
+import { formatCallerDisplay } from '@/lib/phone';
 
 interface CallLog {
+  workspace_id?: string;
   id: string;
   created_at: string;
   from_number: string;
@@ -61,63 +64,27 @@ function formatCurrency(amount: number | null | undefined, currency: string = 'U
   }).format(amount);
 }
 
-function InlineRecordingPlayer({ workspaceId, recordingId }: { workspaceId: string, recordingId: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handlePlay = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await apiFetch(`/workspaces/${workspaceId}/recordings/${recordingId}/download`);
-      if (res.url) {
-        setUrl(res.url);
-      } else {
-        setError('Failed');
-      }
-    } catch (e) {
-      setError('Error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (url) {
-    return (
-      <audio controls autoPlay src={url} className="h-8 max-w-[150px] sm:max-w-[200px]" aria-label="Call recording audio player">
-        Browser does not support audio.
-      </audio>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <Button 
-        variant="outline" 
-        size="sm" 
-        onClick={handlePlay} 
-        disabled={loading}
-        className="h-8 px-3"
-        aria-label="Play recording"
-      >
-        <Play className="w-3.5 h-3.5 mr-1" />
-        {loading ? '...' : 'Play'}
-      </Button>
-      {error && <span className="text-red-500 text-xs font-medium" title={error}><AlertCircle className="w-4 h-4 inline" /></span>}
-    </div>
-  );
-}
-
 export default function CallsPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
   const [calls, setCalls] = useState<CallLog[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCalls([]);
+    setTotal(0);
+    setPage(1);
+    setError(null);
+  }, [workspaceId]);
   
   // Dropdowns data
   const [phoneNumbers, setPhoneNumbers] = useState<any[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [availableBuyers, setAvailableBuyers] = useState<{ id: string; name: string }[]>([]);
 
   const [filters, setFilters] = useState({
     startDate: '',
@@ -133,9 +100,11 @@ export default function CallsPage() {
   });
 
   const [isVendor, setIsVendor] = useState(false);
+  const [isBuyer, setIsBuyer] = useState(false);
+  const [linkedBuyers, setLinkedBuyers] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    async function checkVendorRole() {
+    async function loadWorkspaceContext() {
       if (!workspaceId) return;
       try {
         const workspaces = await apiFetch('/workspaces');
@@ -144,24 +113,38 @@ export default function CallsPage() {
           : null;
         if (currentWs) {
           setIsVendor(currentWs.participant_type === 'VENDOR');
+          const buyerParticipant = currentWs.participant_type === 'BUYER';
+          setIsBuyer(buyerParticipant);
+          if (currentWs.linked_buyers && currentWs.linked_buyers.length > 0) {
+            setLinkedBuyers(currentWs.linked_buyers);
+          } else if (currentWs.buyer_id) {
+            setLinkedBuyers([{ id: currentWs.buyer_id, name: 'Assigned Buyer' }]);
+          } else {
+            setLinkedBuyers([]);
+          }
         }
       } catch {
         // Continue if workspace query fails
       }
     }
-    checkVendorRole();
+    loadWorkspaceContext();
   }, [workspaceId]);
 
   useEffect(() => {
     async function loadDropdowns() {
       if (!workspaceId) return;
       try {
-        const [phoneData, campData] = await Promise.all([
+        const [phoneData, campData, buyerData] = await Promise.all([
           apiFetch(`/workspaces/${workspaceId}/phone-numbers`).catch(() => []),
-          apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => [])
+          apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => []),
+          apiFetch(`/workspaces/${workspaceId}/buyers`).catch(() => []),
         ]);
         setPhoneNumbers(Array.isArray(phoneData) ? phoneData : phoneData?.items || []);
         setCampaigns(Array.isArray(campData) ? campData : campData?.items || []);
+        const fetchedBuyers = Array.isArray(buyerData) ? buyerData : buyerData?.items || [];
+        if (fetchedBuyers.length > 0) {
+          setAvailableBuyers(fetchedBuyers.map((b: any) => ({ id: b.id, name: b.name })));
+        }
       } catch (e) {
         console.error('Failed to load dropdowns', e);
       }
@@ -172,6 +155,7 @@ export default function CallsPage() {
   useEffect(() => {
     async function loadCalls() {
       setLoading(true);
+      setError(null);
       try {
         const query = new URLSearchParams();
         if (filters.startDate) query.set('startDate', filters.startDate);
@@ -187,11 +171,18 @@ export default function CallsPage() {
           if (filters.minDurationSecs) query.set('minDurationSecs', filters.minDurationSecs);
           if (filters.maxDurationSecs) query.set('maxDurationSecs', filters.maxDurationSecs);
         }
+
+        query.set('limit', pageSize.toString());
+        query.set('offset', ((page - 1) * pageSize).toString());
         
         const data = await apiFetch(`/workspaces/${workspaceId}/calls?${query.toString()}`);
         setCalls(data.items || []);
-      } catch (e) {
+        setTotal(typeof data.total === 'number' ? data.total : (data.items?.length || 0));
+      } catch (e: any) {
         console.error(e);
+        setError(e?.message || 'Unable to load calls. Please check your workspace permissions.');
+        setCalls([]);
+        setTotal(0);
       } finally {
         setLoading(false);
       }
@@ -200,7 +191,7 @@ export default function CallsPage() {
     if (workspaceId) {
       loadCalls();
     }
-  }, [workspaceId, filters]);
+  }, [workspaceId, filters, page]);
 
   const clearFilters = () => {
     setFilters({
@@ -215,6 +206,7 @@ export default function CallsPage() {
       minDurationSecs: '',
       maxDurationSecs: '',
     });
+    setPage(1);
   };
 
   const getStatusBadgeVariant = (state: string) => {
@@ -224,6 +216,7 @@ export default function CallsPage() {
         return 'success';
       case 'NO_ANSWER':
       case 'FAILED':
+      case 'CANCELED':
         return 'error';
       case 'BLOCKED':
         return 'error';
@@ -287,6 +280,23 @@ export default function CallsPage() {
               </select>
             </div>
 
+            {!isVendor && (linkedBuyers.length > 0 || availableBuyers.length > 0) && (
+              <div className="space-y-1.5">
+                <Label htmlFor="buyerId">{isBuyer ? 'Buyer Account' : 'Buyer'}</Label>
+                <select 
+                  id="buyerId"
+                  value={filters.buyerId} 
+                  onChange={e => setFilters({...filters, buyerId: e.target.value})} 
+                  className="flex h-10 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+                >
+                  <option value="">{isBuyer ? 'All Linked Buyers (Consolidated)' : 'All Buyers'}</option>
+                  {(linkedBuyers.length > 0 ? linkedBuyers : availableBuyers).map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label htmlFor="callerNumber">Caller Number</Label>
               <Input 
@@ -309,6 +319,7 @@ export default function CallsPage() {
                 <option value="">All Statuses</option>
                 <option value="COMPLETED">Completed</option>
                 <option value="NO_ANSWER">No Answer</option>
+                <option value="CANCELED">Canceled / Missed</option>
                 <option value="FAILED">Failed</option>
                 
               </select>
@@ -381,6 +392,13 @@ export default function CallsPage() {
         </CardContent>
       </Card>
 
+      {error && (
+        <div className="bg-error-muted text-error-muted-foreground p-4 rounded-md text-sm border border-error/20 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
+
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
@@ -435,7 +453,7 @@ export default function CallsPage() {
                           minute: '2-digit'
                         })}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{call.from_number}</TableCell>
+                      <TableCell className="font-mono text-xs">{formatCallerDisplay(call.from_number, isVendor)}</TableCell>
                       <TableCell className="font-mono text-xs">{call.to_number}</TableCell>
                       <TableCell className="text-sm">{call.campaign?.name || '—'}</TableCell>
                       <TableCell className="text-sm text-muted-foreground font-mono" title="Talk Time = connected/answered time through final hangup.">
@@ -485,7 +503,12 @@ export default function CallsPage() {
                       </TableCell>
                       <TableCell>
                         {playableRec ? (
-                          <InlineRecordingPlayer workspaceId={workspaceId} recordingId={playableRec.id} />
+                          <InlineRecordingPlayer
+                            workspaceId={workspaceId}
+                            callWorkspaceId={call.workspace_id}
+                            recordingId={playableRec.id}
+                            recordings={call.recordings}
+                          />
                         ) : (
                           <span className="text-muted-foreground text-sm">—</span>
                         )}
@@ -505,6 +528,39 @@ export default function CallsPage() {
             </TableBody>
           </Table>
         </div>
+
+        {!loading && !error && total > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t border-border">
+            <div className="text-sm text-muted-foreground">
+              Showing <span className="font-medium text-foreground">{Math.min((page - 1) * pageSize + 1, total)}</span> to{' '}
+              <span className="font-medium text-foreground">{Math.min(page * pageSize, total)}</span> of{' '}
+              <span className="font-medium text-foreground">{total}</span> calls
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                aria-label="Previous Page"
+              >
+                Previous
+              </Button>
+              <span className="text-xs text-muted-foreground px-2">
+                Page {page} of {Math.max(1, Math.ceil(total / pageSize))}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={page >= Math.ceil(total / pageSize)}
+                aria-label="Next Page"
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

@@ -14,6 +14,7 @@ type UsageSummary = {
 
 type UsageData = {
   summary: UsageSummary;
+  active_phone_numbers?: number;
   period_start: string | null;
   period_end: string | null;
 };
@@ -124,7 +125,7 @@ export default function UsagePage() {
               </CardHeader>
               <CardContent>
                 <div className="text-4xl font-bold text-foreground">
-                  {usage.summary.PHONE_NUMBER}
+                  {usage.active_phone_numbers ?? usage.summary.PHONE_NUMBER}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
                   Active phone numbers provisioned

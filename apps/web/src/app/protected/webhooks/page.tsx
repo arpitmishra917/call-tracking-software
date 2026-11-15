@@ -268,7 +268,9 @@ export default function WebhooksPage() {
               )}
             </CardContent>
           </Card>
-        </div>`n`n      <ConfirmDialog
+        </div>
+
+      <ConfirmDialog
         open={!!deleteId}
         onOpenChange={(open) => !open && setDeleteId(null)}
         title="Delete Webhook"

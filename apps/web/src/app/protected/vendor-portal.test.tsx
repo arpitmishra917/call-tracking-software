@@ -1,10 +1,12 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import Sidebar from '@/components/sidebar';
+import WorkspaceSelector from '@/components/workspace-selector';
 import CallsPage from './calls/page';
 import CallDetailPage from './calls/[callId]/page';
 import SettlementsPage from './settlements/page';
+import ReportingDashboard from './reporting/page';
 import { apiFetch } from '@/lib/api';
 import { useSearchParams, usePathname } from 'next/navigation';
 
@@ -15,6 +17,7 @@ vi.mock('@/lib/api', () => ({
 vi.mock('next/navigation', () => ({
   useSearchParams: vi.fn(),
   usePathname: vi.fn(),
+  useRouter: vi.fn().mockReturnValue({ push: vi.fn() }),
 }));
 
 vi.mock('next/link', () => ({
@@ -417,7 +420,188 @@ describe('COMM-INTEGRATION-6: Vendor Portal UI Integration Suite', () => {
       await waitFor(() => {
         expect(screen.getByText('Access denied to settlement batches')).toBeDefined();
       });
+
+      // Invariant: Error state must NOT display "No settlement batches found" empty state
+      expect(screen.queryByText('No settlement batches found')).toBeNull();
+    });
+
+    it('renders VENDOR badge in WorkspaceSelector for vendor participant workspace', () => {
+      render(<WorkspaceSelector workspaces={[vendorWorkspace]} />);
+      expect(screen.getByText('Acme Traffic Partner (VENDOR)')).toBeDefined();
+    });
+  });
+  describe('7. Phase 2 Slice 4: Vendor Portal Pagination, Operational Reporting & Scope Hardening', () => {
+    it('CallsPage: supports server-side pagination with limit and offset query parameters', async () => {
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([vendorWorkspace]);
+        }
+        if (url.includes('/calls?')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'call-v-page1',
+                created_at: '2026-10-08T12:00:00Z',
+                from_number: '+15551112222',
+                to_number: '+15553334444',
+                state: 'COMPLETED',
+                talkDurationSecs: 120,
+                totalDurationSecs: 135,
+                campaign: { name: 'Health Insurance Inbound' },
+                recordings: [],
+                commercial: {
+                  id: 'comm-v-1',
+                  status: 'FINAL',
+                  qualified: true,
+                  converted: true,
+                  payout: 42.5,
+                  currency: 'USD',
+                },
+              },
+            ],
+            total: 45,
+          });
+        }
+        return Promise.resolve([]);
+      });
+
+      render(<CallsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText((_, el) => el?.textContent?.replace(/\s+/g, ' ').trim() === 'Showing 1 to 20 of 45 calls')).toBeDefined();
+        expect(screen.getByText('Page 1 of 3')).toBeDefined();
+      });
+
+      // Limit and offset must be sent in the API query
+      expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('limit=20'));
+      expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('offset=0'));
+
+      // Previous button should be disabled on first page
+      const prevButton = screen.getByLabelText('Previous Page') as HTMLButtonElement;
+      expect(prevButton.disabled).toBe(true);
+
+      // Next button should be enabled
+      const nextButton = screen.getByLabelText('Next Page') as HTMLButtonElement;
+      expect(nextButton.disabled).toBe(false);
+
+      // Click Next page
+      fireEvent.click(nextButton);
+
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('offset=20'));
+      });
+    });
+
+    it('CallsPage: allows filtering by Canceled / Missed status', async () => {
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([vendorWorkspace]);
+        }
+        if (url.includes('/calls?')) {
+          return Promise.resolve({ items: [], total: 0 });
+        }
+        return Promise.resolve([]);
+      });
+
+      render(<CallsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Status')).toBeDefined();
+      });
+
+      // Verify Canceled / Missed option exists
+      const statusSelect = screen.getByLabelText('Status');
+      expect(screen.getByRole('option', { name: 'Canceled / Missed' })).toBeDefined();
+
+      // Change status to CANCELED
+      fireEvent.change(statusSelect, { target: { value: 'CANCELED' } });
+
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('status=CANCELED'));
+      });
+    });
+
+    it('CallsPage: renders error banner when API request fails (403 Forbidden)', async () => {
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([vendorWorkspace]);
+        }
+        if (url.includes('/calls?')) {
+          return Promise.reject(new Error('Missing call:read permission'));
+        }
+        return Promise.resolve([]);
+      });
+
+      render(<CallsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Missing call:read permission')).toBeDefined();
+      });
+
+      // Call items and table rows should not be rendered
+      expect(screen.queryByText('Showing 1 to')).toBeNull();
+    });
+
+    it('ReportingDashboard: renders operational metrics and Payout for Vendor without Buyer option in Group By', async () => {
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([vendorWorkspace]);
+        }
+        if (url.includes('/calls/metrics?')) {
+          return Promise.resolve({
+            total: 25,
+            answered: 18,
+            missed: 5,
+            failed: 2,
+            avgDuration: 95,
+            tclSecs: 1800,
+            aclSecs: 100,
+            payout: 765.0,
+            currency: 'USD',
+            converted: 12,
+            qualified: 15,
+            conversionRate: 48.0,
+            commercialCalls: 25,
+            campaigns: {},
+            trackingNumbers: {},
+            buckets: [],
+          });
+        }
+        if (url.includes('/calls?')) {
+          return Promise.resolve({ items: [], total: 0 });
+        }
+        if (url.includes('/calls/live-calls')) {
+          return Promise.resolve({ liveCalls: 0 });
+        }
+        if (url.includes('/reports')) {
+          return Promise.resolve([]);
+        }
+        return Promise.resolve({});
+      });
+
+      render(<ReportingDashboard />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Total Calls')).toBeDefined();
+        expect(screen.getByText('25')).toBeDefined();
+      });
+
+      // Operational metrics present
+      expect(screen.getByText('18')).toBeDefined(); // Answered
+      expect(screen.getByText('5')).toBeDefined();  // Missed
+      expect(screen.getByText('2')).toBeDefined();  // Failed
+
+      // Commercial Economics: Payout present
+      expect(screen.getByTestId('kpi-payout')).toBeDefined();
+      expect(screen.getByText('$765.00')).toBeDefined();
+
+      // Commercial Economics: Revenue, Profit, Cost strictly hidden
+      expect(screen.queryByTestId('kpi-revenue')).toBeNull();
+      expect(screen.queryByTestId('kpi-profit')).toBeNull();
+      expect(screen.queryByTestId('kpi-cost')).toBeNull();
+
+      // Buyer option strictly hidden in Group By dropdown for Vendor
+      expect(screen.queryByRole('option', { name: 'Buyer' })).toBeNull();
     });
   });
 });
-

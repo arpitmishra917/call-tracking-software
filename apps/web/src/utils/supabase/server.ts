@@ -14,14 +14,26 @@ export async function createClient() {
         },
         setAll(cookiesToSet) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            )
+            const isProduction = process.env.NODE_ENV === 'production';
+            cookiesToSet.forEach(({ name, value, options }) => {
+              const sanitizedOptions = isProduction
+                ? options
+                : { ...options, secure: false };
+              cookieStore.set(name, value, sanitizedOptions);
+            });
           } catch {
             // The `setAll` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
             // user sessions.
           }
+        },
+      },
+      global: {
+        fetch: (url, options) => {
+          return fetch(url, {
+            ...options,
+            signal: options?.signal || AbortSignal.timeout(8000),
+          })
         },
       },
     }

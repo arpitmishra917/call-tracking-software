@@ -27,6 +27,13 @@ export default function MemberPermissionsPage() {
   const [buyers, setBuyers] = useState<any[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
 
+  // Linked Buyers State
+  const [memberBuyers, setMemberBuyers] = useState<any[]>([]);
+  const [selectedBuyerToLink, setSelectedBuyerToLink] = useState('');
+  const [isLinkingBuyer, setIsLinkingBuyer] = useState(false);
+  const [unlinkBuyerId, setUnlinkBuyerId] = useState<string | null>(null);
+  const [isUnlinkingBuyer, setIsUnlinkingBuyer] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,13 +61,15 @@ export default function MemberPermissionsPage() {
       // We actually need the true memberId (the workspace_member.id). Let's use m.id if available.
       const trueMemberId = m.id;
 
-      // Fetch Permissions
-      const [allPerms, memPerms] = await Promise.all([
+      // Fetch Permissions and Linked Buyers
+      const [allPerms, memPerms, buyerLinks] = await Promise.all([
         apiFetch(`/workspaces/${workspaceId}/permissions`),
-        apiFetch(`/workspaces/${workspaceId}/permissions/members/${trueMemberId}`)
+        apiFetch(`/workspaces/${workspaceId}/permissions/members/${trueMemberId}`),
+        apiFetch(`/workspaces/${workspaceId}/members/${trueMemberId}/buyers`).catch(() => [])
       ]);
       setAllPermissions(Array.isArray(allPerms) ? allPerms : []);
       setPermissions(Array.isArray(memPerms) ? memPerms : []);
+      setMemberBuyers(Array.isArray(buyerLinks) ? buyerLinks : []);
 
       // Fetch resources silently
       try {
@@ -92,6 +101,42 @@ export default function MemberPermissionsPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleLinkBuyer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workspaceId || !member || !selectedBuyerToLink) return;
+    setIsLinkingBuyer(true);
+    try {
+      setError(null);
+      await apiFetch(`/workspaces/${workspaceId}/members/${member.id}/buyers`, {
+        method: 'POST',
+        body: JSON.stringify({ buyerId: selectedBuyerToLink }),
+      });
+      setSelectedBuyerToLink('');
+      await fetchData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to link buyer');
+    } finally {
+      setIsLinkingBuyer(false);
+    }
+  };
+
+  const handleUnlinkBuyer = async () => {
+    if (!workspaceId || !member || !unlinkBuyerId) return;
+    setIsUnlinkingBuyer(true);
+    try {
+      setError(null);
+      await apiFetch(`/workspaces/${workspaceId}/members/${member.id}/buyers/${unlinkBuyerId}`, {
+        method: 'DELETE',
+      });
+      setUnlinkBuyerId(null);
+      await fetchData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to unlink buyer');
+    } finally {
+      setIsUnlinkingBuyer(false);
+    }
+  };
 
   const handleAssign = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -203,6 +248,71 @@ export default function MemberPermissionsPage() {
           <ShieldAlert className="w-5 h-5" />
           {error}
         </div>
+      )}
+
+      {member?.participant_type === 'BUYER' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Linked Buyers</CardTitle>
+            <CardDescription>
+              Manage buyers associated with this member login. Calls, call details, metrics, and exports will be consolidated across these linked buyers.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {memberBuyers.length === 0 ? (
+              <div className="p-4 text-center border rounded-lg bg-card text-muted-foreground text-sm">
+                No buyers currently linked to this member.
+              </div>
+            ) : (
+              <div className="border rounded-md divide-y">
+                {memberBuyers.map((b) => (
+                  <div key={b.id || b.buyer_id} className="p-4 flex items-center justify-between">
+                    <div>
+                      <div className="font-medium text-foreground">{b.name}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        ID: {b.buyer_id} {b.destination_number ? `• Destination: ${b.destination_number}` : ''}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                      onClick={() => setUnlinkBuyerId(b.buyer_id)}
+                    >
+                      Unlink
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={handleLinkBuyer} className="flex flex-col sm:flex-row gap-3 items-end pt-2 border-t">
+              <div className="flex-1 w-full space-y-1">
+                <label htmlFor="link-buyer-select" className="text-sm font-medium text-foreground">
+                  Link Another Buyer
+                </label>
+                <select
+                  id="link-buyer-select"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                  value={selectedBuyerToLink}
+                  onChange={(e) => setSelectedBuyerToLink(e.target.value)}
+                >
+                  <option value="">Select a buyer to link...</option>
+                  {buyers
+                    .filter((b) => !memberBuyers.some((mb) => mb.buyer_id === b.id))
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <Button type="submit" disabled={!selectedBuyerToLink || isLinkingBuyer}>
+                {isLinkingBuyer ? 'Linking...' : 'Link Buyer'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
       )}
 
       {isOwner ? (
@@ -364,6 +474,16 @@ export default function MemberPermissionsPage() {
         onConfirm={handleRevoke}
         isLoading={isRevoking}
         confirmText="Revoke"
+      />
+
+      <ConfirmDialog
+        open={!!unlinkBuyerId}
+        onOpenChange={(open) => !open && setUnlinkBuyerId(null)}
+        title="Unlink Buyer"
+        description="Are you sure you want to unlink this buyer from this member? The buyer record, calls, and historical reporting will remain intact, but this member will no longer have access to this buyer."
+        onConfirm={handleUnlinkBuyer}
+        isLoading={isUnlinkingBuyer}
+        confirmText="Unlink"
       />
     </div>
   );

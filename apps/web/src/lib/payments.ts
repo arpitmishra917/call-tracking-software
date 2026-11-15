@@ -19,7 +19,7 @@ export interface PaymentInstruction {
   id: string;
   workspace_id: string;
   settlement_batch_id: string;
-  direction: 'COLLECTION' | 'PAYOUT';
+  direction: 'COLLECTION' | 'DISBURSEMENT';
   amount: number | string;
   currency: string;
   participant_type: 'BUYER' | 'VENDOR';

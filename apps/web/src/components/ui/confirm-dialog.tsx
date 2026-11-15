@@ -25,14 +25,40 @@ export function ConfirmDialog({
   isLoading = false,
   destructive = true,
 }: ConfirmDialogProps) {
+  const titleId = React.useId();
+  const descriptionId = React.useId();
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isLoading) {
+        onOpenChange(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, isLoading, onOpenChange]);
+
   if (!open) return null;
+
+  const isPlainText = typeof description === "string" || typeof description === "number";
 
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md shadow-lg animate-in fade-in zoom-in-95 duration-200">
+      <Card
+        role={destructive ? "alertdialog" : "dialog"}
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        className="w-full max-w-md shadow-lg animate-in fade-in zoom-in-95 duration-200"
+      >
         <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription className="text-sm text-muted-foreground mt-2">
+          <CardTitle id={titleId}>{title}</CardTitle>
+          <CardDescription
+            as={isPlainText ? "p" : "div"}
+            id={descriptionId}
+            className="text-sm text-muted-foreground mt-2"
+          >
             {description}
           </CardDescription>
         </CardHeader>
@@ -56,5 +82,3 @@ export function ConfirmDialog({
     </div>
   );
 }
-
-

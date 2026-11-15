@@ -9,7 +9,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Users, Mail } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 
 type Profile = {
@@ -35,7 +35,28 @@ type WorkspaceInvitation = {
   participant_type?: string;
   vendor_id?: string;
   buyer_id?: string;
+  status?: string;
+  expires_at?: string;
   created_at: string;
+};
+
+type Buyer = {
+  id: string;
+  name: string;
+  destination_number?: string;
+  status?: string;
+};
+
+type Vendor = {
+  id: string;
+  name: string;
+  status?: string;
+};
+
+const extractItems = <T,>(data: any): T[] => {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.items)) return data.items;
+  return [];
 };
 
 export default function MembersPage() {
@@ -57,12 +78,17 @@ export default function MembersPage() {
   const [participantType, setParticipantType] = useState('INTERNAL');
   const [vendorId, setVendorId] = useState('');
   const [buyerId, setBuyerId] = useState('');
-  const [vendors, setVendors] = useState<any[]>([]);
-  const [buyers, setBuyers] = useState<any[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [buyers, setBuyers] = useState<Buyer[]>([]);
+  const [loadingEntities, setLoadingEntities] = useState(false);
+  const [vendorsError, setVendorsError] = useState<string | null>(null);
+  const [buyersError, setBuyersError] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [isInviting, setIsInviting] = useState(false);
   
   // Success Modal State
   const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState(false);
 
   // Role Change
   const [isChangingRole, setIsChangingRole] = useState<string | null>(null);
@@ -73,40 +99,56 @@ export default function MembersPage() {
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
+      if (data?.user) {
         setCurrentUserId(data.user.id);
       }
-    });
+    }).catch(() => {});
   }, []);
 
   const fetchMembersAndInvitations = useCallback(async () => {
     if (!workspaceId) return;
     try {
       const workspaces = await apiFetch('/workspaces');
-      const ws = workspaces.find((w: { id: string; role: string }) => w.id === workspaceId);
+      const ws = Array.isArray(workspaces)
+        ? workspaces.find((w: { id: string; role: string }) => w.id === workspaceId)
+        : null;
       const role = ws?.role || null;
       setUserRole(role);
 
       const data = await apiFetch(`/workspaces/${workspaceId}/members`);
-      setMembers(Array.isArray(data) ? data : []);
+      setMembers(extractItems<WorkspaceMember>(data));
 
       if (role === 'OWNER' || role === 'ADMIN') {
         try {
           const invData = await apiFetch(`/workspaces/${workspaceId}/invitations`);
-          setInvitations(Array.isArray(invData) ? invData : []);
-          
-          try {
-            const v = await apiFetch(`/workspaces/${workspaceId}/vendors`);
-            setVendors(Array.isArray(v) ? v : []);
-          } catch(e) {}
-          
-          try {
-            const b = await apiFetch(`/workspaces/${workspaceId}/buyers`);
-            setBuyers(Array.isArray(b) ? b : []);
-          } catch(e) {}
+          setInvitations(extractItems<WorkspaceInvitation>(invData));
         } catch (e) {
-          console.error("Failed to fetch invitations", e);
+          console.error('Failed to fetch invitations', e);
         }
+
+        setLoadingEntities(true);
+        setVendorsError(null);
+        setBuyersError(null);
+
+        try {
+          const v = await apiFetch(`/workspaces/${workspaceId}/vendors`);
+          setVendors(extractItems<Vendor>(v));
+        } catch (e: unknown) {
+          console.error('Failed to fetch vendors', e);
+          setVendors([]);
+          setVendorsError(e instanceof Error ? e.message : 'Failed to load vendors');
+        }
+
+        try {
+          const b = await apiFetch(`/workspaces/${workspaceId}/buyers`);
+          setBuyers(extractItems<Buyer>(b));
+        } catch (e: unknown) {
+          console.error('Failed to fetch buyers', e);
+          setBuyers([]);
+          setBuyersError(e instanceof Error ? e.message : 'Failed to load buyers');
+        }
+
+        setLoadingEntities(false);
       }
       setError(null);
     } catch (err: unknown) {
@@ -128,6 +170,23 @@ export default function MembersPage() {
     init();
     return () => { ignore = true; };
   }, [fetchMembersAndInvitations]);
+
+  const handleOpenInviteModal = () => {
+    setInviteEmail('');
+    setInviteRole('MEMBER');
+    setParticipantType('INTERNAL');
+    setVendorId('');
+    setBuyerId('');
+    setInviteError(null);
+    setIsInviteModalOpen(true);
+  };
+
+  const handleParticipantTypeChange = (newType: string) => {
+    setParticipantType(newType);
+    setVendorId('');
+    setBuyerId('');
+    setInviteError(null);
+  };
 
   const handleRemove = async () => {
     if (!workspaceId || !removeId) return;
@@ -177,16 +236,61 @@ export default function MembersPage() {
     }
   };
 
+  const isFormValid = Boolean(
+    inviteEmail.trim() &&
+    (participantType === 'INTERNAL' ||
+      (participantType === 'BUYER' && buyerId) ||
+      (participantType === 'VENDOR' && vendorId))
+  );
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!workspaceId || !inviteEmail) return;
+    if (!workspaceId) return;
+
+    if (!inviteEmail.trim()) {
+      setInviteError('Email is required');
+      return;
+    }
+
+    if (participantType === 'BUYER' && !buyerId) {
+      setInviteError('Please select a buyer');
+      return;
+    }
+
+    if (participantType === 'VENDOR' && !vendorId) {
+      setInviteError('Please select a vendor');
+      return;
+    }
+
+    if (isInviting) return;
+
     setIsInviting(true);
+    setInviteError(null);
     try {
       setError(null);
+      const payload: {
+        email: string;
+        role: string;
+        participant_type: string;
+        vendor_id?: string;
+        buyer_id?: string;
+      } = {
+        email: inviteEmail.trim(),
+        role: inviteRole,
+        participant_type: participantType,
+      };
+
+      if (participantType === 'BUYER') {
+        payload.buyer_id = buyerId;
+      } else if (participantType === 'VENDOR') {
+        payload.vendor_id = vendorId;
+      }
+
       const res = await apiFetch(`/workspaces/${workspaceId}/invitations`, {
         method: 'POST',
-        body: JSON.stringify({ email: inviteEmail, role: inviteRole, participant_type: participantType, vendor_id: participantType === 'VENDOR' ? vendorId : undefined, buyer_id: participantType === 'BUYER' ? buyerId : undefined }),
+        body: JSON.stringify(payload),
       });
+
       if (res && res.token) {
         setInviteToken(res.token);
       }
@@ -198,7 +302,9 @@ export default function MembersPage() {
       setBuyerId('');
       await fetchMembersAndInvitations();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to invite member');
+      const msg = err instanceof Error ? err.message : 'Failed to invite member';
+      setInviteError(msg);
+      setError(msg);
     } finally {
       setIsInviting(false);
     }
@@ -224,12 +330,12 @@ export default function MembersPage() {
           </p>
         </div>
         {isOwnerOrAdmin && (
-          <Button onClick={() => setIsInviteModalOpen(true)}>Invite Member</Button>
+          <Button onClick={handleOpenInviteModal}>Invite Member</Button>
         )}
       </div>
 
       {error && (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm">
+        <div className="p-4 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm" role="alert">
           {error}
         </div>
       )}
@@ -247,39 +353,57 @@ export default function MembersPage() {
                 <TableRow>
                   <TableHead className="min-w-[200px]">Email</TableHead>
                   <TableHead className="min-w-[100px]">Role</TableHead>
-                    <TableHead className="min-w-[120px]">Participant Type</TableHead>
+                  <TableHead className="min-w-[120px]">Participant Type</TableHead>
+                  <TableHead className="min-w-[140px]">Associated Entity</TableHead>
+                  <TableHead className="min-w-[100px]">Status</TableHead>
                   <TableHead className="min-w-[120px]">Invited</TableHead>
                   <TableHead className="text-right min-w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invitations.map((inv) => (
-                  <TableRow key={inv.id}>
-                    <TableCell>
-                      <div className="font-medium text-foreground">{inv.email}</div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{inv.role}</Badge>
-                    </TableCell>
-                    
+                {invitations.map((inv) => {
+                  const isExpired = inv.status === 'EXPIRED' || (inv.expires_at ? new Date(inv.expires_at).getTime() < Date.now() : false);
+                  const entityName = inv.participant_type === 'BUYER'
+                    ? (buyers.find((b) => b.id === inv.buyer_id)?.name || inv.buyer_id || '—')
+                    : inv.participant_type === 'VENDOR'
+                    ? (vendors.find((v) => v.id === inv.vendor_id)?.name || inv.vendor_id || '—')
+                    : '—';
+
+                  return (
+                    <TableRow key={inv.id}>
+                      <TableCell>
+                        <div className="font-medium text-foreground">{inv.email}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{inv.role}</Badge>
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline">{inv.participant_type || 'INTERNAL'}</Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
+                        {entityName}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={isExpired ? 'error' : 'outline'}>
+                          {isExpired ? 'EXPIRED' : (inv.status || 'PENDING')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
                         {new Date(inv.created_at).toLocaleDateString()}
                       </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
-                        onClick={() => handleRevoke(inv.id)}
-                      >
-                        Revoke
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                          onClick={() => handleRevoke(inv.id)}
+                        >
+                          Revoke
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>
@@ -309,7 +433,7 @@ export default function MembersPage() {
                 <TableRow>
                   <TableHead className="min-w-[200px]">User / Identity</TableHead>
                   <TableHead className="min-w-[100px]">Role</TableHead>
-                    <TableHead className="min-w-[120px]">Participant Type</TableHead>
+                  <TableHead className="min-w-[120px]">Participant Type</TableHead>
                   <TableHead className="min-w-[120px]">Joined</TableHead>
                   {isOwnerOrAdmin && <TableHead className="text-right min-w-[100px]">Actions</TableHead>}
                 </TableRow>
@@ -348,12 +472,12 @@ export default function MembersPage() {
                       )}
                     </TableCell>
                     
-                      <TableCell>
-                        <Badge variant="outline">{member.participant_type || 'INTERNAL'}</Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {new Date(member.created_at).toLocaleDateString()}
-                      </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{member.participant_type || 'INTERNAL'}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {new Date(member.created_at).toLocaleDateString()}
+                    </TableCell>
                     {isOwnerOrAdmin && (
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -397,25 +521,40 @@ export default function MembersPage() {
 
       {/* Custom Invite Modal */}
       {isInviteModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
           <div className="bg-background rounded-lg shadow-lg w-full max-w-md p-6 border border-border">
             <h2 className="text-xl font-bold mb-4">Invite Member</h2>
+
+            {inviteError && (
+              <div className="mb-4 p-3 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-sm" role="alert">
+                {inviteError}
+              </div>
+            )}
+
             <form onSubmit={handleInvite}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Email</label>
+                  <label htmlFor="invite-email" className="block text-sm font-medium mb-1">
+                    Email <span className="text-destructive">*</span>
+                  </label>
                   <input
+                    id="invite-email"
                     type="email"
                     required
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
+                    onChange={(e) => {
+                      setInviteEmail(e.target.value);
+                      if (inviteError) setInviteError(null);
+                    }}
                     placeholder="colleague@example.com"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-sm font-medium mb-1">Role</label>
+                  <label htmlFor="invite-role" className="block text-sm font-medium mb-1">Role</label>
                   <select
+                    id="invite-role"
                     className="flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value)}
@@ -426,12 +565,112 @@ export default function MembersPage() {
                     <option value="VIEWER">VIEWER</option>
                   </select>
                 </div>
+
+                <div>
+                  <label htmlFor="participant-type" className="block text-sm font-medium mb-1">Participant Type</label>
+                  <select
+                    id="participant-type"
+                    aria-label="Participant Type"
+                    className="flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    value={participantType}
+                    onChange={(e) => handleParticipantTypeChange(e.target.value)}
+                  >
+                    <option value="INTERNAL">INTERNAL</option>
+                    <option value="BUYER">BUYER</option>
+                    <option value="VENDOR">VENDOR</option>
+                  </select>
+                </div>
+
+                {participantType === 'BUYER' && (
+                  <div>
+                    <label htmlFor="buyer-select" className="block text-sm font-medium mb-1">
+                      Buyer <span className="text-destructive">*</span>
+                    </label>
+                    {loadingEntities ? (
+                      <p className="text-sm text-muted-foreground py-1">Loading buyers...</p>
+                    ) : buyersError ? (
+                      <div className="p-2.5 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-xs">
+                        {buyersError}
+                      </div>
+                    ) : buyers.length === 0 ? (
+                      <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-md border border-amber-500/20 text-sm">
+                        No active buyers found in this workspace. Please create a buyer before inviting a buyer participant.
+                      </div>
+                    ) : (
+                      <select
+                        id="buyer-select"
+                        aria-label="Buyer"
+                        required
+                        className="flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                        value={buyerId}
+                        onChange={(e) => {
+                          setBuyerId(e.target.value);
+                          if (inviteError) setInviteError(null);
+                        }}
+                      >
+                        <option value="">Select a buyer...</option>
+                        {buyers.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}{b.destination_number ? ` (${b.destination_number})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                {participantType === 'VENDOR' && (
+                  <div>
+                    <label htmlFor="vendor-select" className="block text-sm font-medium mb-1">
+                      Vendor <span className="text-destructive">*</span>
+                    </label>
+                    {loadingEntities ? (
+                      <p className="text-sm text-muted-foreground py-1">Loading vendors...</p>
+                    ) : vendorsError ? (
+                      <div className="p-2.5 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-xs">
+                        {vendorsError}
+                      </div>
+                    ) : vendors.length === 0 ? (
+                      <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-md border border-amber-500/20 text-sm">
+                        No active vendors found in this workspace. Please create a vendor before inviting a vendor participant.
+                      </div>
+                    ) : (
+                      <select
+                        id="vendor-select"
+                        aria-label="Vendor"
+                        required
+                        className="flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                        value={vendorId}
+                        onChange={(e) => {
+                          setVendorId(e.target.value);
+                          if (inviteError) setInviteError(null);
+                        }}
+                      >
+                        <option value="">Select a vendor...</option>
+                        {vendors.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
               </div>
+
               <div className="mt-6 flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setIsInviteModalOpen(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsInviteModalOpen(false);
+                    setInviteError(null);
+                  }}
+                  disabled={isInviting}
+                >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isInviting}>
+                <Button type="submit" disabled={isInviting || !isFormValid}>
                   {isInviting ? 'Inviting...' : 'Invite'}
                 </Button>
               </div>
@@ -442,7 +681,7 @@ export default function MembersPage() {
 
       {/* Success Modal */}
       {inviteToken && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
           <div className="bg-background rounded-lg shadow-lg w-full max-w-md p-6 border border-border">
             <h2 className="text-xl font-bold mb-2">Invitation Created</h2>
             <p className="text-sm text-muted-foreground mb-4">
@@ -455,12 +694,21 @@ export default function MembersPage() {
                 className="flex h-9 w-full rounded-md border border-input bg-muted px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={`${typeof window !== 'undefined' ? window.location.origin : ''}/invitations?token=${inviteToken}`}
               />
-              <Button onClick={() => navigator.clipboard.writeText(`${typeof window !== 'undefined' ? window.location.origin : ''}/invitations?token=${inviteToken}`)}>
-                Copy
+              <Button onClick={() => {
+                navigator.clipboard.writeText(`${typeof window !== 'undefined' ? window.location.origin : ''}/invitations?token=${inviteToken}`);
+                setCopyFeedback(true);
+                setTimeout(() => setCopyFeedback(false), 2000);
+              }}>
+                {copyFeedback ? 'Copied!' : 'Copy'}
               </Button>
             </div>
             <div className="flex justify-end">
-              <Button onClick={() => setInviteToken(null)}>Close</Button>
+              <Button onClick={() => {
+                setInviteToken(null);
+                setCopyFeedback(false);
+              }}>
+                Close
+              </Button>
             </div>
           </div>
         </div>

@@ -20,7 +20,19 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`API error (${res.status}): ${text}`);
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed?.message) {
+        detail = Array.isArray(parsed.message) ? parsed.message.join(', ') : parsed.message;
+      }
+    } catch {
+      // Non-JSON error body, preserve raw text
+    }
+    const err = new Error(`API error (${res.status}): ${detail}`);
+    (err as any).status = res.status;
+    (err as any).statusCode = res.status;
+    throw err;
   }
 
   // Returns JSON or null if empty

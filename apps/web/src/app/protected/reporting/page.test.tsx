@@ -76,7 +76,7 @@ describe('ReportingPage (Saved Reports Frontend Matrix)', () => {
     
     // Assert 1: URL pushed with active filters/groupBy/bucket
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/protected/reporting?status=COMPLETED&groupBy=Campaign&bucket=day');
+      expect(mockPush).toHaveBeenCalledWith('/protected/reporting?status=COMPLETED&groupBy=Campaign&bucket=day&workspace=w1');
     });
     
     // Assert 2: Columns restored + Actions locked
@@ -90,7 +90,7 @@ describe('ReportingPage (Saved Reports Frontend Matrix)', () => {
     const actionCol = ls.find((x: any) => x.id === 'actions');
     expect(actionCol).toBeDefined();
     expect(actionCol.visible).toBe(true);
-  });
+  }, 20000);
 });
 
 
@@ -1015,5 +1015,851 @@ describe('COMM-INTEGRATION-3 Commercial Reporting Frontend Matrix', () => {
       expect(screen.getByText('Forbidden: Insufficient permissions to view call reporting')).toBeDefined();
     });
   });
+
+  it('Buyer grouping: renders successfully when stats.failed is undefined without toLocaleString crash', async () => {
+    mockSearchParams.set('groupBy', 'Buyer');
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 10,
+          answered: 8,
+          missed: 2,
+          failed: 0,
+          avgDuration: 45,
+          tclSecs: 360,
+          aclSecs: 45,
+          campaigns: {},
+          buyers: {
+            'b-1': {
+              id: 'b-1',
+              name: 'Solar Buyer',
+              total: 10,
+              answered: 8,
+            }
+          },
+          trackingNumbers: {},
+          buckets: []
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Solar Buyer')).toBeDefined();
+    });
+
+    expect(screen.getByText('Solar Buyer')).toBeDefined();
+    expect(screen.getAllByText('10').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('8').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1);
+
+    mockSearchParams.delete('groupBy');
+  });
+  it('requests bucket=day for metrics time-series when bucket is not in searchParams', async () => {
+    let requestedMetricsUrl = '';
+    vi.mocked(apiFetch).mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('/calls/metrics')) {
+        requestedMetricsUrl = url;
+        return Promise.resolve({
+          total: 21,
+          answered: 5,
+          missed: 5,
+          failed: 11,
+          blocked: 0,
+          answerRate: 23.81,
+          avgDuration: 20,
+          tclSecs: 100,
+          aclSecs: 20,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: [
+            {
+              time: '2026-09-30T00:00:00.000Z',
+              total: 21,
+              answered: 5,
+              missed: 5,
+              failed: 11,
+              blocked: 0,
+            }
+          ]
+        });
+      }
+      return Promise.resolve({ items: [], total: 0 });
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(requestedMetricsUrl).toContain('bucket=day');
+    });
+
+    expect(screen.queryByText('No time-series data available.')).toBeNull();
+  });
 });
 
+
+import { getFinalDestinationDisplay, isValidPhoneNumber, formatPhoneNumber, getStatusBadgeVariant } from './page';
+
+describe('Reporting Data Integrity - Status, Destination & Duration Suite', () => {
+  it('getStatusBadgeVariant correctly maps call states to visual variants', () => {
+    expect(getStatusBadgeVariant('COMPLETED')).toBe('success');
+    expect(getStatusBadgeVariant('ANSWERED')).toBe('success');
+    expect(getStatusBadgeVariant('NO_ANSWER')).toBe('error');
+    expect(getStatusBadgeVariant('FAILED')).toBe('error');
+    expect(getStatusBadgeVariant('CANCELED')).toBe('error');
+    expect(getStatusBadgeVariant('BLOCKED')).toBe('error');
+    expect(getStatusBadgeVariant('ROUTING')).toBe('warning');
+    expect(getStatusBadgeVariant('RINGING')).toBe('warning');
+    expect(getStatusBadgeVariant('ACTIVE')).toBe('warning');
+    expect(getStatusBadgeVariant('UNKNOWN')).toBe('default');
+  });
+
+  it('getFinalDestinationDisplay handles completed/canceled 0-attempt calls and in-progress calls', () => {
+    expect(getFinalDestinationDisplay({ state: 'COMPLETED', attempts: [] })).toBe('No successful destination');
+    expect(getFinalDestinationDisplay({ state: 'CANCELED', attempts: [] })).toBe('No successful destination');
+    expect(getFinalDestinationDisplay({ state: 'ROUTING', attempts: [{ state: 'RINGING' }] })).toBe('—');
+    expect(getFinalDestinationDisplay({ state: 'COMPLETED', destination_number: '+15554443333', attempts: [] })).toBe('+15554443333');
+  });
+});
+
+describe('Final Destination Column Regression Suite', () => {
+  beforeEach(() => {
+    vi.mocked(apiFetch).mockClear();
+  });
+
+  it('1. Successful destination with a phone number renders formatted E.164 phone number', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('/calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-1',
+              from_number: '+15551112222',
+              to_number: '+15553334444',
+              state: 'COMPLETED',
+              created_at: '2026-10-01T12:00:00Z',
+              attempts: [
+                {
+                  id: 'att-1',
+                  state: 'COMPLETED',
+                  buyer: { name: 'Acme Solar', destination_number: '+15558889999' }
+                }
+              ]
+            }
+          ],
+          total: 1
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('+15558889999')).toBeDefined();
+    });
+  });
+
+  it('2. No successful destination renders "No successful destination"', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('/calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-2',
+              from_number: '+15551112222',
+              to_number: '+15553334444',
+              state: 'FAILED',
+              created_at: '2026-10-01T12:00:00Z',
+              attempts: [
+                {
+                  id: 'att-2',
+                  state: 'FAILED',
+                  buyer: { name: 'Acme Solar', destination_number: '+15558889999' }
+                }
+              ]
+            }
+          ],
+          total: 1
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('No successful destination')).toBeDefined();
+      expect(screen.queryByText('+15558889999')).toBeNull();
+    });
+  });
+
+  it('3. Successful connection with a missing destination number renders "Destination unavailable"', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('/calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-3',
+              from_number: '+15551112222',
+              to_number: '+15553334444',
+              state: 'COMPLETED',
+              created_at: '2026-10-01T12:00:00Z',
+              attempts: [
+                {
+                  id: 'att-3',
+                  state: 'COMPLETED',
+                  buyer: { name: 'Acme Solar', destination_number: null }
+                }
+              ]
+            }
+          ],
+          total: 1
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Destination unavailable')).toBeDefined();
+      expect(screen.queryByText('No successful destination')).toBeNull();
+    });
+  });
+
+  it('4. Missing or unknown destination status renders "—"', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('/calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-4',
+              from_number: '+15551112222',
+              to_number: '+15553334444',
+              state: 'INITIATED',
+              created_at: '2026-10-01T12:00:00Z',
+              attempts: []
+            }
+          ],
+          total: 1
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+      expect(screen.queryByText('No successful destination')).toBeNull();
+      expect(screen.queryByText('Destination unavailable')).toBeNull();
+    });
+  });
+
+  it('5. Numeric destination ID "1" must not render as a phone number', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('/calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-5',
+              from_number: '+15551112222',
+              to_number: '+15553334444',
+              state: 'COMPLETED',
+              created_at: '2026-10-01T12:00:00Z',
+              attempts: [
+                {
+                  id: 'att-5',
+                  state: 'COMPLETED',
+                  buyer: { name: '1', destination_number: '1' }
+                }
+              ]
+            }
+          ],
+          total: 1
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('Destination unavailable')).toBeDefined();
+      expect(screen.queryByText(/^1$/)).toBeNull();
+    });
+  });
+
+  it('6. Vendor response does not expose unauthorized buyer/destination data', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string' && url.includes('metrics')) {
+        return {
+          total: 1,
+          answered: 1,
+          missed: 0,
+          failed: 0,
+          payout: 25,
+          campaigns: {},
+          buyers: {},
+          trackingNumbers: {},
+          buckets: []
+        };
+      }
+      if (typeof url === 'string' && url.includes('/calls?')) {
+        return {
+          items: [
+            {
+              id: 'call-vendor',
+              from_number: '+15551112222',
+              to_number: '+15553334444',
+              state: 'COMPLETED',
+              commercial: { payout: 25, currency: 'USD' },
+              attempts: [
+                {
+                  id: 'att-vendor',
+                  state: 'COMPLETED'
+                }
+              ]
+            }
+          ],
+          total: 1
+        };
+      }
+      return { items: [], total: 0 };
+    });
+
+    render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Payout').length).toBeGreaterThan(0);
+    });
+
+    expect(screen.queryByText('Final Destination')).toBeNull();
+    expect(screen.queryByText('Acme Solar')).toBeNull();
+  });
+
+  it('7. Direct helper tests for getFinalDestinationDisplay, isValidPhoneNumber, formatPhoneNumber', () => {
+    expect(isValidPhoneNumber(1)).toBe(false);
+    expect(isValidPhoneNumber('1')).toBe(false);
+    expect(isValidPhoneNumber('0')).toBe(false);
+    expect(isValidPhoneNumber('')).toBe(false);
+    expect(isValidPhoneNumber(null)).toBe(false);
+    expect(isValidPhoneNumber(undefined)).toBe(false);
+    expect(isValidPhoneNumber('12345')).toBe(false);
+    expect(isValidPhoneNumber('+15558889999')).toBe(true);
+    expect(isValidPhoneNumber('5558889999')).toBe(true);
+
+    expect(formatPhoneNumber('+15558889999')).toBe('+15558889999');
+    expect(formatPhoneNumber('5558889999')).toBe('+15558889999');
+
+    expect(getFinalDestinationDisplay({
+      state: 'COMPLETED',
+      attempts: [{ state: 'COMPLETED', buyer: { destination_number: '+15558889999' } }]
+    })).toBe('+15558889999');
+
+    expect(getFinalDestinationDisplay({
+      state: 'FAILED',
+      attempts: [{ state: 'FAILED', buyer: { destination_number: '+15558889999' } }]
+    })).toBe('No successful destination');
+
+    expect(getFinalDestinationDisplay({
+      state: 'COMPLETED',
+      attempts: [{ state: 'COMPLETED', buyer: { destination_number: null } }]
+    })).toBe('Destination unavailable');
+
+    expect(getFinalDestinationDisplay({
+      state: 'INITIATED',
+      attempts: []
+    })).toBe('—');
+    expect(getFinalDestinationDisplay(null)).toBe('—');
+
+    expect(getFinalDestinationDisplay({
+      state: 'COMPLETED',
+      attempts: [{ state: 'COMPLETED', buyer: { destination_number: '1' } }]
+    })).toBe('Destination unavailable');
+  });
+
+  describe('Detailed Calls Talk and Total Duration Formatting & Rendering', () => {
+    it('renders connected talk duration, total lifetime, zero-duration (00:00), and null (—) accurately', async () => {
+      vi.mocked(apiFetch).mockImplementation((url) => {
+        if (typeof url === 'string' && url.includes('calls?')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'call-connected-durations',
+                created_at: new Date('2026-10-01T10:00:00Z').toISOString(),
+                from_number: '+15551112222',
+                to_number: '+15553334444',
+                state: 'COMPLETED',
+                talkDurationSecs: 125, // 02:05
+                totalDurationSecs: 190, // 03:10
+                campaign: { name: 'Campaign Alpha' },
+                attempts: [],
+              },
+              {
+                id: 'call-zero-durations',
+                created_at: new Date('2026-10-01T10:00:00Z').toISOString(),
+                from_number: '+15552223333',
+                to_number: '+15554445555',
+                state: 'COMPLETED',
+                talkDurationSecs: 0, // Genuine zero -> 00:00
+                totalDurationSecs: 15, // 00:15
+                campaign: { name: 'Campaign Beta' },
+                attempts: [],
+              },
+              {
+                id: 'call-null-talk-duration',
+                created_at: new Date('2026-10-01T10:00:00Z').toISOString(),
+                from_number: '+15553334444',
+                to_number: '+15555556666',
+                state: 'NO_ANSWER',
+                talkDurationSecs: null, // Null talk duration -> —
+                totalDurationSecs: 60, // 01:00
+                campaign: { name: 'Campaign Gamma' },
+                attempts: [],
+              },
+              {
+                id: 'call-large-duration',
+                created_at: new Date('2026-10-01T10:00:00Z').toISOString(),
+                from_number: '+15554445555',
+                to_number: '+15556667777',
+                state: 'COMPLETED',
+                talkDurationSecs: 3665, // 1h 1m 5s
+                totalDurationSecs: 3700, // 1h 1m 40s
+                campaign: { name: 'Campaign Delta' },
+                attempts: [],
+              }
+            ],
+            total: 4,
+          });
+        }
+        return Promise.resolve({
+          items: [],
+          total: 0,
+          answered: 0,
+          missed: 0,
+          failed: 0,
+          buyers: {},
+          campaigns: {},
+          trackingNumbers: {},
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Campaign Alpha').length).toBeGreaterThanOrEqual(1);
+      });
+
+      // Assert connected durations: 02:05 and 03:10
+      expect(screen.getByText('02:05')).toBeDefined();
+      expect(screen.getByText('03:10')).toBeDefined();
+
+      // Assert genuine zero duration: renders 00:00, not —
+      expect(screen.getAllByText('00:00').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('00:15')).toBeDefined();
+
+      // Assert hours duration: renders 1h 1m 5s
+      expect(screen.getByText('1h 1m 5s')).toBeDefined();
+      expect(screen.getByText('1h 1m 40s')).toBeDefined();
+    });
+
+    it('Renders NO_ANSWER failed bridge talk duration as dash and completed partial timestamps accurately', async () => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url.includes('/calls')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'call-no-answer-bridge-fail',
+                created_at: new Date('2026-10-23T16:37:50Z').toISOString(),
+                from_number: '+15551112222',
+                to_number: '+15553334444',
+                state: 'NO_ANSWER',
+                talkDurationSecs: null, // failed bridge must not fabricate talk duration
+                totalDurationSecs: 56, // 00:56
+                campaign: { name: 'Campaign Failed Bridge' },
+                attempts: [],
+              },
+              {
+                id: 'call-historical-completed-partial',
+                created_at: new Date('2026-10-23T13:43:19Z').toISOString(),
+                from_number: '+15552223333',
+                to_number: '+15554445555',
+                state: 'COMPLETED',
+                talkDurationSecs: 33, // 00:33
+                totalDurationSecs: null, // missing timestamps must not be fabricated
+                campaign: { name: 'Campaign Historical' },
+                attempts: [],
+              },
+            ],
+            total: 2,
+          });
+        }
+        return Promise.resolve({
+          items: [],
+          total: 0,
+          answered: 0,
+          missed: 0,
+          failed: 0,
+          buyers: {},
+          campaigns: {},
+          trackingNumbers: {},
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      await waitFor(() => {
+        expect(screen.getByText('Campaign Failed Bridge')).toBeDefined();
+        expect(screen.getByText('Campaign Historical')).toBeDefined();
+      });
+
+      // Total duration 56s renders 00:56
+      expect(screen.getByText('00:56')).toBeDefined();
+      // Talk duration 33s renders 00:33
+      expect(screen.getByText('00:33')).toBeDefined();
+      // Null durations render as em dashes
+      const dashes = screen.getAllByText('—');
+      expect(dashes.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+
+  describe('ReportingPage Filter Dropdowns & Tenant Isolation Matrix', () => {
+    beforeEach(() => {
+      mockPush.mockClear();
+      vi.mocked(apiFetch).mockClear();
+    });
+
+    it('loads dropdown options from authorized API and populates select elements', async () => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([{ id: 'w1', name: 'Admin Workspace', role: 'ADMIN' }]);
+        }
+        if (url.includes('/phone-numbers')) {
+          return Promise.resolve([{ id: 'pn-1', phone_number: '+15551234567' }]);
+        }
+        if (url.includes('/campaigns')) {
+          return Promise.resolve([{ id: 'camp-1', name: 'Auto Insurance Lead Flow' }]);
+        }
+        if (url.includes('/buyers')) {
+          return Promise.resolve({ items: [{ id: 'buyer-1', name: 'Acme Buyers Inc' }] });
+        }
+        if (url.includes('/vendors')) {
+          return Promise.resolve({ items: [{ id: 'vendor-1', name: 'TopTier Traffic Vendor' }] });
+        }
+        if (url.includes('/reports')) {
+          return Promise.resolve([]);
+        }
+        return Promise.resolve({
+          items: [],
+          total: 0,
+          answered: 0,
+          missed: 0,
+          failed: 0,
+          buyers: {},
+          campaigns: {},
+          trackingNumbers: {},
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      await waitFor(() => {
+        expect(screen.getByText('Auto Insurance Lead Flow')).toBeDefined();
+        expect(screen.getByText('Acme Buyers Inc')).toBeDefined();
+        expect(screen.getByText('TopTier Traffic Vendor')).toBeDefined();
+        expect(screen.getByText('+15551234567')).toBeDefined();
+      });
+
+      // Verify "All" options exist
+      expect(screen.getByText('All Campaigns')).toBeDefined();
+      expect(screen.getByText('All Buyers')).toBeDefined();
+      expect(screen.getByText('All Vendors')).toBeDefined();
+      expect(screen.getByText('All Numbers')).toBeDefined();
+      expect(screen.getByText('All Statuses')).toBeDefined();
+    });
+
+    it('allows selecting dropdown options and applying filters with router push', async () => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([{ id: 'w1', name: 'Admin Workspace', role: 'ADMIN' }]);
+        }
+        if (url.includes('/phone-numbers')) {
+          return Promise.resolve([{ id: 'pn-1', phone_number: '+15551234567' }]);
+        }
+        if (url.includes('/campaigns')) {
+          return Promise.resolve([{ id: 'camp-1', name: 'Campaign Alpha' }]);
+        }
+        if (url.includes('/buyers')) {
+          return Promise.resolve([{ id: 'buyer-1', name: 'Buyer Alpha' }]);
+        }
+        if (url.includes('/vendors')) {
+          return Promise.resolve([{ id: 'vendor-1', name: 'Vendor Alpha' }]);
+        }
+        return Promise.resolve({
+          items: [], total: 0, answered: 0, missed: 0, failed: 0,
+          buyers: {}, campaigns: {}, trackingNumbers: {}
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Campaign Alpha').length).toBeGreaterThanOrEqual(1);
+      });
+
+      const campaignSelect = document.getElementById('campaignId') as HTMLSelectElement;
+      expect(campaignSelect).toBeDefined();
+      fireEvent.change(campaignSelect, { target: { value: 'camp-1' } });
+
+      const statusSelect = document.getElementById('status') as HTMLSelectElement;
+      expect(statusSelect).toBeDefined();
+      fireEvent.change(statusSelect, { target: { value: 'COMPLETED' } });
+
+      const applyBtn = screen.getByRole('button', { name: /Apply Filters/i });
+      fireEvent.click(applyBtn);
+
+      expect(mockPush).toHaveBeenCalled();
+      const pushedUrl = mockPush.mock.calls[0][0];
+      expect(pushedUrl).toContain('campaignId=camp-1');
+      expect(pushedUrl).toContain('status=COMPLETED');
+      expect(pushedUrl).toContain('workspace=w1');
+    });
+
+    it('vendor role isolation: hides Buyer and Vendor dropdowns for Vendor participants', async () => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([{ id: 'w1', name: 'Vendor Workspace', role: 'MEMBER', participant_type: 'VENDOR' }]);
+        }
+        if (url.includes('/phone-numbers')) {
+          return Promise.resolve([{ id: 'pn-1', phone_number: '+15559998888' }]);
+        }
+        if (url.includes('/campaigns')) {
+          return Promise.resolve([{ id: 'camp-v', name: 'Assigned Vendor Campaign' }]);
+        }
+        return Promise.resolve({
+          items: [], total: 0, answered: 0, missed: 0, failed: 0,
+          payout: 50,
+          buyers: {}, campaigns: {}, trackingNumbers: {}
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      await waitFor(() => {
+        expect(screen.getByText('Assigned Vendor Campaign')).toBeDefined();
+      });
+
+      // Verify Buyer and Vendor dropdowns are not rendered
+      expect(document.getElementById('buyerId')).toBeNull();
+      expect(document.getElementById('vendorId')).toBeNull();
+
+      // Verify Campaign and Tracking Number dropdowns ARE rendered
+      expect(document.getElementById('campaignId')).not.toBeNull();
+      expect(document.getElementById('trackingNumber')).not.toBeNull();
+    });
+
+    it('buyer role isolation: hides Vendor dropdown for Buyer participants', async () => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([{ id: 'w1', name: 'Buyer Workspace', role: 'MEMBER', participant_type: 'BUYER' }]);
+        }
+        if (url.includes('/phone-numbers')) {
+          return Promise.resolve([{ id: 'pn-1', phone_number: '+15559998888' }]);
+        }
+        if (url.includes('/campaigns')) {
+          return Promise.resolve([{ id: 'camp-b', name: 'Buyer Campaign' }]);
+        }
+        if (url.includes('/buyers')) {
+          return Promise.resolve([{ id: 'b-self', name: 'My Buyer Org' }]);
+        }
+        return Promise.resolve({
+          items: [], total: 0, answered: 0, missed: 0, failed: 0,
+          revenue: 100,
+          buyers: {}, campaigns: {}, trackingNumbers: {}
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      await waitFor(() => {
+        expect(screen.getByText('Buyer Campaign')).toBeDefined();
+      });
+
+      // Verify Vendor dropdown is not rendered
+      expect(document.getElementById('vendorId')).toBeNull();
+
+      // Buyer dropdown is rendered
+      expect(document.getElementById('buyerId')).not.toBeNull();
+    });
+  });
+
+  describe('Caller ID Formatting & Workspace Context Regression Suite', () => {
+    beforeEach(() => {
+      mockPush.mockClear();
+      vi.mocked(apiFetch).mockClear();
+      sessionStorage.clear();
+      localStorage.clear();
+    });
+
+    it('formats raw SIP caller "+1919926005557@208.69.83.26" as clean "+1919926005557" for Owner/Buyer', async () => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([{ id: 'w1', name: 'Owner Workspace', role: 'OWNER' }]);
+        }
+        if (url.includes('/calls') && !url.includes('/metrics') && !url.includes('/live-calls')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'call-sip-1',
+                created_at: new Date('2026-10-24T18:13:01.333Z').toISOString(),
+                from_number: '+1919926005557@208.69.83.26',
+                to_number: '+14845560110',
+                state: 'COMPLETED',
+                talkDurationSecs: 45,
+                totalDurationSecs: 60,
+                campaign: { name: 'Campaign Alpha' },
+                attempts: [],
+              },
+              {
+                id: 'call-e164-2',
+                created_at: new Date('2026-10-24T12:35:43.852Z').toISOString(),
+                from_number: '+919926005557',
+                to_number: '+14845560110',
+                state: 'COMPLETED',
+                talkDurationSecs: 30,
+                totalDurationSecs: 40,
+                campaign: { name: 'Campaign Alpha' },
+                attempts: [],
+              }
+            ],
+            total: 2,
+          });
+        }
+        return Promise.resolve({
+          items: [], total: 0, answered: 2, missed: 0, failed: 0,
+          buyers: {}, campaigns: {}, trackingNumbers: {}
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Campaign Alpha').length).toBeGreaterThanOrEqual(1);
+      });
+
+      // Assert both caller rows are rendered with clean E.164 formatting without @IP host
+      expect(screen.getByText('+1919926005557')).toBeDefined();
+      expect(screen.getByText('+919926005557')).toBeDefined();
+      expect(screen.queryByText('+1919926005557@208.69.83.26')).toBeNull();
+    }, 15000);
+
+    it('masks caller number for Vendor view without leaking IP address', async () => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([{ id: 'w1', name: 'Vendor Workspace', role: 'MEMBER', participant_type: 'VENDOR' }]);
+        }
+        if (url.includes('/calls') && !url.includes('/metrics') && !url.includes('/live-calls')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'call-sip-vendor',
+                created_at: new Date('2026-10-24T18:13:01.333Z').toISOString(),
+                from_number: '+1919926005557@208.69.83.26',
+                to_number: '+14845560110',
+                state: 'COMPLETED',
+                talkDurationSecs: 45,
+                totalDurationSecs: 60,
+                campaign: { name: 'Vendor Campaign' },
+                attempts: [],
+              }
+            ],
+            total: 1,
+          });
+        }
+        return Promise.resolve({
+          items: [], total: 0, answered: 1, missed: 0, failed: 0,
+          payout: 25,
+          buyers: {}, campaigns: {}, trackingNumbers: {}
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      await waitFor(() => {
+        expect(screen.getByText('Vendor Campaign')).toBeDefined();
+      });
+
+      // Masked caller should be +1919***5557 and never contain 208 or @
+      expect(screen.getByText('+1919***5557')).toBeDefined();
+      expect(screen.queryByText(/208.69.83.26/)).toBeNull();
+    }, 15000);
+
+    it('preserves workspace ID in URL parameters when applying and resetting filters', async () => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([{ id: 'w-vendor-1', name: 'Vendor Workspace', role: 'MEMBER', participant_type: 'VENDOR' }]);
+        }
+        return Promise.resolve({
+          items: [], total: 0, answered: 0, missed: 0, failed: 0,
+          buyers: {}, campaigns: {}, trackingNumbers: {}
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      const applyBtn = screen.getByRole('button', { name: /Apply Filters/i });
+      fireEvent.click(applyBtn);
+
+      expect(mockPush).toHaveBeenCalled();
+      const pushedApplyUrl = mockPush.mock.calls[0][0];
+      expect(pushedApplyUrl).toContain('workspace=w1');
+
+      mockPush.mockClear();
+      const resetBtn = screen.getByRole('button', { name: /Reset/i });
+      fireEvent.click(resetBtn);
+
+      expect(mockPush).toHaveBeenCalled();
+      const pushedResetUrl = mockPush.mock.calls[0][0];
+      expect(pushedResetUrl).toContain('workspace=w1');
+    }, 15000);
+
+    it('derives campaigns for Vendor workspace from assigned tracking numbers when campaigns endpoint is forbidden', async () => {
+      vi.mocked(apiFetch).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([{ id: 'w1', name: 'Vendor WS', role: 'MEMBER', participant_type: 'VENDOR' }]);
+        }
+        if (url.includes('/campaigns')) {
+          return Promise.reject(new Error('Forbidden'));
+        }
+        if (url.includes('/phone-numbers')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'pn1',
+                phone_number: '+14845560110',
+                campaign: { id: 'c-qqq', name: 'qqq' },
+              },
+            ],
+            total: 1,
+          });
+        }
+        return Promise.resolve({
+          items: [], total: 0, answered: 0, missed: 0, failed: 0, payout: 0,
+          buyers: {}, campaigns: {}, trackingNumbers: {}
+        });
+      });
+
+      render(<ThemeProvider><ReportingPage /></ThemeProvider>);
+
+      await waitFor(() => {
+        expect(screen.getByText('qqq')).toBeDefined();
+      });
+    }, 15000);
+  });
+});

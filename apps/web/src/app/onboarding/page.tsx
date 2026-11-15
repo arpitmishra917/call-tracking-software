@@ -6,10 +6,19 @@ export default async function OnboardingPage() {
   const supabase = await createClient();
 
   const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return redirect('/login');
+  }
+
+  const {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (!session || !session.user) {
+  if (!session || !session.user || !session.access_token) {
     return redirect('/login');
   }
 
@@ -23,6 +32,9 @@ export default async function OnboardingPage() {
       },
       cache: 'no-store'
     });
+    if (res.status === 401) {
+      return redirect('/login?message=Session+expired.+Please+log+in+again.');
+    }
     if (res.ok) {
       const workspaces = await res.json();
       if (workspaces.length > 0) {

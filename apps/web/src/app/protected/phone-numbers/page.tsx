@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
 
 import { Button } from '@/components/ui/button';
@@ -11,8 +12,15 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Search, X, AlertCircle } from 'lucide-react';
 
 interface Campaign {
+  id: string;
+  name: string;
+}
+
+interface Vendor {
   id: string;
   name: string;
 }
@@ -22,9 +30,11 @@ interface PhoneNumber {
   phone_number: string;
   name: string | null;
   status: string;
-  provider: string;
+  provider?: string;
   campaign?: Campaign | null;
   campaign_id?: string | null;
+  vendor?: Vendor | null;
+  vendor_id?: string | null;
   number_type?: string | null;
 }
 
@@ -46,6 +56,8 @@ export function getPhoneTypeDisplay(num: AvailableNumber): string {
 export default function PhoneNumbersPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
+  const requestGenRef = useRef(0);
   
   const [numbers, setNumbers] = useState<PhoneNumber[]>([]);
   const [availableNumbers, setAvailableNumbers] = useState<AvailableNumber[]>([]);
@@ -55,6 +67,17 @@ export default function PhoneNumbersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    requestGenRef.current++;
+    setNumbers([]);
+    setAvailableNumbers([]);
+    setCampaigns([]);
+    setVendors([]);
+    setError(null);
+    setSuccess(null);
+  }, [workspaceId]);
 
   // Assignment Modal State
   const [assignModalOpen, setAssignModalOpen] = useState(false);
@@ -66,23 +89,74 @@ export default function PhoneNumbersPage() {
   const [unassignModalOpen, setUnassignModalOpen] = useState(false);
   const [isUnassigning, setIsUnassigning] = useState(false);
 
+  // Vendor Assignment Modal State
+  const [assignVendorModalOpen, setAssignVendorModalOpen] = useState(false);
+  const [selectedVendorId, setSelectedVendorId] = useState('');
+  const [isAssigningVendor, setIsAssigningVendor] = useState(false);
+
+  const [isVendor, setIsVendor] = useState(false);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+
+  // Filter States for Provisioned Numbers
+  const [filterText, setFilterText] = useState('');
+  const [filterCampaignId, setFilterCampaignId] = useState('ALL');
+  const [filterVendorId, setFilterVendorId] = useState('ALL');
+  const [filterStatus, setFilterStatus] = useState('ALL');
+
+  // Dedicated Unassign Vendor Modal State
+  const [unassignVendorPhone, setUnassignVendorPhone] = useState<PhoneNumber | null>(null);
+  const [isUnassignVendorOpen, setIsUnassignVendorOpen] = useState(false);
+  const [isSubmittingUnassignVendor, setIsSubmittingUnassignVendor] = useState(false);
+
   const [searchPrefix, setSearchPrefix] = useState('');
   const [searchType, setSearchType] = useState('local');
 
   useEffect(() => {
-    async function loadAll() {
+    async function checkRole() {
       if (!workspaceId) return;
       try {
-        const [numData, campData] = await Promise.all([
+        const workspaces = await apiFetch('/workspaces');
+        const currentWs = Array.isArray(workspaces)
+          ? workspaces.find((w: any) => w.id === workspaceId)
+          : null;
+        if (currentWs) {
+          setIsVendor(currentWs.participant_type === 'VENDOR');
+        }
+      } catch {
+        // Continue if workspace query fails
+      }
+    }
+    checkRole();
+  }, [workspaceId]);
+
+  useEffect(() => {
+    async function loadAll() {
+      if (!workspaceId) return;
+      const targetWs = workspaceId;
+      const currentGen = ++requestGenRef.current;
+      setLoading(true);
+      try {
+        const [numData, campData, vendData] = await Promise.all([
           apiFetch(`/workspaces/${workspaceId}/phone-numbers`).catch(() => []),
-          apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => [])
+          apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => []),
+          apiFetch(`/workspaces/${workspaceId}/vendors`).catch(() => ({ items: [] }))
         ]);
+        if (currentGen !== requestGenRef.current || targetWs !== currentWorkspaceIdRef.current) {
+          return;
+        }
         setNumbers(numData?.items || []);
         setCampaigns(campData?.items || campData || []);
+        const vendorList = vendData?.items || vendData || [];
+        setVendors(Array.isArray(vendorList) ? vendorList : []);
       } catch (e: unknown) {
+        if (currentGen !== requestGenRef.current || targetWs !== currentWorkspaceIdRef.current) {
+          return;
+        }
         setError('Failed to load phone numbers or campaigns.');
       } finally {
-        setLoading(false);
+        if (currentGen === requestGenRef.current && targetWs === currentWorkspaceIdRef.current) {
+          setLoading(false);
+        }
       }
     }
     
@@ -166,6 +240,109 @@ export default function PhoneNumbersPage() {
     }
   }
 
+  function openAssignVendorModal(phone: PhoneNumber) {
+    setSelectedPhone(phone);
+    setSelectedVendorId(phone.vendor?.id || phone.vendor_id || '');
+    setAssignVendorModalOpen(true);
+  }
+
+  async function handleAssignVendorSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!workspaceId || !selectedPhone) return;
+    setIsAssigningVendor(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/phone-numbers/${selectedPhone.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          vendorId: selectedVendorId ? selectedVendorId : null
+        })
+      });
+      setSuccess('Vendor assignment updated successfully.');
+      setAssignVendorModalOpen(false);
+      setSelectedPhone(null);
+      setSelectedVendorId('');
+      await loadPhoneNumbers(workspaceId);
+    } catch (e: unknown) {
+      setError('Unable to update vendor assignment: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsAssigningVendor(false);
+    }
+  }
+
+  function openUnassignVendorDialog(phone: PhoneNumber) {
+    setUnassignVendorPhone(phone);
+    setIsUnassignVendorOpen(true);
+  }
+
+  async function handleConfirmUnassignVendor() {
+    if (!workspaceId || !unassignVendorPhone) return;
+    setIsSubmittingUnassignVendor(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await apiFetch(`/workspaces/${workspaceId}/phone-numbers/${unassignVendorPhone.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ vendorId: null }),
+      });
+      setSuccess(`Vendor unassigned from ${unassignVendorPhone.phone_number} successfully.`);
+      setIsUnassignVendorOpen(false);
+      setUnassignVendorPhone(null);
+      await loadPhoneNumbers(workspaceId);
+    } catch (e: unknown) {
+      setError('Unable to unassign vendor: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsSubmittingUnassignVendor(false);
+    }
+  }
+
+  const filteredNumbers = numbers.filter((num) => {
+    if (filterText.trim()) {
+      const q = filterText.toLowerCase();
+      const matchNumber = num.phone_number?.toLowerCase().includes(q);
+      const matchName = num.name?.toLowerCase().includes(q);
+      if (!matchNumber && !matchName) return false;
+    }
+
+    if (filterCampaignId === 'UNASSIGNED') {
+      if (num.campaign_id || num.campaign) return false;
+    } else if (filterCampaignId !== 'ALL') {
+      const currentCampId = num.campaign?.id || num.campaign_id;
+      if (currentCampId !== filterCampaignId) return false;
+    }
+
+    if (!isVendor) {
+      if (filterVendorId === 'UNASSIGNED') {
+        if (num.vendor_id || num.vendor) return false;
+      } else if (filterVendorId !== 'ALL') {
+        const currentVendId = num.vendor?.id || num.vendor_id;
+        if (currentVendId !== filterVendorId) return false;
+      }
+    }
+
+    if (filterStatus !== 'ALL') {
+      if (num.status !== filterStatus) return false;
+    }
+
+    return true;
+  });
+
+  const hasActiveFilters =
+    Boolean(filterText.trim()) ||
+    filterCampaignId !== 'ALL' ||
+    filterVendorId !== 'ALL' ||
+    filterStatus !== 'ALL';
+
+  function handleClearFilters() {
+    setFilterText('');
+    setFilterCampaignId('ALL');
+    setFilterVendorId('ALL');
+    setFilterStatus('ALL');
+  }
+
   function openAssignModal(phone: PhoneNumber) {
     setSelectedPhone(phone);
     setSelectedCampaignId(phone.campaign_id || '');
@@ -231,7 +408,7 @@ export default function PhoneNumbersPage() {
   return (
     <div className="flex flex-col gap-6 md:gap-8 pb-8 w-full max-w-6xl mx-auto">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Phone Numbers</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">{isVendor ? 'Tracking Numbers' : 'Phone Numbers'}</h1>
       </div>
 
       {error && (
@@ -248,15 +425,103 @@ export default function PhoneNumbersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Provisioned Numbers</CardTitle>
-          <CardDescription>Numbers active in your workspace that can be assigned to campaigns.</CardDescription>
+          <CardTitle>{isVendor ? 'Assigned Tracking Numbers' : 'Provisioned Numbers'}</CardTitle>
+          <CardDescription>
+            {isVendor
+              ? 'Inbound tracking numbers assigned to your organization.'
+              : 'Numbers active in your workspace that can be assigned to campaigns.'}
+          </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Filter Controls */}
+          {numbers.length > 0 && (
+            <div className="flex flex-col sm:flex-row gap-3 items-center justify-between pb-2">
+              <div className="flex flex-1 flex-wrap gap-3 items-center w-full">
+                <div className="relative min-w-[200px] flex-1">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Filter by number or name..."
+                    value={filterText}
+                    onChange={(e) => setFilterText(e.target.value)}
+                    className="pl-8 h-9 text-sm"
+                  />
+                </div>
+
+                <div className="w-[160px]">
+                  <select
+                    value={filterCampaignId}
+                    onChange={(e) => setFilterCampaignId(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <option value="ALL">All Campaigns</option>
+                    <option value="UNASSIGNED">Unassigned Campaign</option>
+                    {campaigns.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {!isVendor && (
+                  <div className="w-[160px]">
+                    <select
+                      value={filterVendorId}
+                      onChange={(e) => setFilterVendorId(e.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    >
+                      <option value="ALL">All Vendors</option>
+                      <option value="UNASSIGNED">Unassigned Vendor</option>
+                      {vendors.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="w-[130px]">
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <option value="ALL">All Statuses</option>
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="ASSIGNED">ASSIGNED</option>
+                    <option value="PROVISIONING">PROVISIONING</option>
+                    <option value="RELEASED">RELEASED</option>
+                  </select>
+                </div>
+
+                {hasActiveFilters && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearFilters}
+                    className="h-9 px-2.5 text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
           {numbers.length === 0 ? (
              <EmptyState
-               title="No phone numbers"
-               description="Search and provision a new phone number below."
+               title={isVendor ? "No tracking numbers assigned" : "No phone numbers"}
+               description={isVendor ? "You do not have any inbound tracking numbers assigned to your account yet." : "Search and provision a new phone number below."}
              />
+          ) : filteredNumbers.length === 0 ? (
+            <div className="text-center py-12 text-sm text-muted-foreground border border-dashed rounded-md">
+              <p>No phone numbers match the current filters.</p>
+              <Button variant="ghost" size="sm" onClick={handleClearFilters} className="mt-2 text-primary hover:underline">
+                Clear Filters
+              </Button>
+            </div>
           ) : (
             <div className="border border-border rounded-md overflow-hidden">
               <Table>
@@ -265,12 +530,13 @@ export default function PhoneNumbersPage() {
                     <TableHead className="min-w-[150px]">Number</TableHead>
                     <TableHead className="min-w-[100px]">Type</TableHead>
                     <TableHead className="min-w-[150px]">Campaign</TableHead>
+                    {!isVendor && <TableHead className="min-w-[150px]">Vendor</TableHead>}
                     <TableHead className="min-w-[100px]">Status</TableHead>
-                    <TableHead className="text-right min-w-[100px]">Action</TableHead>
+                    {!isVendor && <TableHead className="text-right min-w-[150px]">Action</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {numbers.map((num) => {
+                  {filteredNumbers.map((num) => {
                     const typeLabels: Record<string, string> = {
                       local: 'Local',
                       toll_free: 'Toll-Free',
@@ -296,20 +562,30 @@ export default function PhoneNumbersPage() {
                           <span className="text-muted-foreground italic">Unassigned</span>
                         )}
                       </TableCell>
+                      {!isVendor && (
+                        <TableCell>
+                          {num.vendor ? (
+                            <span className="font-medium text-foreground">{num.vendor.name}</span>
+                          ) : (
+                            <span className="text-muted-foreground italic">Unassigned</span>
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell>
                         <Badge variant={num.status === 'ACTIVE' ? 'success' : num.status === 'ASSIGNED' ? 'info' : 'outline'}>
                           {num.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right space-x-2">
-                        {num.status !== 'RELEASED' && (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openAssignModal(num)}
-                            >
-                              {num.campaign ? 'Change' : 'Assign'}
+                      {!isVendor && (
+                        <TableCell className="text-right space-x-2">
+                          {num.status !== 'RELEASED' && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openAssignModal(num)}
+                              >
+                                {num.campaign ? 'Change' : 'Assign'}
                               </Button>
                               {num.campaign && (
                                 <Button
@@ -320,16 +596,34 @@ export default function PhoneNumbersPage() {
                                   Unassign
                                 </Button>
                               )}
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => openReleaseModal(num)}
-                            >
-                              Release
-                            </Button>
-                          </>
-                        )}
-                      </TableCell>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openAssignVendorModal(num)}
+                              >
+                                {num.vendor ? 'Vendor' : 'Assign Vendor'}
+                              </Button>
+                              {num.vendor && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openUnassignVendorDialog(num)}
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                >
+                                  Unassign Vendor
+                                </Button>
+                              )}
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => openReleaseModal(num)}
+                              >
+                                Release
+                              </Button>
+                            </>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                     );
                   })}
@@ -340,6 +634,7 @@ export default function PhoneNumbersPage() {
         </CardContent>
       </Card>
 
+      {!isVendor && (
       <Card>
         <CardHeader>
           <CardTitle>Provision New Number</CardTitle>
@@ -405,6 +700,97 @@ export default function PhoneNumbersPage() {
           )}
         </CardContent>
       </Card>
+      )}
+
+      {assignVendorModalOpen && selectedPhone && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md shadow-lg">
+            <CardHeader>
+              <CardTitle>Assign Vendor</CardTitle>
+              <CardDescription>Assign or unassign a vendor for this tracking number.</CardDescription>
+            </CardHeader>
+            <form onSubmit={handleAssignVendorSubmit}>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label>Phone Number</Label>
+                  <div className="font-mono bg-muted/30 p-2.5 rounded-md border border-border text-sm">
+                    {selectedPhone.phone_number}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="vendor-select">Vendor</Label>
+                  <select
+                    id="vendor-select"
+                    value={selectedVendorId}
+                    onChange={(e) => setSelectedVendorId(e.target.value)}
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">-- Unassigned --</option>
+                    {vendors.map(v => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                  {vendors.length === 0 ? (
+                    <div className="bg-warning-muted text-warning-muted-foreground p-3 rounded-md text-xs border border-warning-muted flex items-start gap-2 mt-2">
+                      <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                      <span>
+                        No vendors found in this workspace.{' '}
+                        <Link
+                          href={`/protected/vendors?workspace=${workspaceId}`}
+                          className="underline font-medium hover:text-foreground"
+                        >
+                          Create a vendor in the Vendors tab
+                        </Link>{' '}
+                        first.
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Inbound calls received on this number will be attributed to the selected vendor. Historical call records will retain their existing attribution.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+              <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => setAssignVendorModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  isLoading={isAssigningVendor}
+                >
+                  Save Assignment
+                </Button>
+              </CardFooter>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Unassign Vendor Confirmation Dialog */}
+      <ConfirmDialog
+        open={isUnassignVendorOpen}
+        onOpenChange={setIsUnassignVendorOpen}
+        title="Unassign Vendor"
+        description={
+          <span>
+            Are you sure you want to unassign vendor{' '}
+            <strong>{unassignVendorPhone?.vendor?.name || 'the vendor'}</strong> from{' '}
+            <strong className="font-mono">{unassignVendorPhone?.phone_number}</strong>?
+            <br /><br />
+            Future inbound calls received on this number will no longer be attributed to this vendor. Historical calls and settlements will remain unchanged.
+          </span>
+        }
+        confirmText="Unassign Vendor"
+        cancelText="Cancel"
+        onConfirm={handleConfirmUnassignVendor}
+        isLoading={isSubmittingUnassignVendor}
+        destructive={true}
+      />
 
       {assignModalOpen && selectedPhone && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">

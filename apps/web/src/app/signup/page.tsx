@@ -11,6 +11,21 @@ export default async function SignupPage(
 ) {
   const searchParams = await props.searchParams;
   const token = searchParams.token;
+  const message = searchParams.message;
+
+  const supabase = await createClient();
+  const authUserResult = typeof supabase?.auth?.getUser === 'function' ? await supabase.auth.getUser() : null;
+  const user = authUserResult?.data?.user;
+
+  // Only redirect authenticated users if there is NO error or session message present.
+  if (user && !message) {
+    if (token) {
+      redirect(`/protected/accept-invitation?token=${token}`);
+    } else {
+      redirect('/protected');
+    }
+  }
+
   let invitationDetails: { workspace_name: string; email: string } | null = null;
 
   if (token) {

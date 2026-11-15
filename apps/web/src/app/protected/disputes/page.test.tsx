@@ -32,45 +32,34 @@ describe('DisputesPage (COMM-INTEGRATION-4)', () => {
           { id: 'ws-test-123', name: 'Test WS', role: 'ADMIN' },
         ]);
       }
-      if (url.includes('/calls')) {
+      if (url.includes('/disputes') && !url.includes('/resolve')) {
         return Promise.resolve({
           items: [
             {
-              id: 'call-101',
+              id: 'disp-1',
+              call_id: 'call-101',
               created_at: '2026-10-01T12:00:00Z',
-              commercial: {
-                id: 'comm-101',
-                revenue: 50,
-                currency: 'USD',
-                disputeStatus: 'PENDING',
-                disputeReason: 'Dropped call under threshold',
-                buyer: { id: 'buyer-1', name: 'Acme Buyer' },
-                dispute: {
-                  id: 'disp-1',
-                  status: 'PENDING',
-                  reason: 'Dropped call under threshold',
-                },
-              },
+              revenue: 50,
+              currency: 'USD',
+              status: 'PENDING',
+              reason: 'Dropped call under threshold',
+              buyer: { id: 'buyer-1', name: 'Acme Buyer' },
             },
             {
-              id: 'call-102',
+              id: 'disp-2',
+              call_id: 'call-102',
               created_at: '2026-10-02T12:00:00Z',
-              commercial: {
-                id: 'comm-102',
-                revenue: 75,
-                currency: 'USD',
-                disputeStatus: 'ACCEPTED',
-                disputeReason: 'Invalid lead',
-                buyer: { id: 'buyer-2', name: 'Global Buyer' },
-                dispute: {
-                  id: 'disp-2',
-                  status: 'ACCEPTED',
-                  reason: 'Invalid lead',
-                  resolution_notes: 'Verified bad lead',
-                },
-              },
+              revenue: 75,
+              currency: 'USD',
+              status: 'ACCEPTED',
+              reason: 'Invalid lead',
+              buyer: { id: 'buyer-2', name: 'Global Buyer' },
+              resolution_notes: 'Verified bad lead',
             },
           ],
+          total: 2,
+          limit: 25,
+          offset: 0,
         });
       }
       return Promise.resolve({});
@@ -91,26 +80,22 @@ describe('DisputesPage (COMM-INTEGRATION-4)', () => {
       if (url === '/workspaces') {
         return Promise.resolve([{ id: 'ws-test-123', role: 'ADMIN' }]);
       }
-      if (url.includes('/calls')) {
+      if (url.includes('/disputes') && !url.includes('/resolve')) {
         return Promise.resolve({
           items: [
             {
-              id: 'call-201',
+              id: 'disp-201',
+              call_id: 'call-201',
               created_at: '2026-10-01T12:00:00Z',
-              commercial: {
-                id: 'comm-201',
-                revenue: 60,
-                currency: 'USD',
-                disputeStatus: 'PENDING',
-                disputeReason: 'Audio quality issue',
-                dispute: {
-                  id: 'disp-201',
-                  status: 'PENDING',
-                  reason: 'Audio quality issue',
-                },
-              },
+              revenue: 60,
+              currency: 'USD',
+              status: 'PENDING',
+              reason: 'Audio quality issue',
             },
           ],
+          total: 1,
+          limit: 25,
+          offset: 0,
         });
       }
       if (url.includes('/disputes/disp-201/resolve')) {
@@ -148,26 +133,22 @@ describe('DisputesPage (COMM-INTEGRATION-4)', () => {
       if (url === '/workspaces') {
         return Promise.resolve([{ id: 'ws-test-123', role: 'OWNER' }]);
       }
-      if (url.includes('/calls')) {
+      if (url.includes('/disputes') && !url.includes('/resolve')) {
         return Promise.resolve({
           items: [
             {
-              id: 'call-301',
+              id: 'disp-301',
+              call_id: 'call-301',
               created_at: '2026-10-01T12:00:00Z',
-              commercial: {
-                id: 'comm-301',
-                revenue: 40,
-                currency: 'USD',
-                disputeStatus: 'PENDING',
-                disputeReason: 'Wrong party reached',
-                dispute: {
-                  id: 'disp-301',
-                  status: 'PENDING',
-                  reason: 'Wrong party reached',
-                },
-              },
+              revenue: 40,
+              currency: 'USD',
+              status: 'PENDING',
+              reason: 'Wrong party reached',
             },
           ],
+          total: 1,
+          limit: 25,
+          offset: 0,
         });
       }
       if (url.includes('/disputes/disp-301/resolve')) {
@@ -209,7 +190,7 @@ describe('DisputesPage (COMM-INTEGRATION-4)', () => {
           { id: 'ws-test-123', role: 'MEMBER', participant_type: 'VENDOR' },
         ]);
       }
-      if (url.includes('/calls')) {
+      if (url.includes('/disputes')) {
         return Promise.reject(new Error('API error (403): Forbidden'));
       }
       return Promise.resolve({});
@@ -223,5 +204,145 @@ describe('DisputesPage (COMM-INTEGRATION-4)', () => {
         screen.getByText(/Vendor participants are strictly isolated from buyer commercial disputes/)
       ).toBeDefined();
     });
+  });
+
+  it('supports server-side pagination across >100 disputes', async () => {
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url === '/workspaces') {
+        return Promise.resolve([{ id: 'ws-test-123', role: 'ADMIN' }]);
+      }
+      if (url.includes('/disputes') && !url.includes('/resolve')) {
+        if (url.includes('offset=0')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'disp-page-1',
+                call_id: 'call-page-1',
+                created_at: '2026-10-01T12:00:00Z',
+                revenue: 100,
+                currency: 'USD',
+                status: 'PENDING',
+                reason: 'Page 1 Dispute',
+              },
+            ],
+            total: 125, // Total 125 disputes (> 100)
+            limit: 25,
+            offset: 0,
+          });
+        }
+        if (url.includes('offset=25')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'disp-page-2',
+                call_id: 'call-page-2',
+                created_at: '2026-10-01T13:00:00Z',
+                revenue: 150,
+                currency: 'USD',
+                status: 'ACCEPTED',
+                reason: 'Page 2 Dispute',
+              },
+            ],
+            total: 125,
+            limit: 25,
+            offset: 25,
+          });
+        }
+      }
+      return Promise.resolve({});
+    });
+
+    render(<DisputesPage />);
+
+    expect(await screen.findByText('Page 1 Dispute')).toBeDefined();
+    expect(screen.getByText(/Showing 1 to 25/)).toBeDefined();
+    expect(screen.getByText('Page 1 of 5')).toBeDefined();
+
+    // Click Next button
+    const nextBtn = screen.getByRole('button', { name: 'Next' });
+    expect(nextBtn).toBeDefined();
+    fireEvent.click(nextBtn);
+
+    expect(await screen.findByText('Page 2 Dispute')).toBeDefined();
+    expect(screen.getByText(/Showing 26 to 50/)).toBeDefined();
+    expect(screen.getByText('Page 2 of 5')).toBeDefined();
+  });
+
+  it('requests filtered status from backend when switching status tabs', async () => {
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url === '/workspaces') {
+        return Promise.resolve([{ id: 'ws-test-123', role: 'ADMIN' }]);
+      }
+      if (url.includes('/disputes') && !url.includes('/resolve')) {
+        if (url.includes('status=PENDING')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'disp-pending-1',
+                call_id: 'call-pen-1',
+                created_at: '2026-10-01T12:00:00Z',
+                revenue: 55,
+                currency: 'USD',
+                status: 'PENDING',
+                reason: 'Only Pending Item',
+              },
+            ],
+            total: 1,
+            limit: 25,
+            offset: 0,
+          });
+        }
+        return Promise.resolve({
+          items: [],
+          total: 0,
+          limit: 25,
+          offset: 0,
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(<DisputesPage />);
+
+    // Click PENDING tab
+    const pendingTab = screen.getByRole('button', { name: 'PENDING' });
+    fireEvent.click(pendingTab);
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/disputes?limit=25&offset=0&status=PENDING')
+      );
+    });
+
+    expect(await screen.findByText('Only Pending Item')).toBeDefined();
+  });
+  it('Finding E: hides Accept and Reject buttons for non-admin Buyer/MEMBER', async () => {
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url === '/workspaces') {
+        return Promise.resolve([{ id: 'ws-test-123', role: 'MEMBER', participant_type: 'BUYER' }]);
+      }
+      if (url.includes('/disputes') && !url.includes('/resolve')) {
+        return Promise.resolve({
+          items: [
+            {
+              id: 'disp-buyer-1',
+              call_id: 'call-101',
+              status: 'PENDING',
+              reason: 'Buyer dispute',
+            },
+          ],
+          total: 1,
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(<DisputesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Buyer dispute')).toBeDefined();
+    });
+
+    expect(screen.queryByRole('button', { name: 'Accept dispute' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject dispute' })).toBeNull();
   });
 });

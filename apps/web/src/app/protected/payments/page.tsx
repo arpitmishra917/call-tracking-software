@@ -359,8 +359,10 @@ export default function PaymentsPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Direction</label>
+            <label htmlFor="filter-direction" className="block text-xs font-medium text-muted-foreground mb-1">Direction</label>
             <select
+              id="filter-direction"
+              aria-label="Direction"
               value={filterDirection}
               onChange={(e) => {
                 setFilterDirection(e.target.value);
@@ -370,7 +372,7 @@ export default function PaymentsPage() {
             >
               <option value="">All Directions</option>
               <option value="COLLECTION">COLLECTION</option>
-              <option value="PAYOUT">PAYOUT</option>
+              <option value="DISBURSEMENT">DISBURSEMENT</option>
             </select>
           </div>
         </CardContent>

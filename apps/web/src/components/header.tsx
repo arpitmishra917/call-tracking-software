@@ -25,14 +25,23 @@ function HeaderMetrics() {
     if (!workspaceId) return;
 
     try {
-      const [liveRes, balRes] = await Promise.all([
+      const [liveResult, balResult] = await Promise.allSettled([
         apiFetch(`/workspaces/${workspaceId}/calls/live-calls`),
-        apiFetch(`/workspaces/${workspaceId}/billing/balance`)
+        apiFetch(`/workspaces/${workspaceId}/billing/balance`),
       ]);
-      setLiveCalls(liveRes.liveCalls);
-      setBalance(balRes.balance);
-    } catch (err) {
-      // Retain last known value on temporary polling failure
+
+      if (liveResult.status === 'fulfilled') {
+        setLiveCalls(liveResult.value?.liveCalls ?? 0);
+      } else if (!isPolling) {
+        setLiveCalls(null);
+      }
+
+      if (balResult.status === 'fulfilled') {
+        setBalance(balResult.value?.balance ?? null);
+      } else if (!isPolling) {
+        setBalance(null);
+      }
+    } catch {
       if (!isPolling) {
         setLiveCalls(null);
         setBalance(null);

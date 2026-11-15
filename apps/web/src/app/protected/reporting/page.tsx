@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { apiFetch, apiDownload } from '@/lib/api';
+import { InlineRecordingPlayer } from '@/components/ui/recording-player';
+import { formatCallerDisplay } from '@/lib/phone';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
@@ -12,6 +14,8 @@ import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
+import { CallsByDayChart } from './calls-by-day-chart';
+import { OutcomeDistributionChart } from './outcome-distribution-chart';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart, Pie, Cell 
 } from 'recharts';
@@ -19,8 +23,8 @@ import {
   PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Search, RotateCcw, AlertCircle, RefreshCw, BarChart3, Filter, X, Settings2, ChevronUp, ChevronDown, Bookmark, Save, Trash2, Edit2, Download, Loader2, Percent, Timer, Radio, DollarSign, TrendingUp, CheckCircle, Copy, AlertTriangle
 } from 'lucide-react';
 
-function formatDurationHms(seconds: number | null | undefined): string {
-  if (seconds === null || seconds === undefined || isNaN(seconds)) return '00:00';
+function formatDurationHms(seconds: number | null | undefined, fallback: string = '00:00'): string {
+  if (seconds === null || seconds === undefined || isNaN(seconds)) return fallback;
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
@@ -43,6 +47,116 @@ function formatCurrency(amount: number | null | undefined, currency: string = 'U
     maximumFractionDigits: 4,
   }).format(amount);
 }
+
+export function isValidPhoneNumber(num: any): boolean {
+  if (num === null || num === undefined) return false;
+  if (typeof num !== 'string' && typeof num !== 'number') return false;
+  const str = String(num).trim();
+  if (!str) return false;
+
+  const digitsOnly = str.replace(/\D/g, '');
+  if (digitsOnly.length < 7 || digitsOnly.length > 15) {
+    return false;
+  }
+
+  const phonePattern = /^\+?[0-9\s\-().]{7,20}$/;
+  return phonePattern.test(str);
+}
+
+export const getStatusBadgeVariant = (state: string) => {
+  switch (state?.toUpperCase()) {
+    case 'COMPLETED':
+    case 'ANSWERED':
+      return 'success';
+    case 'NO_ANSWER':
+    case 'FAILED':
+    case 'CANCELED':
+    case 'BLOCKED':
+      return 'error';
+    case 'ROUTING':
+    case 'RINGING':
+    case 'ACTIVE':
+      return 'warning';
+    default:
+      return 'default';
+  }
+};
+
+export function formatPhoneNumber(num: any): string {
+  const str = String(num).trim();
+  if (str.startsWith('+')) {
+    const digits = str.substring(1).replace(/\D/g, '');
+    return `+${digits}`;
+  }
+  const digits = str.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+  return `+${digits}`;
+}
+
+export function getFinalDestinationDisplay(call: any): string {
+  if (!call) return '—';
+
+  const stateStr = (call.state || '').toString().toUpperCase();
+  const attempts: any[] = Array.isArray(call.attempts) ? call.attempts : [];
+  
+  const successfulAttempt = attempts.find((a: any) => {
+    const state = (a?.state || '').toString().toUpperCase();
+    return state === 'COMPLETED' || state === 'ANSWERED' || state === 'CONNECTED' || Boolean(a?.answered_at);
+  });
+
+  if (successfulAttempt) {
+    const rawNum = 
+      successfulAttempt?.destination_number ||
+      successfulAttempt?.destination_ref?.destination_number ||
+      successfulAttempt?.buyer?.destination_number ||
+      call.destination_number ||
+      call.buyer?.destination_number;
+
+    if (isValidPhoneNumber(rawNum)) {
+      return formatPhoneNumber(rawNum);
+    }
+    
+    return 'Destination unavailable';
+  }
+
+  const isConnected = ['COMPLETED', 'CONNECTED', 'ANSWERED'].includes(stateStr) || Boolean(call.answered_at);
+  const rawDirectNum = call.destination_number || call.buyer?.destination_number;
+
+  if (isConnected && rawDirectNum) {
+    if (isValidPhoneNumber(rawDirectNum)) {
+      return formatPhoneNumber(rawDirectNum);
+    }
+    return 'Destination unavailable';
+  }
+
+  // If the call or an attempt is actively in progress, destination is pending
+  const isCallInProgress = ['ROUTING', 'RINGING', 'INITIATED', 'DIALING'].includes(stateStr);
+  const hasInProgressAttempt = attempts.some((a: any) => {
+    const aState = (a?.state || '').toString().toUpperCase();
+    return ['RINGING', 'INITIATED', 'DIALING'].includes(aState);
+  });
+  if (isCallInProgress || hasInProgressAttempt) {
+    return '—';
+  }
+
+  const hasFailedAttempts = attempts.length > 0 && attempts.every((a: any) => {
+    const state = (a?.state || '').toString().toUpperCase();
+    return ['FAILED', 'NO_ANSWER', 'CANCELED', 'BUSY', 'REJECTED'].includes(state);
+  });
+
+  const isFailedCall = ['FAILED', 'NO_ANSWER', 'BUSY', 'CANCELED', 'MISSED', 'ABANDONED', 'BLOCKED', 'VOICEMAIL', 'COMPLETED'].includes(
+    stateStr
+  );
+
+  if (hasFailedAttempts || isFailedCall) {
+    return 'No successful destination';
+  }
+
+  return '—';
+}
+
 
 export interface ReportingMetrics {
   total: number;
@@ -136,17 +250,29 @@ export default function ReportingDashboard() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsString = searchParams.toString();
 
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
+  const reportingGenRef = useRef(0);
+  const workspaceCampaignsRef = useRef<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    if (workspaceId && typeof window !== 'undefined') {
+      sessionStorage.setItem('callflow.active_workspace_id', workspaceId);
+    }
+  }, [workspaceId]);
 
   // Read Canonical State from URL
   const startDate = searchParams.get('startDate') || '';
   const endDate = searchParams.get('endDate') || '';
   const campaignId = searchParams.get('campaignId') || '';
   const buyerId = searchParams.get('buyerId') || '';
+  const vendorId = searchParams.get('vendorId') || '';
   const trackingNumber = searchParams.get('trackingNumber') || '';
   const callerNumber = searchParams.get('callerNumber') || '';
   const status = searchParams.get('status') || '';
+  const durationType = searchParams.get('durationType') || 'total';
   const minDuration = searchParams.get('minDuration') || '';
   const maxDuration = searchParams.get('maxDuration') || '';
   const bucket = searchParams.get('bucket') || 'day';
@@ -155,13 +281,13 @@ export default function ReportingDashboard() {
   
   // Local UI State for Draft Filters
   const [draftFilters, setDraftFilters] = useState({
-    startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration
+    startDate, endDate, campaignId, buyerId, vendorId, trackingNumber, callerNumber, status, durationType, minDuration, maxDuration
   });
   
   // Sync URL changes back to draft filters (e.g. back button or chip removal)
   useEffect(() => {
-    setDraftFilters({ startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration });
-  }, [startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration]);
+    setDraftFilters({ startDate, endDate, campaignId, buyerId, vendorId, trackingNumber, callerNumber, status, durationType, minDuration, maxDuration });
+  }, [startDate, endDate, campaignId, buyerId, vendorId, trackingNumber, callerNumber, status, durationType, minDuration, maxDuration]);
 
   const [metrics, setMetrics] = useState<ReportingMetrics | null>(null);
   const [liveCalls, setLiveCalls] = useState<number>(0);
@@ -181,9 +307,12 @@ export default function ReportingDashboard() {
 
   const fetchSavedReports = useCallback(async () => {
     if (!workspaceId) return;
+    const targetWsId = workspaceId;
     try {
       const data = await apiFetch(`/workspaces/${workspaceId}/reports`);
-      setSavedReports(data || []);
+      if (targetWsId === currentWorkspaceIdRef.current) {
+        setSavedReports(data || []);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -224,6 +353,7 @@ export default function ReportingDashboard() {
       Object.entries(config.filters).forEach(([k, v]) => { if (v) q.set(k, v as string); });
       if (config.groupBy) q.set('groupBy', config.groupBy);
       if (config.bucket) q.set('bucket', config.bucket);
+      if (workspaceId) q.set('workspace', workspaceId);
       router.push(`/protected/reporting?${q.toString()}`);
     }
     
@@ -272,21 +402,37 @@ export default function ReportingDashboard() {
     const key = `callflow.reporting.columns.${workspaceId}`;
     try {
       const saved = localStorage.getItem(key);
-      if (saved) {
+            if (saved) {
         const parsed = JSON.parse(saved);
-        const validIds = new Set(DEFAULT_COLUMNS.map(c => c.id));
-        const filtered = parsed.filter((p: any) => validIds.has(p.id));
-        
-        const newCols = DEFAULT_COLUMNS.map(def => {
-          const found = filtered.find((p: any) => p.id === def.id);
-          if (found) {
-            return { ...def, visible: def.locked ? true : found.visible, order: found.order };
+        if (Array.isArray(parsed)) {
+          const validIds = new Set(DEFAULT_COLUMNS.map(c => c.id));
+          const filtered = parsed.filter((p: any) => p && typeof p === 'object' && validIds.has(p.id));
+          
+          let maxSavedOrder = -1;
+          const savedMap = new Map<string, { visible: boolean; order: number }>();
+          for (const item of filtered) {
+            const order = typeof item.order === 'number' ? item.order : 0;
+            savedMap.set(item.id, {
+              visible: typeof item.visible === 'boolean' ? item.visible : true,
+              order,
+            });
+            if (order > maxSavedOrder) {
+              maxSavedOrder = order;
+            }
           }
-          return def;
-        }).sort((a, b) => a.order - b.order);
-        
-        newCols.forEach((c, i) => c.order = i);
-        setColumns(newCols);
+
+          const newCols = DEFAULT_COLUMNS.map(def => {
+            const found = savedMap.get(def.id);
+            if (found) {
+              return { ...def, visible: def.locked ? true : found.visible, order: found.order };
+            }
+            maxSavedOrder += 1;
+            return { ...def, order: maxSavedOrder };
+          }).sort((a, b) => a.order - b.order);
+          
+          newCols.forEach((c, i) => { c.order = i; });
+          setColumns(newCols);
+        }
       }
     } catch (e) {
       console.error("Malformed localStorage columns", e);
@@ -319,11 +465,115 @@ export default function ReportingDashboard() {
     saveColumns(newCols);
   };
 
+  const [isVendorWorkspace, setIsVendorWorkspace] = useState(false);
+  const [isBuyerWorkspace, setIsBuyerWorkspace] = useState(false);
+  const [isOwnerOrAdmin, setIsOwnerOrAdmin] = useState(false);
+
+  // Dropdown data options
+  const [phoneNumbers, setPhoneNumbers] = useState<{ id: string; phone_number: string }[]>([]);
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
+  const [buyers, setBuyers] = useState<{ id: string; name: string }[]>([]);
+  const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
+  const [loadingDropdowns, setLoadingDropdowns] = useState(false);
+  const [dropdownError, setDropdownError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function checkRole() {
+      if (!workspaceId) return;
+      try {
+        const workspaces = await apiFetch('/workspaces');
+        const currentWs = Array.isArray(workspaces)
+          ? workspaces.find((w: any) => w.id === workspaceId)
+          : null;
+        if (currentWs) {
+          setIsVendorWorkspace(currentWs.participant_type === 'VENDOR');
+          setIsBuyerWorkspace(currentWs.participant_type === 'BUYER');
+          setIsOwnerOrAdmin(currentWs.role === 'OWNER' || currentWs.role === 'ADMIN');
+        }
+      } catch {
+        // Continue if workspace query fails
+      }
+    }
+    checkRole();
+  }, [workspaceId]);
+
+  useEffect(() => {
+    async function loadDropdowns() {
+      if (!workspaceId) return;
+      const targetWsId = workspaceId;
+      setLoadingDropdowns(true);
+      setDropdownError(null);
+      try {
+        const [phoneData, campData, buyerData, vendorData] = await Promise.all([
+          apiFetch(`/workspaces/${workspaceId}/phone-numbers`).catch(() => []),
+          apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => []),
+          apiFetch(`/workspaces/${workspaceId}/buyers`).catch(() => []),
+          apiFetch(`/workspaces/${workspaceId}/vendors`).catch(() => []),
+        ]);
+        if (targetWsId !== currentWorkspaceIdRef.current) return;
+        const phones = Array.isArray(phoneData) ? phoneData : phoneData?.items || [];
+        setPhoneNumbers(phones);
+        let camps: { id: string; name: string }[] = Array.isArray(campData) ? campData : campData?.items || [];
+        if (camps.length === 0 && phones.length > 0) {
+          const campMap = new Map<string, string>();
+          for (const p of phones) {
+            if (p.campaign?.id && p.campaign?.name) {
+              campMap.set(p.campaign.id, p.campaign.name);
+            }
+          }
+          if (campMap.size > 0) {
+            camps = Array.from(campMap.entries()).map(([id, name]) => ({ id, name }));
+          }
+        }
+        workspaceCampaignsRef.current = camps;
+        setCampaigns(camps);
+        setBuyers(Array.isArray(buyerData) ? buyerData : buyerData?.items || []);
+        setVendors(Array.isArray(vendorData) ? vendorData : vendorData?.items || []);
+      } catch (err: any) {
+        if (targetWsId === currentWorkspaceIdRef.current) {
+          setDropdownError(err?.message || 'Failed to load filter options');
+        }
+      } finally {
+        if (targetWsId === currentWorkspaceIdRef.current) {
+          setLoadingDropdowns(false);
+        }
+      }
+    }
+    loadDropdowns();
+  }, [workspaceId]);
+
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    reportingGenRef.current++;
+    workspaceCampaignsRef.current = [];
+    setMetrics(null);
+    setCalls([]);
+    setCallsTotal(0);
+    setCampaigns([]);
+    setBuyers([]);
+    setVendors([]);
+    setPhoneNumbers([]);
+    setSavedReports([]);
+    setError(null);
+  }, [workspaceId]);
+
   const hasRevenue = metrics?.revenue !== undefined;
   const hasPayout = metrics?.payout !== undefined;
   const hasProfit = metrics?.profit !== undefined;
   const hasCost = metrics?.cost !== undefined;
-  const isVendor = !hasRevenue && hasPayout && !hasProfit;
+  const isVendor = isVendorWorkspace || (!hasRevenue && hasPayout && !hasProfit);
+  const isBuyer = isBuyerWorkspace;
+
+  useEffect(() => {
+    if (isVendor && groupBy === 'Buyer') {
+      const q = new URLSearchParams(searchParamsString);
+      q.set('groupBy', 'Campaign');
+      if (workspaceId) {
+        q.set('workspace', workspaceId);
+      }
+      router.replace(`${pathname}?${q.toString()}`);
+    }
+  }, [isVendor, groupBy, pathname, router, searchParamsString, workspaceId]);
 
   const allowedColumnIds = useMemo(() => {
     const ids = new Set<ColumnId>([
@@ -376,7 +626,7 @@ export default function ReportingDashboard() {
     try {
       const payload = {
         format,
-        filters: { startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDurationSecs: minDuration, maxDurationSecs: maxDuration, durationType: 'talk' },
+        filters: { startDate, endDate, campaignId, buyerId, vendorId: vendorId || undefined, trackingNumber, callerNumber, status, minDurationSecs: minDuration, maxDurationSecs: maxDuration, durationType: durationType || 'talk' },
         columns
       };
 
@@ -406,15 +656,20 @@ export default function ReportingDashboard() {
   const limit = 20;
 
   const fetchReporting = useCallback(async () => {
+    if (!workspaceId) return;
+    const targetWsId = workspaceId;
+    const currentGen = ++reportingGenRef.current;
     setLoading(true);
     setError(null);
     try {
-      const q = new URLSearchParams(searchParams.toString());
+      const q = new URLSearchParams(searchParamsString);
+      if (!q.get('bucket')) q.set('bucket', bucket);
       
       // Fetch Paginated Detailed Calls
       const callsQ = new URLSearchParams(q.toString());
       if (minDuration) callsQ.set('minDurationSecs', minDuration);
       if (maxDuration) callsQ.set('maxDurationSecs', maxDuration);
+      if (durationType) callsQ.set('durationType', durationType);
       if ((minDuration || maxDuration) && !callsQ.get('durationType')) {
         callsQ.set('durationType', 'total');
       }
@@ -427,23 +682,42 @@ export default function ReportingDashboard() {
         apiFetch(`/workspaces/${workspaceId}/calls/live-calls`),
       ]);
 
+      if (currentGen !== reportingGenRef.current || targetWsId !== currentWorkspaceIdRef.current) {
+        return;
+      }
+
       setMetrics(metricsData);
+      if (metricsData?.campaigns && typeof metricsData.campaigns === 'object') {
+        const baseMap = new Map(workspaceCampaignsRef.current.map(c => [c.id, c.name]));
+        for (const [id, data] of Object.entries(metricsData.campaigns)) {
+          if (!baseMap.has(id)) {
+            baseMap.set(id, (data as any)?.name || id);
+          }
+        }
+        setCampaigns(Array.from(baseMap.entries()).map(([id, name]) => ({ id, name })));
+      }
       setCalls(callsData?.items || []);
       setCallsTotal(callsData?.total || 0);
       setLiveCalls(typeof liveCallsData?.liveCalls === 'number' ? liveCallsData.liveCalls : 0);
       
     } catch (err: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (currentGen !== reportingGenRef.current || targetWsId !== currentWorkspaceIdRef.current) {
+        return;
+      }
       setError(err.message || 'Unable to load reporting data');
     } finally {
-      setLoading(false);
+      if (currentGen === reportingGenRef.current && targetWsId === currentWorkspaceIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, [workspaceId, searchParams, page, minDuration, maxDuration]);
+  }, [workspaceId, searchParamsString, page, minDuration, maxDuration, durationType, bucket]);
 
   useEffect(() => {
     fetchReporting();
   }, [fetchReporting]);
 
-  const applyFilters = () => {
+  const applyFilters = (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
     if (draftFilters.minDuration && draftFilters.maxDuration) {
       if (parseInt(draftFilters.minDuration, 10) > parseInt(draftFilters.maxDuration, 10)) {
         alert('Minimum duration cannot be greater than maximum duration.');
@@ -456,41 +730,74 @@ export default function ReportingDashboard() {
         return;
       }
     }
-    const q = new URLSearchParams();
+    const q = new URLSearchParams(searchParams.toString());
+    const filterKeys = ['startDate', 'endDate', 'campaignId', 'buyerId', 'vendorId', 'trackingNumber', 'callerNumber', 'status', 'minDuration', 'maxDuration', 'durationType'];
+    filterKeys.forEach((k) => q.delete(k));
     Object.entries(draftFilters).forEach(([k, v]) => { if (v) q.set(k, v); });
     q.set('bucket', bucket);
     q.set('groupBy', groupBy);
     q.set('page', '1');
+    if (workspaceId) {
+      q.set('workspace', workspaceId);
+    }
     router.push(`${pathname}?${q.toString()}`);
   };
 
-  const resetFilters = () => {
-    setDraftFilters({ startDate: '', endDate: '', campaignId: '', buyerId: '', trackingNumber: '', callerNumber: '', status: '', minDuration: '', maxDuration: '' });
-    router.push(`${pathname}?bucket=day&groupBy=Campaign&page=1`);
+  const resetFilters = (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
+    setDraftFilters({ startDate: '', endDate: '', campaignId: '', buyerId: '', vendorId: '', trackingNumber: '', callerNumber: '', status: '', durationType: 'total', minDuration: '', maxDuration: '' });
+    const q = new URLSearchParams(searchParams.toString());
+    const filterKeys = ['startDate', 'endDate', 'campaignId', 'buyerId', 'vendorId', 'trackingNumber', 'callerNumber', 'status', 'minDuration', 'maxDuration', 'durationType'];
+    filterKeys.forEach((k) => q.delete(k));
+    q.set('bucket', 'day');
+    q.set('groupBy', 'Campaign');
+    q.set('page', '1');
+    if (workspaceId) {
+      q.set('workspace', workspaceId);
+    }
+    router.push(`${pathname}?${q.toString()}`);
   };
 
   const removeFilter = (key: string) => {
     const q = new URLSearchParams(searchParams.toString());
-    q.delete(key);
+    if (key === 'duration') {
+      q.delete('minDuration');
+      q.delete('maxDuration');
+      q.delete('durationType');
+    } else {
+      q.delete(key);
+    }
     q.set('page', '1');
+    if (workspaceId) {
+      q.set('workspace', workspaceId);
+    }
     router.push(`${pathname}?${q.toString()}`);
   };
 
   const handleGroupChange = (newGroup: string) => {
     const q = new URLSearchParams(searchParams.toString());
     q.set('groupBy', newGroup);
+    if (workspaceId) {
+      q.set('workspace', workspaceId);
+    }
     router.push(`${pathname}?${q.toString()}`);
   };
 
   const handleBucketChange = (newBucket: string) => {
     const q = new URLSearchParams(searchParams.toString());
     q.set('bucket', newBucket);
+    if (workspaceId) {
+      q.set('workspace', workspaceId);
+    }
     router.push(`${pathname}?${q.toString()}`);
   };
   
   const setPage = (newPage: number) => {
     const q = new URLSearchParams(searchParams.toString());
     q.set('page', newPage.toString());
+    if (workspaceId) {
+      q.set('workspace', workspaceId);
+    }
     router.push(`${pathname}?${q.toString()}`);
   };
 
@@ -498,15 +805,31 @@ export default function ReportingDashboard() {
     const chips = [];
     if (startDate) chips.push({ key: 'startDate', label: `From: ${startDate}` });
     if (endDate) chips.push({ key: 'endDate', label: `To: ${endDate}` });
-    if (campaignId) chips.push({ key: 'campaignId', label: `Campaign: ${campaignId}` });
-    if (buyerId) chips.push({ key: 'buyerId', label: `Buyer: ${buyerId}` });
+    if (campaignId) {
+      const camp = campaigns.find(c => c.id === campaignId);
+      chips.push({ key: 'campaignId', label: `Campaign: ${camp ? camp.name : campaignId}` });
+    }
+    if (buyerId && !isVendor) {
+      const b = buyers.find(buyer => buyer.id === buyerId);
+      chips.push({ key: 'buyerId', label: `Buyer: ${b ? b.name : buyerId}` });
+    }
+    if (vendorId && !isVendor && !isBuyer) {
+      const v = vendors.find(vendor => vendor.id === vendorId);
+      chips.push({ key: 'vendorId', label: `Vendor: ${v ? v.name : vendorId}` });
+    }
     if (trackingNumber) chips.push({ key: 'trackingNumber', label: `Number: ${trackingNumber}` });
-    if (callerNumber) chips.push({ key: 'callerNumber', label: `Caller: ${callerNumber}` });
+    if (callerNumber) chips.push({ key: 'callerNumber', label: `Caller: ${formatCallerDisplay(callerNumber)}` });
     if (status) chips.push({ key: 'status', label: `Status: ${status}` });
-    if (minDuration) chips.push({ key: 'minDuration', label: `Min Dur: ${minDuration}s` });
-    if (maxDuration) chips.push({ key: 'maxDuration', label: `Max Dur: ${maxDuration}s` });
+    if (minDuration || maxDuration) {
+      const typeLabel = durationType === 'talk' ? 'Talk' : 'Total';
+      let durText = `${typeLabel} Dur:`;
+      if (minDuration && maxDuration) durText += ` ${minDuration}s - ${maxDuration}s`;
+      else if (minDuration) durText += ` >= ${minDuration}s`;
+      else if (maxDuration) durText += ` <= ${maxDuration}s`;
+      chips.push({ key: 'duration', label: durText });
+    }
     return chips;
-  }, [startDate, endDate, campaignId, buyerId, trackingNumber, callerNumber, status, minDuration, maxDuration]);
+  }, [startDate, endDate, campaignId, buyerId, vendorId, trackingNumber, callerNumber, status, minDuration, maxDuration, durationType, campaigns, buyers, vendors, isVendor, isBuyer]);
 
   const outcomeData = metrics ? [
     { name: 'Answered', value: metrics.answered || 0, color: '#10b981' }, 
@@ -632,60 +955,156 @@ export default function ReportingDashboard() {
 
       <Card className={`bg-muted/30 ${showFilters ? 'block' : 'hidden md:block'}`}>
         <CardContent className="p-4">
+          {dropdownError && (
+            <div className="mb-4 text-xs text-red-500 flex items-center gap-1.5 bg-red-500/10 p-2 rounded">
+              <AlertCircle className="w-3.5 h-3.5" />
+              <span>{dropdownError}</span>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <div className="space-y-1">
-              <Label className="text-xs">Start Date</Label>
-              <Input type="date" value={draftFilters.startDate} onChange={(e) => setDraftFilters({...draftFilters, startDate: e.target.value})} className="h-8 text-sm" />
+              <Label htmlFor="startDate" className="text-xs font-medium">Start Date</Label>
+              <Input id="startDate" type="date" value={draftFilters.startDate} onChange={(e) => setDraftFilters({...draftFilters, startDate: e.target.value})} className="h-8 text-sm" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">End Date</Label>
-              <Input type="date" value={draftFilters.endDate} onChange={(e) => setDraftFilters({...draftFilters, endDate: e.target.value})} className="h-8 text-sm" />
+              <Label htmlFor="endDate" className="text-xs font-medium">End Date</Label>
+              <Input id="endDate" type="date" value={draftFilters.endDate} onChange={(e) => setDraftFilters({...draftFilters, endDate: e.target.value})} className="h-8 text-sm" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Campaign ID</Label>
-              <Input placeholder="Filter by Campaign..." value={draftFilters.campaignId} onChange={(e) => setDraftFilters({...draftFilters, campaignId: e.target.value})} className="h-8 text-sm" />
+              <Label htmlFor="campaignId" className="text-xs font-medium">Campaign</Label>
+              <select
+                id="campaignId"
+                value={draftFilters.campaignId}
+                onChange={(e) => setDraftFilters({...draftFilters, campaignId: e.target.value})}
+                disabled={loadingDropdowns}
+                className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="">{loadingDropdowns ? 'Loading campaigns...' : 'All Campaigns'}</option>
+                {campaigns.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Buyer ID</Label>
-              <Input placeholder="Filter by Buyer..." value={draftFilters.buyerId} onChange={(e) => setDraftFilters({...draftFilters, buyerId: e.target.value})} className="h-8 text-sm" />
-            </div>
+            {!isVendor && (
+              <div className="space-y-1">
+                <Label htmlFor="buyerId" className="text-xs font-medium">Buyer</Label>
+                <select
+                  id="buyerId"
+                  value={draftFilters.buyerId}
+                  onChange={(e) => setDraftFilters({...draftFilters, buyerId: e.target.value})}
+                  disabled={loadingDropdowns}
+                  className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">{loadingDropdowns ? 'Loading buyers...' : 'All Buyers'}</option>
+                  {buyers.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {!isVendor && !isBuyer && (
+              <div className="space-y-1">
+                <Label htmlFor="vendorId" className="text-xs font-medium">Vendor</Label>
+                <select
+                  id="vendorId"
+                  value={draftFilters.vendorId}
+                  onChange={(e) => setDraftFilters({...draftFilters, vendorId: e.target.value})}
+                  disabled={loadingDropdowns}
+                  className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">{loadingDropdowns ? 'Loading vendors...' : 'All Vendors'}</option>
+                  {vendors.map(v => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
             <div className="space-y-1">
-              <Label className="text-xs">Tracking Number</Label>
-              <Input placeholder="+1..." value={draftFilters.trackingNumber} onChange={(e) => setDraftFilters({...draftFilters, trackingNumber: e.target.value})} className="h-8 text-sm" />
+              <Label htmlFor="trackingNumber" className="text-xs font-medium">Tracking Number</Label>
+              <select
+                id="trackingNumber"
+                value={draftFilters.trackingNumber}
+                onChange={(e) => setDraftFilters({...draftFilters, trackingNumber: e.target.value})}
+                disabled={loadingDropdowns}
+                className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="">{loadingDropdowns ? 'Loading numbers...' : 'All Numbers'}</option>
+                {phoneNumbers.map(n => (
+                  <option key={n.id} value={n.phone_number}>{n.phone_number}</option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Caller Number</Label>
-              <Input placeholder="+1..." value={draftFilters.callerNumber} onChange={(e) => setDraftFilters({...draftFilters, callerNumber: e.target.value})} className="h-8 text-sm" />
+              <Label htmlFor="callerNumber" className="text-xs font-medium">Caller Number</Label>
+              <Input
+                id="callerNumber"
+                placeholder="+1..."
+                value={draftFilters.callerNumber}
+                onChange={(e) => setDraftFilters({...draftFilters, callerNumber: e.target.value})}
+                className="h-8 text-sm"
+              />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Status</Label>
+              <Label htmlFor="status" className="text-xs font-medium">Status</Label>
               <select 
+                id="status"
                 value={draftFilters.status} 
                 onChange={(e) => setDraftFilters({...draftFilters, status: e.target.value})}
                 className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <option value="">All States</option>
+                <option value="">All Statuses</option>
                 <option value="COMPLETED">Completed</option>
-                <option value="NO_ANSWER">Missed/No Answer</option>
+                <option value="NO_ANSWER">Missed / No Answer</option>
+                <option value="CANCELED">Canceled / Missed</option>
                 <option value="FAILED">Failed</option>
               </select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Total Call Duration: Min (s)</Label>
-              <Input type="number" placeholder="0" value={draftFilters.minDuration} onChange={(e) => setDraftFilters({...draftFilters, minDuration: e.target.value})} className="h-8 text-sm" />
+              <Label htmlFor="durationType" className="text-xs font-medium">Duration Type</Label>
+              <select
+                id="durationType"
+                value={draftFilters.durationType}
+                onChange={(e) => setDraftFilters({...draftFilters, durationType: e.target.value})}
+                className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="total">Total Time</option>
+                <option value="talk">Talk Time</option>
+              </select>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Total Call Duration: Max (s)</Label>
-              <Input type="number" placeholder="3600" value={draftFilters.maxDuration} onChange={(e) => setDraftFilters({...draftFilters, maxDuration: e.target.value})} className="h-8 text-sm" />
+            <div className="space-y-1 flex gap-2">
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="minDuration" className="text-xs font-medium">Min (s)</Label>
+                <Input
+                  id="minDuration"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={draftFilters.minDuration}
+                  onChange={(e) => setDraftFilters({...draftFilters, minDuration: e.target.value})}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="maxDuration" className="text-xs font-medium">Max (s)</Label>
+                <Input
+                  id="maxDuration"
+                  type="number"
+                  min="0"
+                  placeholder="3600"
+                  value={draftFilters.maxDuration}
+                  onChange={(e) => setDraftFilters({...draftFilters, maxDuration: e.target.value})}
+                  className="h-8 text-sm"
+                />
+              </div>
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={resetFilters}>
+            <Button variant="ghost" size="sm" type="button" onClick={resetFilters}>
               <RotateCcw className="h-4 w-4 mr-2" /> Reset
             </Button>
-            <Button size="sm" onClick={applyFilters}>
+            <Button size="sm" type="button" onClick={applyFilters}>
               <Search className="h-4 w-4 mr-2" /> Apply Filters
             </Button>
           </div>
@@ -908,89 +1327,18 @@ export default function ReportingDashboard() {
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card className="col-span-1 lg:col-span-2 flex flex-col">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle className="text-base font-semibold">Call Volume</CardTitle>
-                </div>
-                <select 
-                  value={bucket} 
-                  onChange={(e) => handleBucketChange(e.target.value)}
-                  className="h-8 rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm"
-                >
-                  <option value="hour">Hourly</option>
-                  <option value="day">Daily</option>
-                  <option value="week">Weekly</option>
-                </select>
-              </CardHeader>
-              <CardContent className="flex-1 min-h-[300px]">
-                {!metrics.buckets || metrics.buckets.length === 0 ? (
-                  <div className="h-full w-full flex items-center justify-center text-sm text-muted-foreground">
-                    No time-series data available.
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={metrics.buckets} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                      <XAxis 
-                        dataKey="time" 
-                        tickFormatter={(t) => {
-                          const d = new Date(t);
-                          if (bucket === 'hour') return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-                          return d.toLocaleDateString([], {month: 'short', day: 'numeric'});
-                        }}
-                        tick={{fontSize: 12}}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis tick={{fontSize: 12}} axisLine={false} tickLine={false} />
-                      <RechartsTooltip 
-                        labelFormatter={(t: any) => new Date(t).toLocaleString()}
-                        contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
-                      />
-                      <Legend iconType="circle" wrapperStyle={{fontSize: '12px', paddingTop: '10px'}} />
-                      <Line type="monotone" dataKey="total" name="Total Calls" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{r: 4}} />
-                      <Line type="monotone" dataKey="answered" name="Answered" stroke="#10b981" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
+            <CallsByDayChart
+              buckets={metrics.buckets}
+              currency={metrics.currency}
+              bucket={bucket}
+              onBucketChange={handleBucketChange}
+              isLoading={loading}
+              hasRevenue={hasRevenue}
+              onRetry={fetchReporting}
+            />
 
-            <Card className="flex flex-col">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold">Outcome Distribution</CardTitle>
-              </CardHeader>
-              <CardContent className="flex-1 min-h-[300px] flex items-center justify-center">
-                {outcomeData.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No call outcomes.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={outcomeData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
-                        paddingAngle={2}
-                        dataKey="value"
-                      >
-                        {outcomeData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip 
-                        formatter={(val: any) => [Number(val).toLocaleString(), 'Calls']}
-                        contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
-                      />
-                      <Legend iconType="circle" layout="vertical" verticalAlign="bottom" align="center" wrapperStyle={{fontSize: '12px'}} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+            <OutcomeDistributionChart metrics={metrics} isLoading={loading} />
+                      </div>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -1001,7 +1349,7 @@ export default function ReportingDashboard() {
                 className="h-8 rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm"
               >
                 <option value="Campaign">Campaign</option>
-                <option value="Buyer">Buyer</option>
+                {!isVendor && <option value="Buyer">Buyer</option>}
                 <option value="Tracking Number">Tracking Number</option>
                 <option value="Status">Status</option>
               </select>
@@ -1032,8 +1380,8 @@ export default function ReportingDashboard() {
                     {Object.values(metrics.campaigns as Record<string, any>).map((stats: any) => (
                       <TableRow key={stats.id || stats.name}>
                         <TableCell className="font-medium whitespace-nowrap">{stats.name || stats.id || 'Unknown Campaign'}</TableCell>
-                        <TableCell className="text-right">{stats.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{typeof stats.total === 'number' ? stats.total.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right font-medium text-emerald-600">{typeof stats.answered === 'number' ? stats.answered.toLocaleString() : '—'}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
                         {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>}
@@ -1079,9 +1427,9 @@ export default function ReportingDashboard() {
                     {Object.values(metrics.buyers as Record<string, any>).map((stats: any) => (
                       <TableRow key={stats.id}>
                         <TableCell className="font-medium whitespace-nowrap">{stats.name || 'Unknown Buyer'}</TableCell>
-                        <TableCell className="text-right">{stats.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">{stats.failed.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{typeof stats.total === 'number' ? stats.total.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right font-medium text-emerald-600">{typeof stats.answered === 'number' ? stats.answered.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right">{typeof stats.failed === 'number' ? stats.failed.toLocaleString() : (typeof stats.total === 'number' && typeof stats.answered === 'number' ? Math.max(0, stats.total - stats.answered).toLocaleString() : '—')}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
                         {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>}
                         {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>}
@@ -1126,8 +1474,8 @@ export default function ReportingDashboard() {
                     {Object.values(metrics.trackingNumbers as Record<string, any>).map((stats: any, index: number) => (
                       <TableRow key={stats.id || stats.phone_number || index}>
                         <TableCell className="font-medium font-mono text-xs whitespace-nowrap">{stats.tracking_number || stats.phone_number || 'Unknown'}</TableCell>
-                        <TableCell className="text-right">{stats.total.toLocaleString()}</TableCell>
-                        <TableCell className="text-right font-medium text-emerald-600">{stats.answered.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{typeof stats.total === 'number' ? stats.total.toLocaleString() : '—'}</TableCell>
+                        <TableCell className="text-right font-medium text-emerald-600">{typeof stats.answered === 'number' ? stats.answered.toLocaleString() : '—'}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
                         <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
                         {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>}
@@ -1164,7 +1512,7 @@ export default function ReportingDashboard() {
                           <div className="w-3 h-3 rounded-full" style={{backgroundColor: d.color}}></div>
                           {d.name}
                         </TableCell>
-                        <TableCell className="text-right">{d.value.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{typeof d.value === 'number' ? d.value.toLocaleString() : '—'}</TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {metrics.total > 0 ? Math.round((d.value / metrics.total) * 100) : 0}%
                         </TableCell>
@@ -1253,8 +1601,7 @@ export default function ReportingDashboard() {
                   </TableHeader>
                   <TableBody>
                     {calls.map((call: any) => {
-                      const answeredAttempt = call.attempts?.find((a: any) => a.state === 'COMPLETED' || a.state === 'ANSWERED' || a.state === 'CONNECTED');
-                      const finalDestination = call.buyer?.name || answeredAttempt?.buyer?.name || 'No successful destination';
+                      const finalDestination = getFinalDestinationDisplay(call);
                       const recordingAvailable = call.recordings && call.recordings.length > 0;
                       const comm = call.commercial;
 
@@ -1264,12 +1611,12 @@ export default function ReportingDashboard() {
                             if (col.id === 'time') {
                               return (
                                 <TableCell key={col.id} className="text-xs whitespace-nowrap text-muted-foreground">
-                                  {new Date(call.created_at).toLocaleString()}
+                                  {call.created_at ? new Date(call.created_at).toLocaleString() : '—'}
                                 </TableCell>
                               );
                             }
                             if (col.id === 'caller') {
-                              return <TableCell key={col.id} className="font-mono text-xs">{call.from_number}</TableCell>;
+                              return <TableCell key={col.id} className="font-mono text-xs">{formatCallerDisplay(call.from_number, isVendor)}</TableCell>;
                             }
                             if (col.id === 'trackingNumber') {
                               return <TableCell key={col.id} className="font-mono text-xs">{call.to_number}</TableCell>;
@@ -1278,28 +1625,34 @@ export default function ReportingDashboard() {
                               return <TableCell key={col.id} className="text-xs whitespace-nowrap">{call.campaign?.name || '—'}</TableCell>;
                             }
                             if (col.id === 'finalDestination') {
-                              return <TableCell key={col.id} className="text-xs whitespace-nowrap">{finalDestination}</TableCell>;
+                              return (
+                                <TableCell key={col.id} className={`text-xs whitespace-nowrap ${finalDestination.startsWith('+') ? 'font-mono' : ''}`}>
+                                  {finalDestination}
+                                </TableCell>
+                              );
                             }
                             if (col.id === 'status') {
                               return (
                                 <TableCell key={col.id}>
-                                  <Badge variant={call.state === "COMPLETED" ? "success" : "warning"} className="text-[10px]">
+                                  <Badge variant={getStatusBadgeVariant(call.state)} className="text-[10px]">
                                     {call.state}
                                   </Badge>
                                 </TableCell>
                               );
                             }
                             if (col.id === 'talkDuration') {
+                              const talkSecs = call.talkDurationSecs ?? call.talk_duration_secs;
                               return (
                                 <TableCell key={col.id} className="text-right font-mono text-xs">
-                                  {call.talkDurationSecs != null ? formatDurationHms(call.talkDurationSecs) : '—'}
+                                  {talkSecs != null ? formatDurationHms(talkSecs) : '—'}
                                 </TableCell>
                               );
                             }
                             if (col.id === 'totalDuration') {
+                              const totalSecs = call.totalDurationSecs ?? call.total_duration_secs;
                               return (
                                 <TableCell key={col.id} className="text-right font-mono text-xs">
-                                  {call.totalDurationSecs != null ? formatDurationHms(call.totalDurationSecs) : '—'}
+                                  {totalSecs != null ? formatDurationHms(totalSecs) : '—'}
                                 </TableCell>
                               );
                             }
@@ -1355,9 +1708,19 @@ export default function ReportingDashboard() {
                               );
                             }
                             if (col.id === 'recording') {
+                              const playableRec = call.recordings?.find((r: any) => r.status === 'COMPLETED');
                               return (
                                 <TableCell key={col.id} className="text-center text-xs">
-                                  {recordingAvailable ? 'Available' : '—'}
+                                  {playableRec ? (
+                                    <InlineRecordingPlayer
+                                      workspaceId={workspaceId}
+                                      callWorkspaceId={call.workspace_id}
+                                      recordingId={playableRec.id}
+                                      recordings={call.recordings}
+                                    />
+                                  ) : (
+                                    <span className="text-muted-foreground text-xs">—</span>
+                                  )}
                                 </TableCell>
                               );
                             }

@@ -8,6 +8,7 @@ import {
   BarChart,
   Megaphone,
   Users,
+  Building2,
   Hash,
   ShieldBan,
   Key,
@@ -19,14 +20,15 @@ import {
   Scale,
   Receipt,
   BadgeDollarSign,
-  FileCheck2
+  FileCheck2,
+  ScrollText
 } from 'lucide-react';
 
 export default function Sidebar({
   workspaces,
   onNavClick
 }: {
-  workspaces: { id: string; name: string; role: string; participant_type?: string; permissions?: string[] }[];
+  workspaces: { id: string; name: string; role: string; participant_type?: string; vendor_id?: string | null; buyer_id?: string | null; permissions?: string[] }[];
   onNavClick?: () => void;
 }) {
   const searchParams = useSearchParams();
@@ -44,7 +46,7 @@ export default function Sidebar({
   const isBuyer = (currentWorkspace as any)?.participant_type === 'BUYER';
   const isParticipant = isVendor || isBuyer;
 
-  // Payments & Reconciliation RBAC:
+  // Payments, Reconciliation & Audit Logs RBAC:
   // OWNER & ADMIN: visible (unless buyer/vendor participant)
   // MEMBER: only if explicitly authorized via permissions array
   // BUYER & VENDOR: strictly hidden
@@ -52,6 +54,8 @@ export default function Sidebar({
   const permissions: string[] = (currentWorkspace as any)?.permissions || [];
   const canViewPayments = !isParticipant && role !== 'VIEWER' && (isOwnerOrAdmin || (role === 'MEMBER' && permissions.includes('payment:read')));
   const canViewReconciliation = !isParticipant && role !== 'VIEWER' && (isOwnerOrAdmin || (role === 'MEMBER' && permissions.includes('reconciliation:read')));
+  const canViewAuditLogs = !isParticipant && role !== 'VIEWER' && (isOwnerOrAdmin || (role === 'MEMBER' && permissions.includes('audit_log:read')));
+  const canViewVendors = !isParticipant && role !== 'VIEWER' && (isOwnerOrAdmin || (role === 'MEMBER' && permissions.includes('vendor:read')));
 
   const getUrl = (path: string) => {
     return `${path}${currentWorkspaceId ? `?workspace=${currentWorkspaceId}` : ''}`;
@@ -70,6 +74,9 @@ export default function Sidebar({
         <NavGroup title="Overview">
           <NavItem href="/protected/calls" icon={PhoneCall} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Calls</NavItem>
           <NavItem href="/protected/reporting" icon={BarChart} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Reporting</NavItem>
+          {isVendor && (
+            <NavItem href="/protected/phone-numbers" icon={Hash} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Tracking Numbers</NavItem>
+          )}
           {role !== 'VIEWER' && !isVendor && (
             <NavItem href="/protected/disputes" icon={Scale} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Disputes</NavItem>
           )}
@@ -88,6 +95,9 @@ export default function Sidebar({
           <NavGroup title="Routing">
             <NavItem href="/protected/campaigns" icon={Megaphone} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Campaigns</NavItem>
             <NavItem href="/protected/buyers" icon={Users} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Buyers</NavItem>
+            {canViewVendors && (
+              <NavItem href="/protected/vendors" icon={Building2} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Vendors</NavItem>
+            )}
             <NavItem href="/protected/phone-numbers" icon={Hash} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Phone Numbers</NavItem>
             {isOwnerOrAdmin && (
               <NavItem href="/protected/blocked-callers" icon={ShieldBan} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Blocked Callers</NavItem>
@@ -106,12 +116,21 @@ export default function Sidebar({
               <NavItem href="/protected/usage" icon={Activity} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Usage</NavItem>
               <NavItem href="/protected/billing" icon={CreditCard} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Billing</NavItem>
             </NavGroup>
-
-            <NavGroup title="Workspace">
-              <NavItem href="/protected/members" icon={Users2} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Members</NavItem>
-              <NavItem href="/protected/settings" icon={Settings} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Settings</NavItem>
-            </NavGroup>
           </>
+        )}
+
+        {(isOwnerOrAdmin || canViewAuditLogs) && (
+          <NavGroup title="Workspace">
+            {isOwnerOrAdmin && (
+              <NavItem href="/protected/members" icon={Users2} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Members</NavItem>
+            )}
+            {canViewAuditLogs && (
+              <NavItem href="/protected/audit-logs" icon={ScrollText} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Audit Logs</NavItem>
+            )}
+            {isOwnerOrAdmin && (
+              <NavItem href="/protected/settings" icon={Settings} pathname={pathname} getUrl={getUrl} onNavClick={onNavClick}>Settings</NavItem>
+            )}
+          </NavGroup>
         )}
 
         <NavGroup title="Personal">

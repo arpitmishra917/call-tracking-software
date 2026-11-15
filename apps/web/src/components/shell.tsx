@@ -8,7 +8,7 @@ import WorkspaceValidator from '@/components/workspace-validator';
 import { cn } from '@/utils/cn';
 
 interface ShellProps {
-  workspaces: { id: string; name: string; role: string; participant_type?: string }[];
+  workspaces: { id: string; name: string; role: string; participant_type?: string; vendor_id?: string | null; buyer_id?: string | null }[];
   user: { email?: string };
   children: React.ReactNode;
 }

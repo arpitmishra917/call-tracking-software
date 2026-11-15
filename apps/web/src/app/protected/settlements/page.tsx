@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import Link from 'next/link';
@@ -91,12 +91,25 @@ function formatPeriodDate(isoString: string): string {
 export default function SettlementsPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
+  const requestGenRef = useRef(0);
 
   // Batches state
   const [batches, setBatches] = useState<SettlementBatchItem[]>([]);
   const [totalBatches, setTotalBatches] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    requestGenRef.current++;
+    setBatches([]);
+    setTotalBatches(0);
+    setSelectedBatch(null);
+    setBatchItems([]);
+    setError(null);
+    setItemsError(null);
+  }, [workspaceId]);
 
   // Filters state
   const [filterParticipantType, setFilterParticipantType] = useState<string>('');
@@ -152,6 +165,8 @@ export default function SettlementsPage() {
   // Load settlement batches with active filters
   const loadBatches = useCallback(async () => {
     if (!workspaceId) return;
+    const targetWs = workspaceId;
+    const currentGen = ++requestGenRef.current;
     setLoading(true);
     setError(null);
 
@@ -168,12 +183,20 @@ export default function SettlementsPage() {
       if (filterPeriodEnd) query.set('period_end', new Date(filterPeriodEnd).toISOString());
 
       const data = await apiFetch(`/workspaces/${workspaceId}/settlements/batches?${query.toString()}`);
+      if (currentGen !== requestGenRef.current || targetWs !== currentWorkspaceIdRef.current) {
+        return;
+      }
       setBatches(data?.batches || data?.items || []);
       setTotalBatches(data?.total || 0);
     } catch (err: any) {
+      if (currentGen !== requestGenRef.current || targetWs !== currentWorkspaceIdRef.current) {
+        return;
+      }
       setError(err?.message || 'Failed to load settlement batches.');
     } finally {
-      setLoading(false);
+      if (currentGen === requestGenRef.current && targetWs === currentWorkspaceIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [
     workspaceId,
@@ -196,6 +219,7 @@ export default function SettlementsPage() {
   // Load items when a batch is selected
   async function handleSelectBatch(batch: SettlementBatchItem) {
     if (!workspaceId) return;
+    const targetWs = workspaceId;
     setSelectedBatch(batch);
     setLoadingItems(true);
     setItemsError(null);
@@ -203,11 +227,17 @@ export default function SettlementsPage() {
 
     try {
       const data = await apiFetch(`/workspaces/${workspaceId}/settlements/batches/${batch.id}/items?limit=100`);
-      setBatchItems(data?.items || []);
+      if (targetWs === currentWorkspaceIdRef.current) {
+        setBatchItems(data?.items || []);
+      }
     } catch (err: any) {
-      setItemsError(err?.message || 'Failed to load settlement items.');
+      if (targetWs === currentWorkspaceIdRef.current) {
+        setItemsError(err?.message || 'Failed to load settlement items.');
+      }
     } finally {
-      setLoadingItems(false);
+      if (targetWs === currentWorkspaceIdRef.current) {
+        setLoadingItems(false);
+      }
     }
   }
 
@@ -495,7 +525,7 @@ export default function SettlementsPage() {
             <div className="py-12 text-center text-sm text-muted-foreground">
               Loading settlement batches...
             </div>
-          ) : batches.length === 0 ? (
+          ) : error ? null : batches.length === 0 ? (
             <EmptyState
               title="No settlement batches found"
               description="No settlement batches have been generated or matched the selected filters."

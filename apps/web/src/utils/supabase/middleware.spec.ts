@@ -50,6 +50,22 @@ describe('Frontend Middleware Auth (MOCK)', () => {
     expect(NextResponse.redirect).toHaveBeenCalled();
   });
 
+  it('Unauthenticated onboarding behavior - Redirects to /login', async () => {
+    mockSupabase.auth.getUser.mockResolvedValue({ data: { user: null } });
+
+    const req = {
+      cookies: { getAll: vi.fn(), set: vi.fn() },
+      nextUrl: {
+        pathname: '/onboarding',
+        clone: () => ({ pathname: '/onboarding' }),
+      },
+    } as unknown as NextRequest;
+
+    await updateSession(req);
+
+    expect(NextResponse.redirect).toHaveBeenCalled();
+  });
+
   it('Authenticated protected-page behavior - Allows access', async () => {
     mockSupabase.auth.getUser.mockResolvedValue({ data: { user: { id: '123' } } });
 
@@ -65,5 +81,61 @@ describe('Frontend Middleware Auth (MOCK)', () => {
 
     expect(NextResponse.redirect).not.toHaveBeenCalled();
     expect(NextResponse.next).toHaveBeenCalled();
+  });
+
+  it('Public route /login bypasses auth check without calling getUser', async () => {
+    const req = {
+      cookies: { getAll: vi.fn(), set: vi.fn() },
+      nextUrl: {
+        pathname: '/login',
+        clone: () => ({ pathname: '/login' }),
+      },
+    } as unknown as NextRequest;
+
+    await updateSession(req);
+
+    expect(mockSupabase.auth.getUser).not.toHaveBeenCalled();
+    expect(NextResponse.redirect).not.toHaveBeenCalled();
+    expect(NextResponse.next).toHaveBeenCalled();
+  });
+
+  it('Protected route handles auth service network failure gracefully by redirecting to /login', async () => {
+    mockSupabase.auth.getUser.mockRejectedValue(new Error('fetch failed'));
+
+    const req = {
+      cookies: { getAll: vi.fn(), set: vi.fn() },
+      nextUrl: {
+        pathname: '/protected',
+        clone: () => ({ pathname: '/protected' }),
+      },
+    } as unknown as NextRequest;
+
+    await updateSession(req);
+
+    expect(NextResponse.redirect).toHaveBeenCalled();
+  });
+
+  it('Unauthenticated invitation routes with token redirect to /invitations preserving token', async () => {
+    mockSupabase.auth.getUser.mockResolvedValue({ data: { user: null } });
+
+    const searchParams = new URLSearchParams('token=invite-token-123');
+    const cloneTarget = { pathname: '/protected/accept-invitation', search: '' };
+    const req = {
+      cookies: { getAll: vi.fn(), set: vi.fn() },
+      nextUrl: {
+        pathname: '/protected/accept-invitation',
+        searchParams,
+        clone: () => cloneTarget,
+      },
+    } as unknown as NextRequest;
+
+    await updateSession(req);
+
+    expect(NextResponse.redirect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathname: '/invitations',
+        search: '?token=invite-token-123',
+      })
+    );
   });
 });

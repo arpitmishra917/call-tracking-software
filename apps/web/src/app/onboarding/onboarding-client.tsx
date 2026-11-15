@@ -32,16 +32,27 @@ export default function OnboardingClient({ token, apiUrl }: { token: string; api
       if (!res.ok) {
         let errorMsg = 'Failed to create workspace.';
         try {
-          const data = await res.json();
-          errorMsg = data.message || errorMsg;
+          const errData = await res.json();
+          errorMsg = errData.message || errorMsg;
         } catch {
           // fallback
         }
         throw new Error(errorMsg);
       }
       
-      // Success
-      router.push('/protected');
+      // Success: capture created workspace ID and establish active workspace context
+      const data = await res.json().catch(() => null);
+      const createdWorkspaceId = data?.id;
+
+      if (createdWorkspaceId && typeof window !== 'undefined') {
+        sessionStorage.setItem('callflow.active_workspace_id', createdWorkspaceId);
+      }
+
+      if (createdWorkspaceId) {
+        router.push(`/protected/reporting?workspace=${createdWorkspaceId}`);
+      } else {
+        router.push('/protected');
+      }
       router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred.');

@@ -54,11 +54,15 @@ export default function DisputesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [page, setPage] = useState<number>(1);
+  const [total, setTotal] = useState<number>(0);
+  const pageSize = 25;
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Role detection
   const [userRole, setUserRole] = useState<{ role: string; isVendor: boolean } | null>(null);
+  const isOwnerOrAdmin = userRole?.role === 'OWNER' || userRole?.role === 'ADMIN';
 
   // Resolution modal state
   const [resolvingDispute, setResolvingDispute] = useState<DisputeItem | null>(null);
@@ -96,33 +100,32 @@ export default function DisputesPage() {
     setActionError(null);
 
     try {
-      // Calls API provides calls with their commercial and dispute data
-      // This respects role-based filtering automatically (Vendors receive 403 on dispute data, Buyers see only own)
-      const data = await apiFetch(`/workspaces/${workspaceId}/calls?limit=100`);
-      const items = data?.items || [];
+      const offset = (page - 1) * pageSize;
+      const statusParam = statusFilter !== 'ALL' ? `&status=${statusFilter}` : '';
+      const data = await apiFetch(
+        `/workspaces/${workspaceId}/disputes?limit=${pageSize}&offset=${offset}${statusParam}`
+      );
 
-      // Extract all calls that have commercial dispute records
-      const disputeList: DisputeItem[] = [];
-      for (const call of items) {
-        if (call.commercial?.disputeStatus) {
-          disputeList.push({
-            id: call.commercial.dispute?.id || `disp-${call.id}`,
-            call_id: call.id,
-            status: call.commercial.disputeStatus as 'PENDING' | 'ACCEPTED' | 'REJECTED',
-            reason: call.commercial.disputeReason || 'Unspecified',
-            description: call.commercial.dispute?.description || null,
-            resolution_notes: call.commercial.dispute?.resolution_notes || null,
-            resolved_at: call.commercial.dispute?.resolved_at || null,
-            created_at: call.commercial.dispute?.created_at || call.created_at,
-            buyer: call.commercial.buyer || null,
-            revenue: call.commercial.revenue ?? null,
-            currency: call.commercial.currency || 'USD',
-            adjustment: call.commercial.adjustment || null,
-          });
-        }
-      }
+      const items = Array.isArray(data) ? data : data?.items || [];
+      const totalCount = typeof data?.total === 'number' ? data.total : items.length;
+
+      const disputeList: DisputeItem[] = items.map((item: any) => ({
+        id: item.id || `disp-${item.call_id || item.id}`,
+        call_id: item.call_id || item.commercial?.call_id || '',
+        status: item.status || item.commercial?.disputeStatus || 'PENDING',
+        reason: item.reason || item.commercial?.disputeReason || 'Unspecified',
+        description: item.description ?? item.commercial?.dispute?.description ?? null,
+        resolution_notes: item.resolution_notes ?? item.commercial?.dispute?.resolution_notes ?? null,
+        resolved_at: item.resolved_at ?? item.commercial?.dispute?.resolved_at ?? null,
+        created_at: item.created_at || item.commercial?.dispute?.created_at || new Date().toISOString(),
+        buyer: item.buyer ?? item.commercial?.buyer ?? null,
+        revenue: item.revenue ?? item.commercial?.revenue ?? null,
+        currency: item.currency || item.commercial?.currency || 'USD',
+        adjustment: item.adjustment ?? item.commercial?.adjustment ?? null,
+      }));
 
       setDisputes(disputeList);
+      setTotal(totalCount);
     } catch (err: any) {
       if (err?.message?.includes('403') || err?.message?.toLowerCase().includes('forbidden')) {
         setError('Access denied: You do not have permission to view commercial disputes.');
@@ -132,7 +135,7 @@ export default function DisputesPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, page, pageSize, statusFilter]);
 
   useEffect(() => {
     if (workspaceId) {
@@ -263,7 +266,10 @@ export default function DisputesPage() {
                 size="sm"
                 variant={statusFilter === status ? 'primary' : 'ghost'}
                 className="h-7 text-xs px-2.5"
-                onClick={() => setStatusFilter(status)}
+                onClick={() => {
+                setStatusFilter(status);
+                setPage(1);
+              }}
               >
                 {status}
               </Button>
@@ -352,7 +358,7 @@ export default function DisputesPage() {
                           View
                         </Link>
 
-                        {dispute.status === 'PENDING' && (
+                        {isOwnerOrAdmin && dispute.status === 'PENDING' && (
                           <>
                             <Button
                               size="sm"
@@ -395,6 +401,37 @@ export default function DisputesPage() {
               </TableBody>
             </Table>
           )}
+
+          {total > 0 && !loading && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border mt-4">
+              <div className="text-xs text-muted-foreground">
+                Showing {total === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, total)} of {total} disputes
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={page <= 1 || loading}
+                  className="h-8 text-xs"
+                >
+                  Previous
+                </Button>
+                <div className="text-xs text-muted-foreground px-2">
+                  Page {page} of {Math.max(Math.ceil(total / pageSize), 1)}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((prev) => Math.min(prev + 1, Math.ceil(total / pageSize)))}
+                  disabled={page >= Math.ceil(total / pageSize) || loading}
+                  className="h-8 text-xs"
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -410,13 +447,13 @@ export default function DisputesPage() {
         }}
         title={resolveAction === 'ACCEPTED' ? 'Accept Dispute' : 'Reject Dispute'}
         description={
-          <div className="space-y-3 pt-2">
-            <p className="text-sm text-foreground">
+          <span className="block space-y-3 pt-2">
+            <span className="block text-sm text-foreground">
               {resolveAction === 'ACCEPTED'
                 ? `Accepting dispute for call ${resolvingDispute?.call_id.slice(0, 8)} will reverse revenue and payout via a financial adjustment record.`
                 : `Rejecting dispute for call ${resolvingDispute?.call_id.slice(0, 8)} will maintain original commercial accounting.`}
-            </p>
-            <div className="space-y-1">
+            </span>
+            <span className="block space-y-1">
               <Label htmlFor="res-notes" className="text-xs font-medium">Resolution Notes (Optional)</Label>
               <Input
                 id="res-notes"
@@ -426,8 +463,8 @@ export default function DisputesPage() {
                 disabled={isSubmittingResolution}
                 className="h-8 text-xs"
               />
-            </div>
-          </div>
+            </span>
+          </span>
         }
         confirmText={resolveAction === 'ACCEPTED' ? 'Accept Dispute' : 'Reject Dispute'}
         cancelText="Cancel"

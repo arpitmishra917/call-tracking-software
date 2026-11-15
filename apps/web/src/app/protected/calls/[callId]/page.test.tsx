@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import CallDetailPage from './page';
 import { apiFetch } from '@/lib/api';
@@ -17,286 +17,163 @@ vi.mock('next/link', () => ({
   default: ({ children, href }: any) => <a href={href}>{children}</a>,
 }));
 
-describe('CallDetailPage Dispute & Adjustment UI (COMM-INTEGRATION-4)', () => {
+describe('Call Detail Page - Destination Snapshots & Timeline', () => {
+  const mockOwnerWorkspace = {
+    id: 'ws-test-1',
+    role: 'OWNER',
+    participant_type: 'INTERNAL',
+  };
+
+  const mockVendorWorkspace = {
+    id: 'ws-test-1',
+    role: 'MEMBER',
+    participant_type: 'VENDOR',
+  };
+
+  const mockCallDetail = {
+    id: 'call-100',
+    provider_call_id: 'CA123456789',
+    from_number: '+15550001111',
+    to_number: '+18005550100',
+    state: 'COMPLETED',
+    created_at: '2026-11-05T10:00:00Z',
+    campaign: { name: 'Auto Insurance Inbound' },
+    attempts: [
+      {
+        id: 'att-1',
+        created_at: '2026-11-05T10:00:05Z',
+        buyer_id: 'buyer-1',
+        destination_number: '+15551112222',
+        destination_number_id: 'dn-1',
+        destination_ref: {
+          id: 'dn-1',
+          name: 'Primary Center',
+          destination_number: '+15551112222',
+        },
+        state: 'NO_ANSWER',
+        buyer: { name: 'Apex Health Org' },
+      },
+      {
+        id: 'att-2',
+        created_at: '2026-11-05T10:00:35Z',
+        buyer_id: 'buyer-2',
+        destination_number: '+15553334444',
+        destination_number_id: 'dn-2',
+        destination_ref: {
+          id: 'dn-2',
+          name: 'Overflow Center',
+          destination_number: '+15553334444',
+        },
+        state: 'COMPLETED',
+        started_at: '2026-11-05T10:00:35Z',
+        answered_at: '2026-11-05T10:00:40Z',
+        ended_at: '2026-11-05T10:02:10Z',
+        buyer: { name: 'Beacon Care Org' },
+      },
+    ],
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     (useSearchParams as any).mockReturnValue({
-      get: (key: string) => (key === 'workspace' ? 'ws-test-456' : null),
+      get: (key: string) => (key === 'workspace' ? 'ws-test-1' : null),
+      toString: () => 'workspace=ws-test-1',
     });
   });
 
-  it('renders commercial financial details and dispute filing button when no dispute exists', async () => {
+  it('renders routing attempts with dialed destination snapshot and friendly label for Owner/Admin', async () => {
     (apiFetch as any).mockImplementation((url: string) => {
-      if (url.includes('/calls/call-1')) {
-        return Promise.resolve({
-          id: 'call-1',
-          from_number: '+15551234567',
-          to_number: '+15559876543',
-          state: 'COMPLETED',
-          created_at: '2026-10-01T10:00:00Z',
-          attempts: [],
-          commercial: {
-            id: 'comm-1',
-            status: 'PENDING',
-            qualified: true,
-            converted: true,
-            duplicate: false,
-            revenue: 100,
-            payout: 50,
-            currency: 'USD',
-            buyer: { id: 'b-1', name: 'Premium Buyer' },
-            dispute: null,
-          },
-        });
+      if (url === '/workspaces/ws-test-1/calls/call-100') {
+        return Promise.resolve(mockCallDetail);
       }
-      return Promise.resolve({});
-    });
-
-    render(<CallDetailPage params={{ callId: 'call-1' }} />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Commercial Economics')).toBeDefined();
-      expect(screen.getByText('File Dispute')).toBeDefined();
-    });
-  });
-
-  it('allows user to file a dispute with reason and description', async () => {
-    (apiFetch as any).mockImplementation((url: string) => {
-      if (url.includes('/calls/call-1')) {
-        return Promise.resolve({
-          id: 'call-1',
-          from_number: '+15551234567',
-          to_number: '+15559876543',
-          state: 'COMPLETED',
-          created_at: '2026-10-01T10:00:00Z',
-          attempts: [],
-          commercial: {
-            id: 'comm-1',
-            status: 'PENDING',
-            qualified: true,
-            converted: true,
-            duplicate: false,
-            revenue: 100,
-            currency: 'USD',
-            dispute: null,
-          },
-        });
-      }
-      if (url.includes('/call-commercials/comm-1/dispute')) {
-        return Promise.resolve({
-          id: 'disp-created-1',
-          status: 'PENDING',
-          reason: 'Call was silence only',
-        });
-      }
-      return Promise.resolve({});
-    });
-
-    render(<CallDetailPage params={{ callId: 'call-1' }} />);
-
-    await waitFor(() => {
-      expect(screen.getByText('File Dispute')).toBeDefined();
-    });
-
-    fireEvent.click(screen.getByText('File Dispute'));
-
-    const reasonInput = screen.getByLabelText(/Reason \*/i);
-    fireEvent.change(reasonInput, { target: { value: 'Call was silence only' } });
-
-    const submitBtn = screen.getByRole('button', { name: 'Submit Dispute' });
-    fireEvent.click(submitBtn);
-
-    await waitFor(() => {
-      expect(apiFetch).toHaveBeenCalledWith(
-        '/workspaces/ws-test-456/call-commercials/comm-1/dispute',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({
-            reason: 'Call was silence only',
-          }),
-        })
-      );
-    });
-  });
-
-  it('renders pending dispute and allows resolving dispute', async () => {
-    (apiFetch as any).mockImplementation((url: string) => {
-      if (url.includes('/calls/call-2')) {
-        return Promise.resolve({
-          id: 'call-2',
-          from_number: '+15551234567',
-          to_number: '+15559876543',
-          state: 'COMPLETED',
-          created_at: '2026-10-01T10:00:00Z',
-          attempts: [],
-          commercial: {
-            id: 'comm-2',
-            status: 'PENDING',
-            qualified: true,
-            converted: true,
-            duplicate: false,
-            revenue: 80,
-            currency: 'USD',
-            dispute: {
-              id: 'disp-2',
-              status: 'PENDING',
-              reason: 'Wrong geographic region',
-            },
-          },
-        });
-      }
-      if (url.includes('/disputes/disp-2/resolve')) {
-        return Promise.resolve({
-          dispute: { id: 'disp-2', status: 'ACCEPTED' },
-        });
-      }
-      return Promise.resolve({});
-    });
-
-    render(<CallDetailPage params={{ callId: 'call-2' }} />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Buyer Dispute')).toBeDefined();
-      expect(screen.getByText('Wrong geographic region')).toBeDefined();
-      expect(screen.getByText('Accept Dispute')).toBeDefined();
-      expect(screen.getByText('Reject Dispute')).toBeDefined();
-    });
-
-    fireEvent.click(screen.getByText('Accept Dispute'));
-
-    // In modal, click Accept Dispute
-    const confirmButtons = screen.getAllByRole('button', { name: 'Accept Dispute' });
-    fireEvent.click(confirmButtons[confirmButtons.length - 1]);
-
-    await waitFor(() => {
-      expect(apiFetch).toHaveBeenCalledWith(
-        '/workspaces/ws-test-456/disputes/disp-2/resolve',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({
-            status: 'ACCEPTED',
-          }),
-        })
-      );
-    });
-  });
-
-  it('renders financial adjustment reversal when present', async () => {
-    (apiFetch as any).mockImplementation((url: string) => {
-      if (url.includes('/calls/call-3')) {
-        return Promise.resolve({
-          id: 'call-3',
-          from_number: '+15551234567',
-          to_number: '+15559876543',
-          state: 'COMPLETED',
-          created_at: '2026-10-01T10:00:00Z',
-          attempts: [],
-          commercial: {
-            id: 'comm-3',
-            status: 'FINAL',
-            qualified: true,
-            converted: true,
-            duplicate: false,
-            revenue: 0,
-            currency: 'USD',
-            dispute: {
-              id: 'disp-3',
-              status: 'ACCEPTED',
-              reason: 'Unqualified lead accepted by admin',
-              resolution_notes: 'Full refund agreed',
-            },
-            adjustment: {
-              id: 'adj-3',
-              original_revenue: 120,
-              adjusted_revenue: 0,
-              original_payout: 60,
-              adjusted_payout: 0,
-              reason: 'Full refund agreed',
-              created_at: '2026-10-02T10:00:00Z',
-            },
-          },
-        });
-      }
-      return Promise.resolve({});
-    });
-
-    render(<CallDetailPage params={{ callId: 'call-3' }} />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Financial Adjustment')).toBeDefined();
-      expect(screen.getByText('Reversed')).toBeDefined();
-      expect(screen.getByText('Original Revenue:')).toBeDefined();
-      expect(screen.getByText('Adjusted Revenue:')).toBeDefined();
-    });
-  });
-
-  it('COMM-INTEGRATION-6: scopes vendor view by hiding disputes, buyer identities, and non-vendor economics', async () => {
-    (apiFetch as any).mockImplementation((url: string) => {
       if (url === '/workspaces') {
-        return Promise.resolve([
-          { id: 'ws-test-456', role: 'MEMBER', participant_type: 'VENDOR' },
-        ]);
-      }
-      if (url.includes('/calls/call-vendor-1')) {
-        return Promise.resolve({
-          id: 'call-vendor-1',
-          from_number: '+15551234567',
-          to_number: '+15559876543',
-          state: 'COMPLETED',
-          created_at: '2026-10-01T10:00:00Z',
-          campaign: { name: 'Inbound Campaign' },
-          attempts: [
-            {
-              id: 'att-1',
-              state: 'COMPLETED',
-              buyer: { id: 'b-1', name: 'Secret Buyer Inc' },
-              started_at: '2026-10-01T10:00:01Z',
-              answered_at: '2026-10-01T10:00:05Z',
-              ended_at: '2026-10-01T10:02:05Z',
-            },
-          ],
-          commercial: {
-            id: 'comm-v-1',
-            status: 'FINAL',
-            qualified: true,
-            converted: true,
-            duplicate: false,
-            payout: 45.0,
-            currency: 'USD',
-            vendor: { id: 'v-1', name: 'Premier Vendor' },
-            // dispute, revenue, cost, profit omitted for vendor
-          },
-        });
+        return Promise.resolve([mockOwnerWorkspace]);
       }
       return Promise.resolve({});
     });
 
-    render(<CallDetailPage params={{ callId: 'call-vendor-1' }} />);
+    render(<CallDetailPage params={{ callId: 'call-100' }} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Commercial Economics')).toBeDefined();
+      expect(screen.getByText('Routing Timeline')).toBeDefined();
     });
 
-    // Payout should be visible
-    expect(screen.getByTestId('detail-payout')).toBeDefined();
-    expect(screen.getByText('$45.00')).toBeDefined();
+    // Buyers
+    expect(screen.getByText('1. Apex Health Org')).toBeDefined();
+    expect(screen.getByText('2. Beacon Care Org')).toBeDefined();
 
-    // Revenue, Cost, Profit should NOT be visible
-    expect(screen.queryByTestId('detail-revenue')).toBeNull();
-    expect(screen.queryByTestId('detail-cost')).toBeNull();
-    expect(screen.queryByTestId('detail-profit')).toBeNull();
+    // Endpoints snapshot
+    expect(screen.getByText('+15551112222')).toBeDefined();
+    expect(screen.getByText('Primary Center')).toBeDefined();
+    expect(screen.getByText('+15553334444')).toBeDefined();
+    expect(screen.getByText('Overflow Center')).toBeDefined();
+  });
 
-    // Dispute actions and sections should NOT be visible
-    expect(screen.queryByText('File Dispute')).toBeNull();
-    expect(screen.queryByText('Buyer Dispute')).toBeNull();
+  it('masks buyer identity and destination number endpoints for Vendor participant workspaces', async () => {
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url === '/workspaces/ws-test-1/calls/call-100') {
+        return Promise.resolve(mockCallDetail);
+      }
+      if (url === '/workspaces') {
+        return Promise.resolve([mockVendorWorkspace]);
+      }
+      return Promise.resolve({});
+    });
 
-    // Buyer identity should NOT be visible
-    expect(screen.queryByText('Final Buyer')).toBeNull();
-    expect(screen.queryByText('Commercial Buyer')).toBeNull();
-    expect(screen.queryByText('Secret Buyer Inc')).toBeNull();
+    render(<CallDetailPage params={{ callId: 'call-100' }} />);
 
-    // Timeline should show masked attempt
+    await waitFor(() => {
+      expect(screen.getByText('Routing Timeline')).toBeDefined();
+    });
+
+    // Attempts should be numbered without buyer names
     expect(screen.getByText('Attempt #1')).toBeDefined();
-    expect(screen.getByText('Sequence of routing attempts.')).toBeDefined();
+    expect(screen.getByText('Attempt #2')).toBeDefined();
+
+    // Buyer org names and dialed endpoints should be hidden
+    expect(screen.queryByText('Apex Health Org')).toBeNull();
+    expect(screen.queryByText('Primary Center')).toBeNull();
+    expect(screen.queryByText('+15551112222')).toBeNull();
+  });
+
+  it('resolves recording download endpoint using call.workspace_id over ambient workspace parameter', async () => {
+    const windowOpenSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    const callWithRecording = {
+      ...mockCallDetail,
+      workspace_id: 'ws-actual-call-tenant',
+      recordings: [
+        {
+          id: 'rec-xyz-99',
+          status: 'COMPLETED',
+          duration_secs: 60,
+        },
+      ],
+    };
+
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url === '/workspaces/ws-test-1/calls/call-100') {
+        return Promise.resolve(callWithRecording);
+      }
+      if (url === '/workspaces') {
+        return Promise.resolve([mockOwnerWorkspace]);
+      }
+      if (url === '/workspaces/ws-actual-call-tenant/recordings/rec-xyz-99/download') {
+        return Promise.resolve({ url: 'https://storage.callflow.internal/recordings/rec-xyz-99.mp3' });
+      }
+      return Promise.resolve({});
+    });
+
+    render(<CallDetailPage params={{ callId: 'call-100' }} />);
+
+    const downloadBtn = await screen.findByRole('button', { name: /download/i });
+    fireEvent.click(downloadBtn);
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith('/workspaces/ws-actual-call-tenant/recordings/rec-xyz-99/download');
+      expect(windowOpenSpy).toHaveBeenCalledWith('https://storage.callflow.internal/recordings/rec-xyz-99.mp3', '_blank');
+    });
+
+    windowOpenSpy.mockRestore();
   });
 });

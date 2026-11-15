@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { formatCallerDisplay } from '@/lib/phone';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,21 +17,33 @@ interface Attempt {
   id: string;
   created_at: string;
   buyer_id: string;
+  destination_number?: string | null;
+  destination_number_id?: string | null;
+  destination_ref?: {
+    id: string;
+    name?: string | null;
+    destination_number: string;
+  } | null;
   state: string;
   duration_secs?: number | null;
+  talkDurationSecs?: number | null;
+  totalDurationSecs?: number | null;
   started_at?: string | null;
   answered_at?: string | null;
   ended_at?: string | null;
-  buyer?: { name: string } | null;
+  buyer?: { name: string; destination_number?: string | null } | null;
 }
 
 interface CallDetail {
+  workspace_id?: string;
   id: string;
   provider_call_id: string;
   from_number: string;
   to_number: string;
   state: string;
   duration_secs?: number | null;
+  talkDurationSecs?: number | null;
+  totalDurationSecs?: number | null;
   started_at?: string | null;
   answered_at?: string | null;
   ended_at?: string | null;
@@ -120,6 +133,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
   const [resolutionNotes, setResolutionNotes] = useState('');
   const [resolvingDispute, setResolvingDispute] = useState(false);
   const [isVendorWorkspace, setIsVendorWorkspace] = useState(false);
+  const [isOwnerOrAdmin, setIsOwnerOrAdmin] = useState(false);
 
   useEffect(() => {
     async function checkVendorRole() {
@@ -131,6 +145,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
           : null;
         if (currentWs) {
           setIsVendorWorkspace(currentWs.participant_type === 'VENDOR');
+          setIsOwnerOrAdmin(currentWs.role === 'OWNER' || currentWs.role === 'ADMIN');
         }
       } catch {
         // Continue if workspace query fails
@@ -155,6 +170,10 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
   }
 
   useEffect(() => {
+    setCall(null);
+    setError(null);
+    setRecordingUrl(null);
+    setShowPlayer(false);
     if (workspaceId && callId) {
       loadCall();
     }
@@ -219,12 +238,13 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
   }
 
   async function handleFetchRecordingUrl(action: 'play' | 'download') {
-    if (!workspaceId || !call?.recordings?.[0]?.id) return;
+    const effectiveWs = call?.workspace_id || workspaceId;
+    if (!effectiveWs || !call?.recordings?.[0]?.id) return;
     
     setLoadingRecording(true);
     setRecordingError(null);
     try {
-      const res = await apiFetch(`/workspaces/${workspaceId}/recordings/${call.recordings[0].id}/download`);
+      const res = await apiFetch(`/workspaces/${effectiveWs}/recordings/${call.recordings[0].id}/download`);
       
       if (res.url) {
         if (action === 'download') {
@@ -337,7 +357,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                     <Phone className="w-3.5 h-3.5" /> Caller
                   </span>
-                  <p className="font-mono text-base font-medium">{call.from_number}</p>
+                  <p className="font-mono text-base font-medium">{formatCallerDisplay(call.from_number, isVendor)}</p>
                 </div>
                 <div className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
@@ -364,7 +384,11 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                     <Calendar className="w-3.5 h-3.5" /> Started At
                   </span>
                   <p className="font-medium text-base">
-                    {call.started_at ? new Date(call.started_at).toLocaleString() : '—'}
+                    {call.started_at
+                      ? new Date(call.started_at).toLocaleString()
+                      : call.created_at
+                      ? new Date(call.created_at).toLocaleString()
+                      : '—'}
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -372,7 +396,11 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                     <Calendar className="w-3.5 h-3.5" /> Answered At
                   </span>
                   <p className="font-medium text-base">
-                    {call.answered_at ? new Date(call.answered_at).toLocaleString() : '—'}
+                    {call.answered_at
+                      ? new Date(call.answered_at).toLocaleString()
+                      : answeredAttempt?.answered_at
+                      ? new Date(answeredAttempt.answered_at).toLocaleString()
+                      : '—'}
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -380,7 +408,13 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                     <Calendar className="w-3.5 h-3.5" /> Ended At
                   </span>
                   <p className="font-medium text-base">
-                    {call.ended_at ? new Date(call.ended_at).toLocaleString() : '—'}
+                    {call.ended_at
+                      ? new Date(call.ended_at).toLocaleString()
+                      : answeredAttempt?.ended_at
+                      ? new Date(answeredAttempt.ended_at).toLocaleString()
+                      : (call.started_at || call.created_at) && typeof call.duration_secs === 'number' && call.duration_secs > 0
+                      ? new Date(new Date(call.started_at || call.created_at).getTime() + call.duration_secs * 1000).toLocaleString()
+                      : '—'}
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -388,7 +422,17 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                     <Clock className="w-3.5 h-3.5" /> Talk Duration
                   </span>
                   <p className="font-medium text-base">
-                    {call.ended_at && call.answered_at ? `${Math.floor((new Date(call.ended_at).getTime() - new Date(call.answered_at).getTime()) / 1000)} seconds` : '—'}
+                    {typeof call.talkDurationSecs === 'number'
+                      ? `${call.talkDurationSecs} seconds`
+                      : call.ended_at && call.answered_at
+                      ? `${Math.floor((new Date(call.ended_at).getTime() - new Date(call.answered_at).getTime()) / 1000)} seconds`
+                      : typeof answeredAttempt?.duration_secs === 'number'
+                      ? `${answeredAttempt.duration_secs} seconds`
+                      : answeredAttempt?.ended_at && answeredAttempt?.answered_at
+                      ? `${Math.floor((new Date(answeredAttempt.ended_at).getTime() - new Date(answeredAttempt.answered_at).getTime()) / 1000)} seconds`
+                      : (call.state === 'COMPLETED' || call.state === 'ANSWERED') && typeof call.duration_secs === 'number' && call.duration_secs > 0
+                      ? `${call.duration_secs} seconds`
+                      : '—'}
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -396,7 +440,15 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                     <Clock className="w-3.5 h-3.5" /> Total Duration
                   </span>
                   <p className="font-medium text-base">
-                    {call.ended_at && call.started_at ? `${Math.floor((new Date(call.ended_at).getTime() - new Date(call.started_at).getTime()) / 1000)} seconds` : '—'}
+                    {typeof call.totalDurationSecs === 'number'
+                      ? `${call.totalDurationSecs} seconds`
+                      : call.ended_at && call.started_at
+                      ? `${Math.floor((new Date(call.ended_at).getTime() - new Date(call.started_at).getTime()) / 1000)} seconds`
+                      : typeof call.duration_secs === 'number'
+                      ? `${call.duration_secs} seconds`
+                      : call.ended_at && call.created_at
+                      ? `${Math.floor((new Date(call.ended_at).getTime() - new Date(call.created_at).getTime()) / 1000)} seconds`
+                      : '—'}
                   </p>
                 </div>
               </div>
@@ -517,7 +569,7 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                             <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Resolution Notes:</span> {call.commercial.dispute.resolution_notes}</p>
                           )}
 
-                          {call.commercial.dispute.status === 'PENDING' && (
+                          {isOwnerOrAdmin && call.commercial.dispute.status === 'PENDING' && (
                             <div className="pt-2 border-t border-border flex flex-wrap gap-2 justify-end">
                               <Button
                                 size="sm"
@@ -797,6 +849,22 @@ export default function CallDetailPage({ params }: { params: Promise<{ callId: s
                               {attempt.state}
                             </Badge>
                           </div>
+
+                          {!isVendor && (attempt.destination_number || attempt.destination_ref?.destination_number || attempt.buyer?.destination_number) && (
+                            <div className="flex items-center justify-between text-xs text-muted-foreground pt-0.5">
+                              <span className="text-[11px] font-medium">Endpoint:</span>
+                              <span className="flex items-center gap-1.5">
+                                {attempt.destination_ref?.name && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-foreground font-medium">
+                                    {attempt.destination_ref.name}
+                                  </span>
+                                )}
+                                <span className="font-mono text-[11px]">
+                                  {attempt.destination_number || attempt.destination_ref?.destination_number || attempt.buyer?.destination_number}
+                                </span>
+                              </span>
+                            </div>
+                          )}
                           
                           <div className="flex flex-col text-xs text-muted-foreground mt-1">
                             {attempt.started_at && (
