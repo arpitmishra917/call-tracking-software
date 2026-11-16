@@ -28,6 +28,8 @@
   },
   "homepage": "https://github.com/arpitmishra917/call-tracking-software#readme",
   "dependencies": {
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jest": "^30.5.1",
