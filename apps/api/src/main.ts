@@ -175,7 +175,7 @@ export function validatePublicHttpsUrl(urlStr: string | undefined, varName: stri
   return parsed.origin;
 }
 
-function validateStartupConfig(): void {
+export function validateStartupConfig(): void {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!supabaseUrl || !supabaseUrl.trim()) {
     console.error(
@@ -259,7 +259,9 @@ function validateStartupConfig(): void {
   console.log(`[CONFIG] Database configured: ${Boolean(process.env.DATABASE_URL)}`);
 }
 
-validateStartupConfig();
+if (!process.env.VITEST) {
+  validateStartupConfig();
+}
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -267,7 +269,7 @@ import { AppModule } from './app.module.js';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
-async function bootstrap() {
+export async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // 1. Secure HTTP Headers
@@ -304,6 +306,9 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 }
-await bootstrap();
+
+if (!process.env.VITEST) {
+  await bootstrap();
+}

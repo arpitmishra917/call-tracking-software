@@ -1,7 +1,7 @@
-import { Controller, Get, Res, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Head, Res, HttpStatus } from '@nestjs/common';
 import type { Response } from 'express';
 import { HealthService } from './health.service.js';
-import type { HealthCheckResult, LivenessResult } from './health.service.js';
+import type { HealthCheckResult, LivenessResult, PingResult } from './health.service.js';
 
 @Controller('health')
 export class HealthController {
@@ -28,5 +28,15 @@ export class HealthController {
   @Get('live')
   getLive(): LivenessResult {
     return this.healthService.checkLiveness();
+  }
+
+  @Get('ping')
+  getPing(): PingResult {
+    return this.healthService.getPing();
+  }
+
+  @Head('ping')
+  headPing(): PingResult {
+    return this.healthService.getPing();
   }
 }

@@ -64,6 +64,15 @@ describe('Health & Readiness Verification (Operational Staging Readiness)', () =
       expect(result.status).toBe('ok');
       expect(result.timestamp).toBeDefined();
     });
+
+    it('3b. HealthService getPing returns lightweight ping payload without database queries', () => {
+      const result = service.getPing();
+      expect(result.status).toBe('ok');
+      expect(result.service).toBe('callflow-api');
+      expect(result.timestamp).toBeDefined();
+      expect(new Date(result.timestamp).getTime()).not.toBeNaN();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
   });
 
   describe('HealthController', () => {
@@ -109,6 +118,27 @@ describe('Health & Readiness Verification (Operational Staging Readiness)', () =
     it('7. GET /health/live returns ok', () => {
       const result = controller.getLive();
       expect(result.status).toBe('ok');
+    });
+
+    it('8. GET /health/ping returns public status ok without invoking database', () => {
+      const result = controller.getPing();
+      expect(result.status).toBe('ok');
+      expect(result.service).toBe('callflow-api');
+      expect(result.timestamp).toBeDefined();
+      expect(new Date(result.timestamp).getTime()).not.toBeNaN();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+
+      // Ensure no sensitive fields exist
+      const keys = Object.keys(result);
+      expect(keys.sort()).toEqual(['service', 'status', 'timestamp'].sort());
+    });
+
+    it('9. HEAD /health/ping returns ping metadata for lightweight header polling', () => {
+      const result = controller.headPing();
+      expect(result.status).toBe('ok');
+      expect(result.service).toBe('callflow-api');
+      expect(result.timestamp).toBeDefined();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
     });
   });
 });

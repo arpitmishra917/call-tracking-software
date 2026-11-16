@@ -16,6 +16,12 @@ export interface LivenessResult {
   timestamp: string;
 }
 
+export interface PingResult {
+  status: 'ok';
+  service: 'callflow-api';
+  timestamp: string;
+}
+
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
@@ -53,6 +59,14 @@ export class HealthService {
   checkLiveness(): LivenessResult {
     return {
       status: 'ok',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  getPing(): PingResult {
+    return {
+      status: 'ok',
+      service: 'callflow-api',
       timestamp: new Date().toISOString(),
     };
   }
