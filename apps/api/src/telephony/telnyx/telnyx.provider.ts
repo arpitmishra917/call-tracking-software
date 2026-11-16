@@ -196,11 +196,21 @@ export class TelnyxProvider implements TelephonyProvider {
 
     const defaultUrl = process.env.BASE_URL
       ? `${process.env.BASE_URL.replace(/\/$/, '')}/telephony/ringback.wav`
-      : 'http://localhost:3000/telephony/ringback.wav';
-    const audioUrl =
+      : undefined;
+    let audioUrl =
       ringbackUrl ||
       process.env.RINGBACK_AUDIO_URL ||
       defaultUrl;
+
+    if (!audioUrl) {
+      if (process.env.NODE_ENV === 'production') {
+        const errorMsg =
+          'FATAL: BASE_URL and RINGBACK_AUDIO_URL are unset in production. Ringback audio cannot be resolved.';
+        this.logger.error(errorMsg);
+        throw new Error(errorMsg);
+      }
+      audioUrl = 'http://localhost:3000/telephony/ringback.wav';
+    }
 
     if (this.telnyxClient && (audioUrl.includes('localhost') || audioUrl.includes('127.0.0.1'))) {
       this.logger.warn(

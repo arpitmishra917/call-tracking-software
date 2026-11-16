@@ -43,12 +43,13 @@ export class TelnyxWebhookController {
       if (!publicKey) {
         // Mock signature verification is strictly prohibited on any externally exposed runtime (development, qa, production).
         // It is preserved solely for isolated unit tests with an explicit test fixture flag or test-only mock configuration.
+        const isTestEnv =
+          process.env.NODE_ENV === 'test' && !process.env.APP_ENV;
         const isExplicitTestBypass =
-          process.env.ALLOW_UNVERIFIED_WEBHOOKS === 'true' ||
-          (process.env.NODE_ENV === 'test' &&
-            !process.env.APP_ENV &&
-            (process.env.TELEPHONY_PROVIDER === 'mock' ||
-              process.env.TELEPHONY_PROVIDER === 'fake'));
+          isTestEnv &&
+          (process.env.ALLOW_UNVERIFIED_WEBHOOKS === 'true' ||
+            process.env.TELEPHONY_PROVIDER === 'mock' ||
+            process.env.TELEPHONY_PROVIDER === 'fake');
 
         if (!isExplicitTestBypass) {
           throw new BadRequestException(

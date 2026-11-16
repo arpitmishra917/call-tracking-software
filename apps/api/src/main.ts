@@ -121,6 +121,60 @@ if (isQaMode) {
 
 // Startup Validation: Fail fast if required configuration is missing or invalid.
 // Never print secret values or access tokens.
+/**
+ * Strict validator for public HTTPS origins required by external telephony carriers.
+ * Fails closed on invalid protocol, embedded credentials, localhost, loopback, or private IP ranges.
+ */
+export function validatePublicHttpsUrl(urlStr: string | undefined, varName: string): string {
+  if (!urlStr || !urlStr.trim()) {
+    throw new Error(
+      `[CRITICAL STARTUP ERROR] ${varName} is missing! In production with Telnyx, a valid public HTTPS URL is required.`,
+    );
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(urlStr);
+  } catch {
+    throw new Error(`[CRITICAL STARTUP ERROR] ${varName} (${urlStr}) is not a valid URL.`);
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`[CRITICAL STARTUP ERROR] ${varName} must use HTTPS protocol (got: ${parsed.protocol}).`);
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error(`[CRITICAL STARTUP ERROR] ${varName} must not contain embedded credentials.`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  // Guard against localhost, loopback, link-local, and RFC 1918 private IPv4/IPv6 ranges
+  const isLocalhost = hostname === 'localhost' || hostname.endsWith('.localhost');
+  const isLoopbackIp =
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    hostname.startsWith('127.');
+  const isPrivateIp =
+    hostname.startsWith('10.') ||
+    hostname.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+    hostname.startsWith('169.254.') ||
+    hostname.startsWith('fe80:') ||
+    hostname.startsWith('fc00:') ||
+    hostname.startsWith('fd00:') ||
+    hostname === '0.0.0.0';
+
+  if (isLocalhost || isLoopbackIp || isPrivateIp) {
+    throw new Error(
+      `[CRITICAL STARTUP ERROR] ${varName} (${urlStr}) resolves to a loopback or private network address. External carriers cannot reach private addresses.`,
+    );
+  }
+
+  return parsed.origin;
+}
+
 function validateStartupConfig(): void {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!supabaseUrl || !supabaseUrl.trim()) {
@@ -160,14 +214,30 @@ function validateStartupConfig(): void {
       process.exit(1);
     }
 
-    const activeBaseUrl = process.env.BASE_URL || '';
-    const activeRingbackUrl = process.env.RINGBACK_AUDIO_URL || '';
-    const isLocalhostBase = activeBaseUrl.includes('localhost') || activeBaseUrl.includes('127.0.0.1');
-    const isLocalhostRingback = activeRingbackUrl.includes('localhost') || activeRingbackUrl.includes('127.0.0.1');
-    if (isLocalhostBase && (!activeRingbackUrl || isLocalhostRingback)) {
-      console.warn(
-        `[CONFIG WARNING] BASE_URL (${activeBaseUrl}) points to loopback/localhost! External Telnyx media servers cannot fetch ringback audio from localhost. Configure BASE_URL or RINGBACK_AUDIO_URL to a public HTTPS domain.`,
-      );
+    const isProduction =
+      process.env.NODE_ENV === 'production' &&
+      process.env.APP_ENV !== 'qa';
+
+    if (isProduction) {
+      try {
+        validatePublicHttpsUrl(process.env.BASE_URL, 'BASE_URL');
+        if (process.env.RINGBACK_AUDIO_URL) {
+          validatePublicHttpsUrl(process.env.RINGBACK_AUDIO_URL, 'RINGBACK_AUDIO_URL');
+        }
+      } catch (err: any) {
+        console.error(err.message);
+        process.exit(1);
+      }
+    } else {
+      const activeBaseUrl = process.env.BASE_URL || '';
+      const activeRingbackUrl = process.env.RINGBACK_AUDIO_URL || '';
+      const isLocalhostBase = activeBaseUrl.includes('localhost') || activeBaseUrl.includes('127.0.0.1');
+      const isLocalhostRingback = activeRingbackUrl.includes('localhost') || activeRingbackUrl.includes('127.0.0.1');
+      if (isLocalhostBase && (!activeRingbackUrl || isLocalhostRingback)) {
+        console.warn(
+          `[CONFIG WARNING] BASE_URL (${activeBaseUrl}) points to loopback/localhost! External Telnyx media servers cannot fetch ringback audio from localhost. Configure BASE_URL or RINGBACK_AUDIO_URL to a public HTTPS domain.`,
+        );
+      }
     }
   } else if (configuredProvider === 'fake' || configuredProvider === 'mock') {
     console.warn(

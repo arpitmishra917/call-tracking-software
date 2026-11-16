@@ -6,6 +6,7 @@ import { TelnyxProvider } from './telnyx.provider.js';
 import { TelnyxWebhookController } from './telnyx.webhook.controller.js';
 import { CallController } from '../call-controller.js';
 import { WebhookIdempotencyService } from '../webhook-idempotency.service.js';
+import { validatePublicHttpsUrl } from '../../main.js';
 
 describe('Telnyx Hotfix Acceptance Tests', () => {
   const originalEnv = { ...process.env };
@@ -315,6 +316,204 @@ describe('Telnyx Hotfix Acceptance Tests', () => {
         }),
       );
       expect(mockIdempotency.markProcessed).toHaveBeenCalledWith('internal-123', 'token-abc');
+    });
+  });
+
+  describe('9. Public HTTPS URL Validation for Production Carrier Audio', () => {
+    it('accepts valid public HTTPS URLs', () => {
+      expect(validatePublicHttpsUrl('https://api.callflow.com', 'BASE_URL')).toBe('https://api.callflow.com');
+      expect(validatePublicHttpsUrl('https://callflow-api.onrender.com/', 'BASE_URL')).toBe('https://callflow-api.onrender.com');
+      expect(validatePublicHttpsUrl('https://cdn.example.com/audio/ringback.wav', 'RINGBACK_AUDIO_URL')).toBe('https://cdn.example.com');
+    });
+
+    it('rejects missing or empty URLs', () => {
+      expect(() => validatePublicHttpsUrl('', 'BASE_URL')).toThrow('BASE_URL is missing');
+      expect(() => validatePublicHttpsUrl(undefined, 'BASE_URL')).toThrow('BASE_URL is missing');
+    });
+
+    it('rejects non-HTTPS protocol', () => {
+      expect(() => validatePublicHttpsUrl('http://api.callflow.com', 'BASE_URL')).toThrow('must use HTTPS protocol');
+      expect(() => validatePublicHttpsUrl('ftp://api.callflow.com', 'BASE_URL')).toThrow('must use HTTPS protocol');
+    });
+
+    it('rejects loopback and localhost addresses', () => {
+      expect(() => validatePublicHttpsUrl('https://localhost:3000', 'BASE_URL')).toThrow('resolves to a loopback or private network address');
+      expect(() => validatePublicHttpsUrl('https://app.localhost', 'BASE_URL')).toThrow('resolves to a loopback or private network address');
+      expect(() => validatePublicHttpsUrl('https://127.0.0.1:3000', 'BASE_URL')).toThrow('resolves to a loopback or private network address');
+      expect(() => validatePublicHttpsUrl('https://[::1]:3000', 'BASE_URL')).toThrow('resolves to a loopback or private network address');
+    });
+
+    it('rejects RFC 1918 private and link-local IP addresses', () => {
+      expect(() => validatePublicHttpsUrl('https://10.0.0.1:3000', 'BASE_URL')).toThrow('resolves to a loopback or private network address');
+      expect(() => validatePublicHttpsUrl('https://192.168.1.1', 'BASE_URL')).toThrow('resolves to a loopback or private network address');
+      expect(() => validatePublicHttpsUrl('https://172.16.0.1', 'BASE_URL')).toThrow('resolves to a loopback or private network address');
+      expect(() => validatePublicHttpsUrl('https://169.254.169.254', 'BASE_URL')).toThrow('resolves to a loopback or private network address');
+      expect(() => validatePublicHttpsUrl('https://0.0.0.0:3000', 'BASE_URL')).toThrow('resolves to a loopback or private network address');
+    });
+
+    it('rejects embedded credentials', () => {
+      expect(() => validatePublicHttpsUrl('https://user:pass@api.callflow.com', 'BASE_URL')).toThrow('must not contain embedded credentials');
+    });
+
+    it('fails closed in TelnyxProvider when BASE_URL and RINGBACK_AUDIO_URL are missing in production', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.TELNYX_API_KEY = 'test_key';
+      delete process.env.BASE_URL;
+      delete process.env.RINGBACK_AUDIO_URL;
+
+      const provider = new TelnyxProvider();
+      await expect(provider.startRingback('v3:call_test')).rejects.toThrow(
+        'FATAL: BASE_URL and RINGBACK_AUDIO_URL are unset in production',
+      );
+    });
+  });
+
+  describe('10. Comprehensive Webhook Security Matrix (Phase E)', () => {
+    let keyPair: { publicKey: crypto.KeyObject; privateKey: crypto.KeyObject };
+    let rawPubBase64: string;
+
+    beforeEach(() => {
+      keyPair = crypto.generateKeyPairSync('ed25519');
+      rawPubBase64 = keyPair.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64');
+      process.env.TELNYX_PUBLIC_KEY = rawPubBase64;
+    });
+
+    it('rejects webhook when telnyx-signature-ed25519 header is missing', async () => {
+      const mockIdempotency = { acquireLock: vi.fn() } as unknown as WebhookIdempotencyService;
+      const mockCallController = { handleEvent: vi.fn() } as unknown as CallController;
+      const controller = new TelnyxWebhookController(mockCallController, mockIdempotency);
+
+      const mockReq = {
+        rawBody: Buffer.from('{}'),
+        body: {},
+        headers: { 'telnyx-timestamp': Math.floor(Date.now() / 1000).toString() },
+      } as any;
+      const mockRes = { status: vi.fn().mockReturnThis(), send: vi.fn() } as any;
+
+      await expect(controller.handleWebhook(mockReq, mockRes)).rejects.toThrow(
+        'Missing webhook signature headers or body',
+      );
+    });
+
+    it('rejects webhook when telnyx-timestamp header is missing', async () => {
+      const mockIdempotency = { acquireLock: vi.fn() } as unknown as WebhookIdempotencyService;
+      const mockCallController = { handleEvent: vi.fn() } as unknown as CallController;
+      const controller = new TelnyxWebhookController(mockCallController, mockIdempotency);
+
+      const mockReq = {
+        rawBody: Buffer.from('{}'),
+        body: {},
+        headers: { 'telnyx-signature-ed25519': 'dummy-sig' },
+      } as any;
+      const mockRes = { status: vi.fn().mockReturnThis(), send: vi.fn() } as any;
+
+      await expect(controller.handleWebhook(mockReq, mockRes)).rejects.toThrow(
+        'Missing webhook signature headers or body',
+      );
+    });
+
+    it('rejects webhook when payload/rawBody has been tampered with or modified', async () => {
+      const mockIdempotency = { acquireLock: vi.fn() } as unknown as WebhookIdempotencyService;
+      const mockCallController = { handleEvent: vi.fn() } as unknown as CallController;
+      const controller = new TelnyxWebhookController(mockCallController, mockIdempotency);
+
+      const originalBody = JSON.stringify({ data: { id: 'evt_orig_1', event_type: 'call.initiated' } });
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const validSig = crypto.sign(null, Buffer.from(timestamp + '|' + originalBody, 'utf8'), keyPair.privateKey).toString('base64');
+
+      // Tampered payload
+      const tamperedBody = JSON.stringify({ data: { id: 'evt_tampered_1', event_type: 'call.initiated' } });
+
+      const mockReq = {
+        rawBody: Buffer.from(tamperedBody, 'utf8'),
+        body: JSON.parse(tamperedBody),
+        headers: {
+          'telnyx-signature-ed25519': validSig,
+          'telnyx-timestamp': timestamp,
+        },
+      } as any;
+      const mockRes = { status: vi.fn().mockReturnThis(), send: vi.fn() } as any;
+
+      await controller.handleWebhook(mockReq, mockRes);
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('Webhook Error:'));
+      expect(mockCallController.handleEvent).not.toHaveBeenCalled();
+    });
+
+    it('rejects webhook when timestamp is expired / replayed (> 300 seconds old)', async () => {
+      const mockIdempotency = { acquireLock: vi.fn() } as unknown as WebhookIdempotencyService;
+      const mockCallController = { handleEvent: vi.fn() } as unknown as CallController;
+      const controller = new TelnyxWebhookController(mockCallController, mockIdempotency);
+
+      const body = JSON.stringify({ data: { id: 'evt_replay_1', event_type: 'call.initiated' } });
+      const expiredTimestamp = (Math.floor(Date.now() / 1000) - 301).toString(); // 301 seconds ago
+      const sig = crypto.sign(null, Buffer.from(expiredTimestamp + '|' + body, 'utf8'), keyPair.privateKey).toString('base64');
+
+      const mockReq = {
+        rawBody: Buffer.from(body, 'utf8'),
+        body: JSON.parse(body),
+        headers: {
+          'telnyx-signature-ed25519': sig,
+          'telnyx-timestamp': expiredTimestamp,
+        },
+      } as any;
+      const mockRes = { status: vi.fn().mockReturnThis(), send: vi.fn() } as any;
+
+      await controller.handleWebhook(mockReq, mockRes);
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('Webhook timestamp too old or too new'));
+      expect(mockCallController.handleEvent).not.toHaveBeenCalled();
+    });
+
+    it('rejects webhook when timestamp is in future (> 300 seconds ahead)', async () => {
+      const mockIdempotency = { acquireLock: vi.fn() } as unknown as WebhookIdempotencyService;
+      const mockCallController = { handleEvent: vi.fn() } as unknown as CallController;
+      const controller = new TelnyxWebhookController(mockCallController, mockIdempotency);
+
+      const body = JSON.stringify({ data: { id: 'evt_future_1', event_type: 'call.initiated' } });
+      const futureTimestamp = (Math.floor(Date.now() / 1000) + 301).toString();
+      const sig = crypto.sign(null, Buffer.from(futureTimestamp + '|' + body, 'utf8'), keyPair.privateKey).toString('base64');
+
+      const mockReq = {
+        rawBody: Buffer.from(body, 'utf8'),
+        body: JSON.parse(body),
+        headers: {
+          'telnyx-signature-ed25519': sig,
+          'telnyx-timestamp': futureTimestamp,
+        },
+      } as any;
+      const mockRes = { status: vi.fn().mockReturnThis(), send: vi.fn() } as any;
+
+      await controller.handleWebhook(mockReq, mockRes);
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('Webhook timestamp too old or too new'));
+      expect(mockCallController.handleEvent).not.toHaveBeenCalled();
+    });
+
+    it('rejects test-only bypass in production runtime even if ALLOW_UNVERIFIED_WEBHOOKS=true is set', async () => {
+      delete process.env.TELNYX_PUBLIC_KEY;
+      process.env.NODE_ENV = 'production';
+      process.env.ALLOW_UNVERIFIED_WEBHOOKS = 'true';
+
+      const mockIdempotency = { acquireLock: vi.fn() } as unknown as WebhookIdempotencyService;
+      const mockCallController = { handleEvent: vi.fn() } as unknown as CallController;
+      const controller = new TelnyxWebhookController(mockCallController, mockIdempotency);
+
+      const mockReq = {
+        rawBody: Buffer.from('{}'),
+        body: {},
+        headers: {
+          'telnyx-signature-ed25519': 'dummy-sig',
+          'telnyx-timestamp': Math.floor(Date.now() / 1000).toString(),
+        },
+      } as any;
+      const mockRes = { status: vi.fn().mockReturnThis(), send: vi.fn() } as any;
+
+      await controller.handleWebhook(mockReq, mockRes);
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.send).toHaveBeenCalledWith(
+        expect.stringContaining('TELNYX_PUBLIC_KEY is required for webhook signature verification'),
+      );
     });
   });
 });
