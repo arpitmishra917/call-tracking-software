@@ -51,7 +51,7 @@ export default async function ProtectedLayout({
   let isWorkspaceAuthFailure = false;
 
   try {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+    const apiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
     let res = await fetch(`${apiUrl}/workspaces`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,

@@ -4,7 +4,7 @@ import { INestApplication, HttpStatus } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { validatePublicHttpsUrl, resolveBaseUrl } from '../src/main.js';
+import { validatePublicHttpsUrl, resolveBaseUrl, createCorsOriginDelegate } from '../src/main.js';
 
 describe('Production-Shaped Synthetic Startup Dry Run (Phase DEPLOY-2R)', () => {
   const originalEnv = { ...process.env };
@@ -138,6 +138,13 @@ describe('Production-Shaped Synthetic Startup Dry Run (Phase DEPLOY-2R)', () => 
         if (prevBase) process.env.BASE_URL = prevBase;
         delete process.env.RENDER_EXTERNAL_URL;
       }
+    });
+
+    it('1.6. CORS origin delegate safely normalizes trailing slashes in FRONTEND_URL', () => {
+      const delegate = createCorsOriginDelegate('https://callflow-dun.vercel.app/');
+      const cb = vi.fn();
+      delegate('https://callflow-dun.vercel.app', cb);
+      expect(cb).toHaveBeenCalledWith(null, true);
     });
   });
 

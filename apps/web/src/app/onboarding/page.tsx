@@ -23,7 +23,7 @@ export default async function OnboardingPage() {
   }
 
   // Check if they already have workspaces
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+  const apiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
   let hasWorkspace = false;
   try {
     const res = await fetch(`${apiUrl}/workspaces`, {

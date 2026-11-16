@@ -8,12 +8,14 @@ import {
   inspectBaseUrlResolution,
   normalizeTrailingSlash,
 } from './common/base-url.util.js';
+import { createCorsOriginDelegate } from './common/cors.util.js';
 
 export {
   validatePublicHttpsUrl,
   resolveBaseUrl,
   inspectBaseUrlResolution,
   normalizeTrailingSlash,
+  createCorsOriginDelegate,
 };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -248,17 +250,13 @@ export async function bootstrap() {
   // 1. Secure HTTP Headers
   app.use(helmet());
 
-  // 2. CORS configuration (restrict allowed origins appropriately, avoiding '*' if credentials are true)
-  const allowedOrigins = [
-    process.env.FRONTEND_URL || 'http://localhost:3001',
-    'http://localhost:3001',
-    'http://127.0.0.1:3001',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-  ];
+  // 2. CORS configuration (robust normalization for trailing slashes, comma-delimited domains, and credentials)
   app.enableCors({
-    origin: allowedOrigins,
+    origin: createCorsOriginDelegate(process.env.FRONTEND_URL),
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    exposedHeaders: ['Content-Disposition'],
   });
 
   // 3. Global Request Validation (BUG-BE-013)

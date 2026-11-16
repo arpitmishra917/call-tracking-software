@@ -16,7 +16,7 @@ export default async function InvitationPage(
     errorMsg = "No invitation token provided. Please check your invitation link.";
   } else {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const apiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
       const res = await fetch(`${apiUrl}/invitations/verify/${token}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();

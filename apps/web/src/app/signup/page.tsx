@@ -31,7 +31,7 @@ export default async function SignupPage(
   if (token) {
     try {
       // NOTE: server component fetching to public API
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const apiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
       const res = await fetch(`${apiUrl}/invitations/verify/${token}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
