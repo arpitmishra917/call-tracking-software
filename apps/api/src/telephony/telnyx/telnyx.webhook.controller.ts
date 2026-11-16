@@ -41,22 +41,28 @@ export class TelnyxWebhookController {
     try {
       const publicKey = process.env.TELNYX_PUBLIC_KEY;
       if (!publicKey) {
-        if (
-          process.env.APP_ENV === 'qa' ||
-          process.env.NODE_ENV === 'production'
-        ) {
+        // Mock signature verification is strictly prohibited on any externally exposed runtime (development, qa, production).
+        // It is preserved solely for isolated unit tests with an explicit test fixture flag or test-only mock configuration.
+        const isExplicitTestBypass =
+          process.env.ALLOW_UNVERIFIED_WEBHOOKS === 'true' ||
+          (process.env.NODE_ENV === 'test' &&
+            !process.env.APP_ENV &&
+            (process.env.TELEPHONY_PROVIDER === 'mock' ||
+              process.env.TELEPHONY_PROVIDER === 'fake'));
+
+        if (!isExplicitTestBypass) {
           throw new BadRequestException(
-            'TELNYX_PUBLIC_KEY is required for webhook signature verification in QA and production environments',
+            'TELNYX_PUBLIC_KEY is required for webhook signature verification. Unverified webhook ingress is rejected.',
           );
         }
         this.logger.warn(
-          'TELNYX_PUBLIC_KEY is not configured. Falling back to mock verification for dev/tests.',
+          'TELNYX_PUBLIC_KEY is not configured. Falling back to explicit unit test fixture mock verification.',
         );
         telnyxEvent = req.body;
       } else {
         // @ts-ignore - handling standard/default import variance
         const telnyxFactory = Telnyx as any;
-        const client = new telnyxFactory({ apiKey: 'dummy' });
+        const client = new telnyxFactory({ apiKey: 'dummy', publicKey });
         const payloadStr = rawBody.toString('utf8');
 
         telnyxEvent = await client.webhooks.unwrap(
@@ -66,8 +72,8 @@ export class TelnyxWebhookController {
               'telnyx-signature-ed25519': signature,
               'telnyx-timestamp': timestamp,
             },
+            key: publicKey,
           },
-          publicKey,
         );
       }
     } catch (error: any) {

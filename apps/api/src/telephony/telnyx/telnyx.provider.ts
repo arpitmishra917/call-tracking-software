@@ -10,20 +10,45 @@ import Telnyx from 'telnyx';
 export class TelnyxProvider implements TelephonyProvider {
   private readonly logger = new Logger(TelnyxProvider.name);
   private telnyxClient: any;
+  private activePlaybacks = new Set<string>();
 
   constructor() {
+    const configuredProvider = (
+      process.env.TELEPHONY_PROVIDER ||
+      process.env.ACTIVE_TELEPHONY_PROVIDER ||
+      'telnyx'
+    ).trim().toLowerCase();
+
     const apiKey = process.env.TELNYX_API_KEY;
-    if (apiKey) {
-      const telnyxFactory = Telnyx as any;
-      this.telnyxClient = new telnyxFactory({ apiKey });
-    } else {
+    const isExplicitMock = configuredProvider === 'fake' || configuredProvider === 'mock';
+
+    if (isExplicitMock) {
       this.logger.warn(
-        'TELNYX_API_KEY not provided. TelnyxProvider is running in mock mode for development/tests.',
+        `TelnyxProvider initialized in EXPLICIT MOCK mode (provider: ${configuredProvider}). Real carrier calls will NOT be dispatched.`,
       );
+      this.telnyxClient = undefined;
+      return;
     }
+
+    if (!apiKey || !apiKey.trim()) {
+      const errorMsg =
+        'FATAL: TELNYX_API_KEY is missing but telephony provider is configured as "telnyx". Telnyx mode fails closed to prevent silent mock fallback.';
+      this.logger.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    const telnyxFactory = Telnyx as any;
+    this.telnyxClient = new telnyxFactory({ apiKey });
+    this.logger.log(
+      `TelnyxProvider initialized: providerMode=LIVE, credentialPresent=${Boolean(apiKey)}`,
+    );
   }
 
-  private isMockCallId(callId?: string): boolean {
+  public isSyntheticCallId(callId?: string): boolean {
+    return this.isMockCallId(callId);
+  }
+
+  public isMockCallId(callId?: string): boolean {
     if (!callId) return false;
     return (
       callId.startsWith('mock_') ||
@@ -163,10 +188,25 @@ export class TelnyxProvider implements TelephonyProvider {
       this.logger.debug(`[MOCK] Starting ringback on call ${callId}`);
       return;
     }
+    if (this.activePlaybacks.has(callId)) {
+      this.logger.debug(`Ringback playback already active on call ${callId}`);
+      return;
+    }
+    this.activePlaybacks.add(callId);
+
+    const defaultUrl = process.env.BASE_URL
+      ? `${process.env.BASE_URL.replace(/\/$/, '')}/telephony/ringback.wav`
+      : 'http://localhost:3000/telephony/ringback.wav';
     const audioUrl =
       ringbackUrl ||
       process.env.RINGBACK_AUDIO_URL ||
-      'https://assets.mixkit.co/active_storage/sfx/2874/2874-preview.mp3';
+      defaultUrl;
+
+    if (this.telnyxClient && (audioUrl.includes('localhost') || audioUrl.includes('127.0.0.1'))) {
+      this.logger.warn(
+        `ringback.invalid_audio_url: audioUrl resolves to localhost (${audioUrl}) in live carrier mode. Remote Telnyx carrier cannot fetch localhost. Configure BASE_URL or RINGBACK_AUDIO_URL with a public HTTPS URL.`,
+      );
+    }
     try {
       await this.telnyxClient.calls.actions.startPlayback(callId, {
         audio_url: audioUrl,
@@ -174,13 +214,15 @@ export class TelnyxProvider implements TelephonyProvider {
         overlay: false,
         target_legs: 'self',
       });
-      this.logger.log(`ringback.started: Playing ringback tone on call ${callId}`);
+      this.logger.log(`ringback.started: Playing ringback tone on call ${callId} (${audioUrl})`);
     } catch (error: any) {
+      this.activePlaybacks.delete(callId);
       this.logger.warn(`Failed to start ringback on call ${callId}: ${error.message}`);
     }
   }
 
   async stopRingback(callId: string): Promise<void> {
+    this.activePlaybacks.delete(callId);
     if (!this.telnyxClient || this.isMockCallId(callId)) {
       this.logger.debug(`[MOCK] Stopping ringback on call ${callId}`);
       return;

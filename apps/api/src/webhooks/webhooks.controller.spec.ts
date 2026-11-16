@@ -3,6 +3,7 @@ import { WebhooksController } from './webhooks.controller.js';
 import { WebhooksService } from './webhooks.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
 
 describe('WebhooksController', () => {
   let controller: WebhooksController;
@@ -24,6 +25,8 @@ describe('WebhooksController', () => {
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
       .overrideGuard(WorkspaceRolesGuard)
+      .useValue({ canActivate: () => true })
+      .overrideGuard(PermissionsGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

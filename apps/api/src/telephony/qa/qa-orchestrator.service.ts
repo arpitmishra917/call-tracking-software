@@ -646,7 +646,9 @@ export class QaOrchestratorService {
               'RecordingStarted',
               (e) =>
                 e.recording?.name === callerRecName &&
-                (!e.recording?.target_uri || e.recording?.target_uri === `channel:${callerSession.snoopChannelId}`),
+                (!e.recording?.target_uri ||
+                  e.recording?.target_uri === `channel:${callerSession.snoopChannelId}` ||
+                  e.recording?.target_uri === `channel:${context.asteriskChannelId}`),
               recWaitLimit,
             );
             callerRecStarted.catch(() => {});
@@ -657,7 +659,9 @@ export class QaOrchestratorService {
               'RecordingStarted',
               (e) =>
                 e.recording?.name === buyerRecName &&
-                (!e.recording?.target_uri || e.recording?.target_uri === `channel:${buyerSession.snoopChannelId}`),
+                (!e.recording?.target_uri ||
+                  e.recording?.target_uri === `channel:${buyerSession.snoopChannelId}` ||
+                  e.recording?.target_uri === `channel:${context.buyerChannelId}`),
               recWaitLimit,
             );
             buyerRecStarted.catch(() => {});
@@ -923,6 +927,9 @@ export class QaOrchestratorService {
           const boundedCaptureMs = Math.max(minAllowedCaptureMs, Math.min(15000, isNaN(rawCaptureMs) ? 7000 : rawCaptureMs));
 
           const remainingWatchdog = getRemainingMs();
+          if (remainingWatchdog < boundedCaptureMs) {
+            throw new Error(`Insufficient remaining watchdog time (${remainingWatchdog}ms) for requested capture interval (${boundedCaptureMs}ms)`);
+          }
           const actualCaptureDelayMs = Math.min(boundedCaptureMs, Math.max(100, remainingWatchdog - 1000));
           this.logger.log(
             `qa.orchestrator.capture: Capturing post-playback media for ${actualCaptureDelayMs}ms (requested: ${boundedCaptureMs}ms, remaining: ${remainingWatchdog}ms)`,
@@ -960,8 +967,15 @@ export class QaOrchestratorService {
             this.finalizeLegRecording(buyerSession, context, Math.min(5000, getRemainingMs()), buyerRecFinished),
           ]);
 
-          callerWav = callerWavRes.status === 'fulfilled' ? callerWavRes.value : null;
-          buyerWav = buyerWavRes.status === 'fulfilled' ? buyerWavRes.value : null;
+          if (callerWavRes.status === 'rejected') {
+            throw callerWavRes.reason;
+          }
+          if (buyerWavRes.status === 'rejected') {
+            throw buyerWavRes.reason;
+          }
+
+          callerWav = callerWavRes.value;
+          buyerWav = buyerWavRes.value;
 
           context.state = 'RECORDINGS_FINISHED';
           this.logger.log('qa.orchestrator.recordings_finished: Both recordings finalized independently');
@@ -1363,6 +1377,9 @@ export class QaOrchestratorService {
       httpStatus = err instanceof AsteriskAriError && err.statusCode ? err.statusCode : 500;
       errorReason = err.message || String(err);
       this.logger.warn(`qa.orchestrator: Leg ${session.leg} recording retrieval error: ${errorReason}`);
+      if (err instanceof AsteriskAriError && err.statusCode && err.statusCode !== 404) {
+        throw err;
+      }
     }
 
     session.stoppedAt = Date.now();

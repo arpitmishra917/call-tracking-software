@@ -40,10 +40,11 @@ export class CallController {
 
   private async startRingbackIfInactive(callId: string, providerCallId: string): Promise<void> {
     if (!this.activeRingbackCalls.has(callId)) {
+      this.activeRingbackCalls.add(callId);
       try {
         await this.provider.startRingback?.(providerCallId);
-        this.activeRingbackCalls.add(callId);
       } catch (err: any) {
+        this.activeRingbackCalls.delete(callId);
         this.logger.warn(`Failed to start ringback for call ${callId}: ${err.message}`);
       }
     }
@@ -656,7 +657,14 @@ export class CallController {
       // -----------------------------
       if (call.provider_call_id === callId) {
         // Stop ringback on caller hangup
-        const isBridged = call.state === CallState.COMPLETED || !!call.answered_at;
+        const isBridged =
+          call.state === CallState.COMPLETED ||
+          !!call.answered_at ||
+          call.attempts?.some(
+            (a: any) =>
+              a.state === CallAttemptState.ANSWERED ||
+              a.state === CallAttemptState.COMPLETED,
+          );
         await this.stopRingbackIfActive(call.id, call.provider_call_id, isBridged);
 
         if (
@@ -772,7 +780,14 @@ export class CallController {
           : await this.callsService.handleBuyerHangup(call.id, attempt.id);
 
         if (result.action === 'HANGUP_CALLER') {
-          const isBridged = call.state === CallState.COMPLETED || !!call.answered_at;
+          const isBridged =
+            call.state === CallState.COMPLETED ||
+            !!call.answered_at ||
+            call.attempts?.some(
+              (a: any) =>
+                a.state === CallAttemptState.ANSWERED ||
+                a.state === CallAttemptState.COMPLETED,
+            );
           await this.stopRingbackIfActive(call.id, call.provider_call_id, isBridged);
           this.logger.log(
             `buyer_hangup.terminating_caller: Buyer hangup for attempt ${attempt.id}. Hanging up caller ${call.provider_call_id}.`,

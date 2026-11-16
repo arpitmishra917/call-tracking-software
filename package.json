@@ -10,7 +10,10 @@
     "start": "npm --workspace=api run start",
     "start:dev": "npm --workspace=api run start:dev",
     "build:api": "npm --workspace=api run build",
-    "test": "jest --testPathIgnorePatterns=apps"
+    "build:web": "npm --workspace=web run build",
+    "test": "jest --testPathIgnorePatterns=apps",
+    "test:api": "npm --workspace=api run test",
+    "test:api:lint": "npm --workspace=api run lint"
   },
   "repository": {
     "type": "git",

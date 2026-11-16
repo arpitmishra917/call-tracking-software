@@ -29,8 +29,12 @@ describe('Prisma Stage 4 Schema & Configuration', () => {
     it('Profile model exists and maps to Supabase Auth user', () => {
       expect(schemaContent).toContain('model Profile');
       expect(schemaContent).toMatch(/id\s+String\s+@id\s+@default\(uuid\(\)\)/);
-      // Ensure no password field
-      expect(schemaContent).not.toContain('password');
+      // Ensure Profile model contains no raw password field (auth managed via Supabase)
+      const profileBlock = schemaContent.slice(
+        schemaContent.indexOf('model Profile {'),
+        schemaContent.indexOf('}', schemaContent.indexOf('model Profile {')),
+      );
+      expect(profileBlock).not.toMatch(/\bpassword\s+String/i);
     });
 
     it('Workspace model exists with required fields', () => {

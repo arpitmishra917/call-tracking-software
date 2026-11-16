@@ -1,4 +1,4 @@
-import { vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TelnyxProvider } from './telnyx.provider.js';
 import { TelnyxWebhookController } from './telnyx.webhook.controller.js';
@@ -14,6 +14,8 @@ describe('Telnyx Adapter', () => {
   beforeEach(async () => {
     delete process.env.TELNYX_API_KEY;
     delete process.env.TELNYX_PUBLIC_KEY;
+    delete process.env.ALLOW_UNVERIFIED_WEBHOOKS;
+    process.env.TELEPHONY_PROVIDER = 'mock';
 
     idempotencyMock = {
       acquireLock: vi
@@ -197,7 +199,8 @@ describe('Telnyx Adapter', () => {
       ).rejects.toThrow('Missing webhook signature headers or body');
     });
 
-    it('should process webhook when public key is not configured (fallback mode)', async () => {
+    it('should process webhook when public key is not configured (explicit test fixture mode)', async () => {
+      process.env.ALLOW_UNVERIFIED_WEBHOOKS = 'true';
       const mockEvent = {
         data: {
           id: 'evt_test_1',

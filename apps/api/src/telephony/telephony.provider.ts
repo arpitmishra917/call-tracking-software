@@ -1,5 +1,18 @@
 export type ProviderCallStatus = 'ACTIVE' | 'TERMINAL' | 'NOT_FOUND' | 'UNKNOWN';
 
+/**
+ * Utility to identify synthetic provider call IDs generated for tests.
+ */
+export function isSyntheticProviderCallId(callId?: string | null): boolean {
+  if (!callId) return false;
+  return (
+    callId.startsWith('mock_') ||
+    callId.startsWith('fake_') ||
+    callId.startsWith('recovery-mock-') ||
+    callId.startsWith('test_')
+  );
+}
+
 export interface TelephonyProvider {
   /**
    * Answer an incoming call.
@@ -53,4 +66,9 @@ export interface TelephonyProvider {
    * Get the current live status of a call from the provider.
    */
   getCallStatus(callId: string): Promise<ProviderCallStatus>;
+
+  /**
+   * Determine whether a call ID is a synthetic/test ID for this provider.
+   */
+  isSyntheticCallId?(callId?: string): boolean;
 }

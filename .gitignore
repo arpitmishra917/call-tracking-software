@@ -31,6 +31,10 @@ apps/api/.env.qa
 *.old
 *.dump
 backups/
+apps/api/scratch/
+
+# QA recordings (preserved locally, ignored from git)
+apps/api/qa/recordings/*.wav
 
 # Logs
 *.log

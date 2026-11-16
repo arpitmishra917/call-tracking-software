@@ -17,6 +17,7 @@ import { QaAudioAnalyzerService } from './qa/qa-audio-analyzer.service.js';
 import { QaOrchestratorService } from './qa/qa-orchestrator.service.js';
 import { QaTestController } from './qa/qa-test.controller.js';
 import { QaAuthGuard } from './qa/qa-auth.guard.js';
+import { RingbackController } from './ringback.controller.js';
 
 import { AuthModule } from '../auth/auth.module.js';
 import { AuthorizationModule } from '../authorization/authorization.module.js';
@@ -73,6 +74,7 @@ import { CommercialModule } from '../commercial/commercial.module.js';
     TelnyxWebhookController,
     RecordingsController,
     QaTestController,
+    RingbackController,
   ],
   exports: [
     CallController,

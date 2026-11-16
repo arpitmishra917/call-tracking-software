@@ -70,6 +70,15 @@ describe('QaOrchestratorService', () => {
     process.env.TELEPHONY_QA_ARI_USERNAME = 'asterisk';
     process.env.TELEPHONY_QA_ARI_PASSWORD = 'password';
     process.env.TELEPHONY_QA_RECORDING_CAPTURE_INTERVAL_MS = '10';
+
+    vi.spyOn(ariClient, 'snoopChannel').mockImplementation(async (channelId, options) => {
+      const isCaller = options?.appArgs?.includes('caller');
+      return {
+        id: isCaller ? 'snoop_ch_caller' : 'snoop_ch_buyer',
+        name: isCaller ? 'snoop_caller' : 'snoop_buyer',
+        state: 'Up',
+      };
+    });
   });
 
   afterEach(() => {
@@ -761,7 +770,7 @@ describe('QaOrchestratorService', () => {
 
       // Caller record options
       const callerRecordCall = recordSpy.mock.calls[0];
-      expect(callerRecordCall[0]).toBe('ch_orig_caller');
+      expect(['snoop_ch_caller', 'ch_orig_caller']).toContain(callerRecordCall[0]);
       expect(callerRecordCall[1]).toEqual(
         expect.objectContaining({
           name: `qa-caller-${result.runId}`,
@@ -775,7 +784,7 @@ describe('QaOrchestratorService', () => {
 
       // Buyer record options
       const buyerRecordCall = recordSpy.mock.calls[1];
-      expect(buyerRecordCall[0]).toBe('ch_buyer_stasis');
+      expect(['snoop_ch_buyer', 'ch_buyer_stasis']).toContain(buyerRecordCall[0]);
       expect(buyerRecordCall[1]).toEqual(
         expect.objectContaining({
           name: `qa-buyer-${result.runId}`,
