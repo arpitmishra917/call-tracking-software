@@ -234,8 +234,9 @@ CallFlow relies on in-memory state for active call timers, ringback playback tra
 ## 8. Git Publication & Release Commit
 
 All changes were staged, committed, and pushed to `origin/main`:
-- **Commit SHA:** *(Recorded upon push)*
-- **Commit Message:** `fix(deploy): remediate Prisma production isolation and implement /health/ping endpoint`
+- **New Release Commit SHA:** `3545aacfbd1004e8f8e402b6dc0a7b28895f67d7`
+- **Baseline Commit SHA:** `004d180656b4862f07b7d5022426bc72b6d7f626`
+- **Commit Message:** `feat(deploy): resolve Prisma production isolation blocker and implement public /health/ping endpoint`
 - **Tracked Files Clean:** Working tree fully synchronized with remote.
 - **Zero Credentials Committed:** Fully verified via pre-commit diff inspection.
 
