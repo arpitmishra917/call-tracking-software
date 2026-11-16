@@ -7,6 +7,7 @@ import {
 import { CallController } from '../call-controller.js';
 import { CallEventType } from '../telephony.events.js';
 import twilio from 'twilio';
+import { resolveBaseUrl } from '../../common/base-url.util.js';
 
 @Injectable()
 export class TwilioProvider implements TelephonyProvider {
@@ -20,7 +21,7 @@ export class TwilioProvider implements TelephonyProvider {
   ) {
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
-    this.baseUrl = process.env.BASE_URL || 'https://example.com';
+    this.baseUrl = resolveBaseUrl({ validate: false }) || 'https://example.com';
 
     if (accountSid && authToken) {
       this.client = twilio(accountSid, authToken);

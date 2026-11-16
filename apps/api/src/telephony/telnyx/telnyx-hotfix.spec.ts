@@ -359,12 +359,65 @@ describe('Telnyx Hotfix Acceptance Tests', () => {
       process.env.NODE_ENV = 'production';
       process.env.TELNYX_API_KEY = 'test_key';
       delete process.env.BASE_URL;
+      delete process.env.RENDER_EXTERNAL_URL;
       delete process.env.RINGBACK_AUDIO_URL;
 
       const provider = new TelnyxProvider();
       await expect(provider.startRingback('v3:call_test')).rejects.toThrow(
         'FATAL: BASE_URL and RINGBACK_AUDIO_URL are unset in production',
       );
+    });
+
+    it('resolves audio URL from RENDER_EXTERNAL_URL in TelnyxProvider when BASE_URL is unset in production', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.TELNYX_API_KEY = 'test_key';
+      delete process.env.BASE_URL;
+      delete process.env.RINGBACK_AUDIO_URL;
+      process.env.RENDER_EXTERNAL_URL = 'https://callflow-backend-live.onrender.com';
+
+      const provider = new TelnyxProvider();
+      const mockStartPlayback = vi.fn().mockResolvedValue({});
+      (provider as any).telnyxClient = {
+        calls: {
+          actions: {
+            startPlayback: mockStartPlayback,
+          },
+        },
+      };
+
+      await provider.startRingback('v3:call_test_render');
+      expect(mockStartPlayback).toHaveBeenCalledWith('v3:call_test_render', {
+        audio_url: 'https://callflow-backend-live.onrender.com/telephony/ringback.wav',
+        loop: 'infinity',
+        overlay: false,
+        target_legs: 'self',
+      });
+    });
+
+    it('prioritizes explicit BASE_URL over RENDER_EXTERNAL_URL in TelnyxProvider', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.TELNYX_API_KEY = 'test_key';
+      process.env.BASE_URL = 'https://custom-override.callflow.com';
+      process.env.RENDER_EXTERNAL_URL = 'https://callflow-backend-live.onrender.com';
+      delete process.env.RINGBACK_AUDIO_URL;
+
+      const provider = new TelnyxProvider();
+      const mockStartPlayback = vi.fn().mockResolvedValue({});
+      (provider as any).telnyxClient = {
+        calls: {
+          actions: {
+            startPlayback: mockStartPlayback,
+          },
+        },
+      };
+
+      await provider.startRingback('v3:call_test_explicit');
+      expect(mockStartPlayback).toHaveBeenCalledWith('v3:call_test_explicit', {
+        audio_url: 'https://custom-override.callflow.com/telephony/ringback.wav',
+        loop: 'infinity',
+        overlay: false,
+        target_legs: 'self',
+      });
     });
   });
 

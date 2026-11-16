@@ -5,6 +5,7 @@ import {
   TelephonyErrorType,
 } from '../telephony.errors.js';
 import Telnyx from 'telnyx';
+import { resolveBaseUrl } from '../../common/base-url.util.js';
 
 @Injectable()
 export class TelnyxProvider implements TelephonyProvider {
@@ -194,8 +195,9 @@ export class TelnyxProvider implements TelephonyProvider {
     }
     this.activePlaybacks.add(callId);
 
-    const defaultUrl = process.env.BASE_URL
-      ? `${process.env.BASE_URL.replace(/\/$/, '')}/telephony/ringback.wav`
+    const resolvedBase = resolveBaseUrl({ validate: false });
+    const defaultUrl = resolvedBase
+      ? `${resolvedBase.replace(/\/+$/, '')}/telephony/ringback.wav`
       : undefined;
     let audioUrl =
       ringbackUrl ||

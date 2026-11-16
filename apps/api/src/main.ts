@@ -2,6 +2,19 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import {
+  validatePublicHttpsUrl,
+  resolveBaseUrl,
+  inspectBaseUrlResolution,
+  normalizeTrailingSlash,
+} from './common/base-url.util.js';
+
+export {
+  validatePublicHttpsUrl,
+  resolveBaseUrl,
+  inspectBaseUrlResolution,
+  normalizeTrailingSlash,
+};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -121,60 +134,6 @@ if (isQaMode) {
 
 // Startup Validation: Fail fast if required configuration is missing or invalid.
 // Never print secret values or access tokens.
-/**
- * Strict validator for public HTTPS origins required by external telephony carriers.
- * Fails closed on invalid protocol, embedded credentials, localhost, loopback, or private IP ranges.
- */
-export function validatePublicHttpsUrl(urlStr: string | undefined, varName: string): string {
-  if (!urlStr || !urlStr.trim()) {
-    throw new Error(
-      `[CRITICAL STARTUP ERROR] ${varName} is missing! In production with Telnyx, a valid public HTTPS URL is required.`,
-    );
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(urlStr);
-  } catch {
-    throw new Error(`[CRITICAL STARTUP ERROR] ${varName} (${urlStr}) is not a valid URL.`);
-  }
-
-  if (parsed.protocol !== 'https:') {
-    throw new Error(`[CRITICAL STARTUP ERROR] ${varName} must use HTTPS protocol (got: ${parsed.protocol}).`);
-  }
-
-  if (parsed.username || parsed.password) {
-    throw new Error(`[CRITICAL STARTUP ERROR] ${varName} must not contain embedded credentials.`);
-  }
-
-  const hostname = parsed.hostname.toLowerCase();
-
-  // Guard against localhost, loopback, link-local, and RFC 1918 private IPv4/IPv6 ranges
-  const isLocalhost = hostname === 'localhost' || hostname.endsWith('.localhost');
-  const isLoopbackIp =
-    hostname === '127.0.0.1' ||
-    hostname === '::1' ||
-    hostname === '[::1]' ||
-    hostname.startsWith('127.');
-  const isPrivateIp =
-    hostname.startsWith('10.') ||
-    hostname.startsWith('192.168.') ||
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
-    hostname.startsWith('169.254.') ||
-    hostname.startsWith('fe80:') ||
-    hostname.startsWith('fc00:') ||
-    hostname.startsWith('fd00:') ||
-    hostname === '0.0.0.0';
-
-  if (isLocalhost || isLoopbackIp || isPrivateIp) {
-    throw new Error(
-      `[CRITICAL STARTUP ERROR] ${varName} (${urlStr}) resolves to a loopback or private network address. External carriers cannot reach private addresses.`,
-    );
-  }
-
-  return parsed.origin;
-}
-
 export function validateStartupConfig(): void {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!supabaseUrl || !supabaseUrl.trim()) {
@@ -220,7 +179,10 @@ export function validateStartupConfig(): void {
 
     if (isProduction) {
       try {
-        validatePublicHttpsUrl(process.env.BASE_URL, 'BASE_URL');
+        const validatedUrl = resolveBaseUrl({ validate: true });
+        if (validatedUrl) {
+          process.env.BASE_URL = validatedUrl;
+        }
         if (process.env.RINGBACK_AUDIO_URL) {
           validatePublicHttpsUrl(process.env.RINGBACK_AUDIO_URL, 'RINGBACK_AUDIO_URL');
         }
@@ -229,6 +191,10 @@ export function validateStartupConfig(): void {
         process.exit(1);
       }
     } else {
+      const resolved = resolveBaseUrl({ validate: false });
+      if (resolved && !process.env.BASE_URL) {
+        process.env.BASE_URL = resolved;
+      }
       const activeBaseUrl = process.env.BASE_URL || '';
       const activeRingbackUrl = process.env.RINGBACK_AUDIO_URL || '';
       const isLocalhostBase = activeBaseUrl.includes('localhost') || activeBaseUrl.includes('127.0.0.1');
@@ -252,7 +218,14 @@ export function validateStartupConfig(): void {
   console.log(`[CONFIG] SUPABASE_URL present: true (host: ${new URL(supabaseUrl).host})`);
   console.log(`[CONFIG] JWT_SECRET present: ${Boolean(process.env.JWT_SECRET)}`);
   console.log(`[CONFIG] TELEPHONY_PROVIDER: ${process.env.TELEPHONY_PROVIDER || 'not set'}`);
-  console.log(`[CONFIG] BASE_URL: ${process.env.BASE_URL || 'not set'}`);
+  const baseUrlInfo = inspectBaseUrlResolution();
+  const sourceSuffix =
+    baseUrlInfo.source === 'RENDER_EXTERNAL_URL'
+      ? ' (auto-resolved from RENDER_EXTERNAL_URL)'
+      : baseUrlInfo.source === 'BASE_URL'
+        ? ' (explicit)'
+        : '';
+  console.log(`[CONFIG] BASE_URL: ${process.env.BASE_URL || 'not set'}${sourceSuffix}`);
   console.log(`[CONFIG] RINGBACK_AUDIO_URL: ${process.env.RINGBACK_AUDIO_URL || 'not set'}`);
   console.log(`[CONFIG] TELNYX_API_KEY present: ${Boolean(process.env.TELNYX_API_KEY)}`);
   console.log(`[CONFIG] TELNYX_PUBLIC_KEY present: ${Boolean(process.env.TELNYX_PUBLIC_KEY)}`);

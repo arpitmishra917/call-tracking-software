@@ -4,6 +4,7 @@ import { CallController } from '../call-controller.js';
 import { CallEventType, NormalizedCallEvent } from '../telephony.events.js';
 import { TwilioProvider } from './twilio.provider.js';
 import { WebhookIdempotencyService } from '../webhook-idempotency.service.js';
+import { resolveBaseUrl } from '../../common/base-url.util.js';
 
 @Controller('webhooks/twilio')
 export class TwilioWebhookController {
@@ -26,8 +27,8 @@ export class TwilioWebhookController {
       return res.status(403).send('Forbidden: Twilio provider is retired');
     }
 
-    const fullUrl =
-      (process.env.BASE_URL || `https://${req.hostname}`) + req.originalUrl;
+    const baseUrl = resolveBaseUrl({ validate: false }) || `https://${req.hostname}`;
+    const fullUrl = baseUrl.replace(/\/+$/, '') + req.originalUrl;
     if (!this.twilioProvider.validateWebhook(signature, fullUrl, req.body)) {
       this.logger.warn('Invalid Twilio signature');
       return res.status(400).send('Invalid Twilio signature');

@@ -4,7 +4,7 @@ import { INestApplication, HttpStatus } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { validatePublicHttpsUrl } from '../src/main.js';
+import { validatePublicHttpsUrl, resolveBaseUrl } from '../src/main.js';
 
 describe('Production-Shaped Synthetic Startup Dry Run (Phase DEPLOY-2R)', () => {
   const originalEnv = { ...process.env };
@@ -124,6 +124,20 @@ describe('Production-Shaped Synthetic Startup Dry Run (Phase DEPLOY-2R)', () => 
 
     it('1.4. Prisma reaches the expected connection boundary without isolation failure', () => {
       expect(mockPrisma.$connect).toHaveBeenCalled();
+    });
+
+    it('1.5. Automatic fallback to RENDER_EXTERNAL_URL when BASE_URL is absent in production', () => {
+      const prevBase = process.env.BASE_URL;
+      try {
+        delete process.env.BASE_URL;
+        process.env.RENDER_EXTERNAL_URL = 'https://callflow-backend-synthetic.onrender.com';
+        expect(resolveBaseUrl({ validate: true })).toBe(
+          'https://callflow-backend-synthetic.onrender.com',
+        );
+      } finally {
+        if (prevBase) process.env.BASE_URL = prevBase;
+        delete process.env.RENDER_EXTERNAL_URL;
+      }
     });
   });
 
