@@ -24,8 +24,10 @@ describe('PermissionsService - Participant Baseline & Scoping (P0 Vendor Fix)', 
       },
       permission: {
         upsert: vi.fn(),
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
       },
       call: {
         findUnique: vi.fn(),
@@ -562,6 +564,48 @@ describe('PermissionsService - Participant Baseline & Scoping (P0 Vendor Fix)', 
       // Trying to access own vendor
       const canReadOwnVendor = await service.hasResourceScope('ws-1', 'user-vendor-esc', 'vendor:read', 'vendor-123');
       expect(canReadOwnVendor).toBe(true);
+    });
+  });
+
+  describe('6. seedPermissions Idempotency & Error Handling', () => {
+    it('creates all permissions when database table is empty', async () => {
+      prisma.permission.findMany.mockResolvedValueOnce([]);
+      await service.seedPermissions();
+      expect(prisma.permission.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.permission.create).toHaveBeenCalledTimes(PERMISSIONS_LIST.length);
+      expect(prisma.permission.update).not.toHaveBeenCalled();
+    });
+
+    it('executes zero writes when all baseline permissions already exist identically', async () => {
+      const existing = PERMISSIONS_LIST.map((p) => ({
+        key: p.key,
+        group: p.group,
+        description: p.description,
+      }));
+      prisma.permission.findMany.mockResolvedValueOnce(existing);
+      await service.seedPermissions();
+      expect(prisma.permission.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.permission.create).not.toHaveBeenCalled();
+      expect(prisma.permission.update).not.toHaveBeenCalled();
+    });
+
+    it('updates description when existing permission description drifts', async () => {
+      const existing = PERMISSIONS_LIST.map((p, idx) => ({
+        key: p.key,
+        group: p.group,
+        description: idx === 0 ? 'Old description' : p.description,
+      }));
+      prisma.permission.findMany.mockResolvedValueOnce(existing);
+      await service.seedPermissions();
+      expect(prisma.permission.update).toHaveBeenCalledTimes(1);
+      expect(prisma.permission.create).not.toHaveBeenCalled();
+    });
+
+    it('throws actionable error detailing database pooler guidance on failure', async () => {
+      prisma.permission.findMany.mockRejectedValueOnce(new Error('prepared statement "s0" already exists'));
+      await expect(service.seedPermissions()).rejects.toThrow(
+        /\[CRITICAL DATABASE STARTUP ERROR\] Permission seeding failed: prepared statement "s0" already exists\. If using Supabase transaction pooler \(port 6543\), ensure \?pgbouncer=true is appended to DATABASE_URL\./,
+      );
     });
   });
 });

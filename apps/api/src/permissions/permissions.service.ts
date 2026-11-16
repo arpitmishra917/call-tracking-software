@@ -1,4 +1,11 @@
-import { Injectable, OnModuleInit, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditLogsService } from '../audit-logs/audit-logs.service.js';
 import { isCallAuthorizedForVendor } from '../calls/call-authorization.util.js';
@@ -6,6 +13,8 @@ import { PERMISSIONS_LIST, ADMIN_BASELINE_PERMISSIONS, VENDOR_BASELINE_PERMISSIO
 
 @Injectable()
 export class PermissionsService implements OnModuleInit {
+  private readonly logger = new Logger(PermissionsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService
@@ -16,12 +25,40 @@ export class PermissionsService implements OnModuleInit {
   }
 
   async seedPermissions() {
-    for (const p of PERMISSIONS_LIST) {
-      await this.prisma.permission.upsert({
-        where: { key: p.key },
-        update: { group: p.group, description: p.description },
-        create: { key: p.key, group: p.group, description: p.description },
+    try {
+      // Efficient single-query check to prevent dozens of redundant queries on startup
+      const existing = await this.prisma.permission.findMany({
+        select: { key: true, group: true, description: true },
       });
+      const existingMap = new Map(existing.map((e) => [e.key, e]));
+
+      for (const p of PERMISSIONS_LIST) {
+        const current = existingMap.get(p.key);
+        if (!current) {
+          await this.prisma.permission.create({
+            data: { key: p.key, group: p.group, description: p.description },
+          });
+        } else if (
+          current.group !== p.group ||
+          current.description !== p.description
+        ) {
+          await this.prisma.permission.update({
+            where: { key: p.key },
+            data: { group: p.group, description: p.description },
+          });
+        }
+      }
+      this.logger.log(
+        `Permissions verified successfully (${PERMISSIONS_LIST.length} baseline permissions active)`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        `[CRITICAL DATABASE STARTUP ERROR] Permission seeding failed: ${err.message}. If using Supabase transaction pooler (port 6543), verify that ?pgbouncer=true is appended to DATABASE_URL.`,
+        err.stack,
+      );
+      throw new Error(
+        `[CRITICAL DATABASE STARTUP ERROR] Permission seeding failed: ${err.message}. If using Supabase transaction pooler (port 6543), ensure ?pgbouncer=true is appended to DATABASE_URL.`,
+      );
     }
   }
 

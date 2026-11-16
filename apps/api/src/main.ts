@@ -9,6 +9,10 @@ import {
   normalizeTrailingSlash,
 } from './common/base-url.util.js';
 import { createCorsOriginDelegate } from './common/cors.util.js';
+import {
+  ensurePgBouncerParameter,
+  inspectDatabaseConfig,
+} from './common/database-pooler.util.js';
 
 export {
   validatePublicHttpsUrl,
@@ -16,6 +20,8 @@ export {
   inspectBaseUrlResolution,
   normalizeTrailingSlash,
   createCorsOriginDelegate,
+  ensurePgBouncerParameter,
+  inspectDatabaseConfig,
 };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -213,6 +219,14 @@ export function validateStartupConfig(): void {
     );
   }
 
+  if (process.env.DATABASE_URL) {
+    const rawDbUrl = process.env.DATABASE_URL;
+    const sanitizedDbUrl = ensurePgBouncerParameter(rawDbUrl);
+    if (sanitizedDbUrl && sanitizedDbUrl !== rawDbUrl) {
+      process.env.DATABASE_URL = sanitizedDbUrl;
+    }
+  }
+
   // Safe configuration status logging (no secrets or tokens exposed)
   console.log('[CONFIG] Deterministic environment loading complete.');
   console.log(`[CONFIG] rootDir resolved: ${rootDir}`);
@@ -231,7 +245,10 @@ export function validateStartupConfig(): void {
   console.log(`[CONFIG] RINGBACK_AUDIO_URL: ${process.env.RINGBACK_AUDIO_URL || 'not set'}`);
   console.log(`[CONFIG] TELNYX_API_KEY present: ${Boolean(process.env.TELNYX_API_KEY)}`);
   console.log(`[CONFIG] TELNYX_PUBLIC_KEY present: ${Boolean(process.env.TELNYX_PUBLIC_KEY)}`);
-  console.log(`[CONFIG] Database configured: ${Boolean(process.env.DATABASE_URL)}`);
+  const dbInfo = inspectDatabaseConfig(process.env.DATABASE_URL);
+  console.log(
+    `[CONFIG] Database configured: ${Boolean(process.env.DATABASE_URL)} (host: ${dbInfo.host}, port: ${dbInfo.port}, pooler: ${dbInfo.poolerType}, pgbouncer: ${dbInfo.hasPgBouncer})`,
+  );
 }
 
 if (!process.env.VITEST) {
