@@ -43,6 +43,14 @@ export default function BillingPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
 
+  // Clear previous workspace state immediately when workspace changes
+  useEffect(() => {
+    setBillingState(null);
+    setWalletBalance(null);
+    setTransactions([]);
+    setError(null);
+  }, [workspaceId]);
+
   useEffect(() => {
     if (!workspaceId) {
       return;

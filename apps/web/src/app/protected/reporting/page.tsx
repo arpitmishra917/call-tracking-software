@@ -480,10 +480,12 @@ export default function ReportingDashboard() {
   useEffect(() => {
     async function checkRole() {
       if (!workspaceId) return;
+      const targetWsId = workspaceId;
       try {
         const workspaces = await apiFetch('/workspaces');
+        if (targetWsId !== currentWorkspaceIdRef.current) return;
         const currentWs = Array.isArray(workspaces)
-          ? workspaces.find((w: any) => w.id === workspaceId)
+          ? workspaces.find((w: any) => w.id === targetWsId)
           : null;
         if (currentWs) {
           setIsVendorWorkspace(currentWs.participant_type === 'VENDOR');
@@ -505,10 +507,10 @@ export default function ReportingDashboard() {
       setDropdownError(null);
       try {
         const [phoneData, campData, buyerData, vendorData] = await Promise.all([
-          apiFetch(`/workspaces/${workspaceId}/phone-numbers`).catch(() => []),
-          apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => []),
-          apiFetch(`/workspaces/${workspaceId}/buyers`).catch(() => []),
-          apiFetch(`/workspaces/${workspaceId}/vendors`).catch(() => []),
+          apiFetch(`/workspaces/${targetWsId}/phone-numbers`).catch(() => []),
+          apiFetch(`/workspaces/${targetWsId}/campaigns`).catch(() => []),
+          apiFetch(`/workspaces/${targetWsId}/buyers`).catch(() => []),
+          apiFetch(`/workspaces/${targetWsId}/vendors`).catch(() => []),
         ]);
         if (targetWsId !== currentWorkspaceIdRef.current) return;
         const phones = Array.isArray(phoneData) ? phoneData : phoneData?.items || [];

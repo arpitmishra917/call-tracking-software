@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
@@ -44,6 +44,17 @@ interface Vendor {
 export default function VendorsPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
+
+  // Clear previous workspace state immediately when workspace changes
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    setVendors([]);
+    setTotalCount(0);
+    setError(null);
+    setForbiddenError(null);
+    setSuccess(null);
+  }, [workspaceId]);
 
   // Role and authorization states
   const [authChecking, setAuthChecking] = useState(true);
@@ -92,13 +103,16 @@ export default function VendorsPage() {
         setAuthChecking(false);
         return;
       }
+      const targetWsId = workspaceId;
       setAuthChecking(true);
       setForbiddenError(null);
 
       try {
         const workspaces = await apiFetch('/workspaces');
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
+
         const currentWs = Array.isArray(workspaces)
-          ? workspaces.find((w: any) => w.id === workspaceId)
+          ? workspaces.find((w: any) => w.id === targetWsId)
           : null;
 
         if (!currentWs) {
@@ -129,9 +143,12 @@ export default function VendorsPage() {
           return;
         }
       } catch (err: any) {
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
         setForbiddenError('Failed to verify workspace permissions.');
       } finally {
-        setAuthChecking(false);
+        if (currentWorkspaceIdRef.current === targetWsId) {
+          setAuthChecking(false);
+        }
       }
     }
 
@@ -141,6 +158,7 @@ export default function VendorsPage() {
   // Load vendors list
   const loadVendors = useCallback(async () => {
     if (!workspaceId || forbiddenError) return;
+    const targetWsId = workspaceId;
     setLoading(true);
     setError(null);
 
@@ -158,7 +176,9 @@ export default function VendorsPage() {
         params.append('status', statusFilter);
       }
 
-      const res = await apiFetch(`/workspaces/${workspaceId}/vendors?${params.toString()}`);
+      const res = await apiFetch(`/workspaces/${targetWsId}/vendors?${params.toString()}`);
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
+
       if (res && Array.isArray(res.items)) {
         setVendors(res.items);
         setTotalCount(res.total ?? res.items.length);
@@ -170,11 +190,14 @@ export default function VendorsPage() {
         setTotalCount(0);
       }
     } catch (err: any) {
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
       setError(err instanceof Error ? err.message : String(err));
       setVendors([]);
       setTotalCount(0);
     } finally {
-      setLoading(false);
+      if (currentWorkspaceIdRef.current === targetWsId) {
+        setLoading(false);
+      }
     }
   }, [workspaceId, page, search, statusFilter, forbiddenError]);
 

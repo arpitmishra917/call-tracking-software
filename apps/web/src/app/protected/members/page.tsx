@@ -71,6 +71,16 @@ export default function MembersPage() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  // Clear previous workspace state immediately when workspace changes
+  useEffect(() => {
+    setMembers([]);
+    setInvitations([]);
+    setVendors([]);
+    setBuyers([]);
+    setError(null);
+    setUserRole(null);
+  }, [workspaceId]);
+
   // Invite Modal State
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');

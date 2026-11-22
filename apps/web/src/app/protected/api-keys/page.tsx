@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -25,6 +25,15 @@ interface ApiKey {
 export default function ApiKeysPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
+
+  // Clear previous workspace state immediately when workspace changes
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    setKeys([]);
+    setError(null);
+    setNewRawSecret(null);
+  }, [workspaceId]);
   
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [newKeyName, setNewKeyName] = useState('');
@@ -45,11 +54,15 @@ export default function ApiKeysPage() {
     try {
       setLoading(true);
       const data = await apiFetch(`/workspaces/${id}/api-keys`);
+      if (currentWorkspaceIdRef.current !== id) return;
       setKeys(data);
     } catch (e: unknown) {
+      if (currentWorkspaceIdRef.current !== id) return;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (currentWorkspaceIdRef.current === id) {
+        setLoading(false);
+      }
     }
   }
 

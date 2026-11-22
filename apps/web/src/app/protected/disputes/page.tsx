@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import Link from 'next/link';
@@ -49,6 +49,18 @@ function formatCurrency(amount: number | null | undefined, currency: string = 'U
 export default function DisputesPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
+
+  // Clear previous workspace state immediately when workspace changes
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    setDisputes([]);
+    setTotal(0);
+    setError(null);
+    setActionError(null);
+    setActionSuccess(null);
+    setUserRole(null);
+  }, [workspaceId]);
 
   const [disputes, setDisputes] = useState<DisputeItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,10 +86,12 @@ export default function DisputesPage() {
   useEffect(() => {
     async function checkRole() {
       if (!workspaceId) return;
+      const targetWsId = workspaceId;
       try {
         const workspaces = await apiFetch('/workspaces');
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
         const currentWs = Array.isArray(workspaces)
-          ? workspaces.find((w: any) => w.id === workspaceId)
+          ? workspaces.find((w: any) => w.id === targetWsId)
           : null;
         if (currentWs) {
           // If role is VIEWER or other, track it
@@ -95,6 +109,7 @@ export default function DisputesPage() {
 
   const loadDisputes = useCallback(async () => {
     if (!workspaceId) return;
+    const targetWsId = workspaceId;
     setLoading(true);
     setError(null);
     setActionError(null);
@@ -103,8 +118,9 @@ export default function DisputesPage() {
       const offset = (page - 1) * pageSize;
       const statusParam = statusFilter !== 'ALL' ? `&status=${statusFilter}` : '';
       const data = await apiFetch(
-        `/workspaces/${workspaceId}/disputes?limit=${pageSize}&offset=${offset}${statusParam}`
+        `/workspaces/${targetWsId}/disputes?limit=${pageSize}&offset=${offset}${statusParam}`
       );
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
 
       const items = Array.isArray(data) ? data : data?.items || [];
       const totalCount = typeof data?.total === 'number' ? data.total : items.length;
@@ -127,13 +143,16 @@ export default function DisputesPage() {
       setDisputes(disputeList);
       setTotal(totalCount);
     } catch (err: any) {
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
       if (err?.message?.includes('403') || err?.message?.toLowerCase().includes('forbidden')) {
         setError('Access denied: You do not have permission to view commercial disputes.');
       } else {
         setError(err?.message || 'Failed to load disputes.');
       }
     } finally {
-      setLoading(false);
+      if (currentWorkspaceIdRef.current === targetWsId) {
+        setLoading(false);
+      }
     }
   }, [workspaceId, page, pageSize, statusFilter]);
 

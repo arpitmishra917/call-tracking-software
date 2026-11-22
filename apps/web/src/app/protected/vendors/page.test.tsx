@@ -571,4 +571,147 @@ describe('Vendors Management UI Suite', () => {
       });
     });
   });
+
+  describe('9. Workspace Isolation & Concurrency Guard (Phase 2)', () => {
+    it('discards stale response from previous workspace when switching workspaces', async () => {
+      let resolveWsA: (value: any) => void;
+      const pendingWsA = new Promise((resolve) => {
+        resolveWsA = resolve;
+      });
+
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([
+            { id: 'workspace-A', role: 'OWNER', participant_type: 'INTERNAL' },
+            { id: 'workspace-B', role: 'OWNER', participant_type: 'INTERNAL' },
+          ]);
+        }
+        if (url.includes('/workspaces/workspace-A/vendors')) {
+          return pendingWsA;
+        }
+        if (url.includes('/workspaces/workspace-B/vendors')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'v-ws-b',
+                name: 'Vendor of Workspace B',
+                status: 'ACTIVE',
+                workspace_id: 'workspace-B',
+                created_at: '2026-10-01T12:00:00Z',
+              },
+            ],
+            total: 1,
+          });
+        }
+        return Promise.resolve({});
+      });
+
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-A' : null),
+      });
+
+      const { rerender } = render(<VendorsPage />);
+
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/workspaces/workspace-A/vendors')
+        );
+      });
+
+      // Switch to Workspace B while Workspace A is in-flight
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-B' : null),
+      });
+      rerender(<VendorsPage />);
+
+      // Workspace B vendor is displayed
+      await waitFor(() => {
+        expect(screen.getByText('Vendor of Workspace B')).toBeDefined();
+      });
+
+      // Workspace A resolves late
+      resolveWsA!({
+        items: [
+          {
+            id: 'v-ws-a',
+            name: 'Stale Vendor from Workspace A',
+            status: 'ACTIVE',
+            workspace_id: 'workspace-A',
+            created_at: '2026-09-01T10:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+      // Verify Workspace A data does NOT overwrite Workspace B
+      await waitFor(() => {
+        expect(screen.queryByText('Stale Vendor from Workspace A')).toBeNull();
+        expect(screen.getByText('Vendor of Workspace B')).toBeDefined();
+      });
+    });
+
+    it('prevents errors from old workspace from overwriting active workspace state', async () => {
+      let rejectWsA: (reason: any) => void;
+      const pendingWsA = new Promise((_, reject) => {
+        rejectWsA = reject;
+      });
+
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([
+            { id: 'workspace-A', role: 'OWNER', participant_type: 'INTERNAL' },
+            { id: 'workspace-B', role: 'OWNER', participant_type: 'INTERNAL' },
+          ]);
+        }
+        if (url.includes('/workspaces/workspace-A/vendors')) {
+          return pendingWsA;
+        }
+        if (url.includes('/workspaces/workspace-B/vendors')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'v-ws-b-2',
+                name: 'Active Vendor B',
+                status: 'ACTIVE',
+                workspace_id: 'workspace-B',
+                created_at: '2026-10-01T12:00:00Z',
+              },
+            ],
+            total: 1,
+          });
+        }
+        return Promise.resolve({});
+      });
+
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-A' : null),
+      });
+
+      const { rerender } = render(<VendorsPage />);
+
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/workspaces/workspace-A/vendors')
+        );
+      });
+
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-B' : null),
+      });
+      rerender(<VendorsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Active Vendor B')).toBeDefined();
+      });
+
+      // Workspace A rejects with error
+      rejectWsA!(new Error('Workspace A network failure'));
+
+      // Error must not overwrite Workspace B
+      await waitFor(() => {
+        expect(screen.queryByText(/Workspace A network failure/i)).toBeNull();
+        expect(screen.getByText('Active Vendor B')).toBeDefined();
+      });
+    });
+  });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -22,7 +22,15 @@ interface BlockedCaller {
 export default function BlockedCallersPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
   
+  // Clear previous workspace state immediately when workspace changes
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    setCallers([]);
+    setError(null);
+  }, [workspaceId]);
+
   const [callers, setCallers] = useState<BlockedCaller[]>([]);
   const [newPhoneNumber, setNewPhoneNumber] = useState('');
   const [newReason, setNewReason] = useState('');
@@ -34,11 +42,15 @@ export default function BlockedCallersPage() {
     setIsFetching(true);
     try {
       const data = await apiFetch(`/workspaces/${id}/blocked-callers`);
+      if (currentWorkspaceIdRef.current !== id) return;
       setCallers(data?.items || []);
     } catch (e: unknown) {
+      if (currentWorkspaceIdRef.current !== id) return;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setIsFetching(false);
+      if (currentWorkspaceIdRef.current === id) {
+        setIsFetching(false);
+      }
     }
   }, []);
 

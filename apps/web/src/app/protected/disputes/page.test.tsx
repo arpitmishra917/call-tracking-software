@@ -345,4 +345,153 @@ describe('DisputesPage (COMM-INTEGRATION-4)', () => {
     expect(screen.queryByRole('button', { name: 'Accept dispute' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Reject dispute' })).toBeNull();
   });
+
+  describe('Workspace Isolation & Concurrency Guard (Phase 2)', () => {
+    it('discards stale response from previous workspace when switching workspaces', async () => {
+      let resolveWsA: (value: any) => void;
+      const pendingWsA = new Promise((resolve) => {
+        resolveWsA = resolve;
+      });
+
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([
+            { id: 'workspace-A', role: 'ADMIN' },
+            { id: 'workspace-B', role: 'ADMIN' },
+          ]);
+        }
+        if (url.includes('/workspaces/workspace-A/disputes')) {
+          return pendingWsA;
+        }
+        if (url.includes('/workspaces/workspace-B/disputes')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'disp-ws-b',
+                call_id: 'call-ws-b',
+                status: 'PENDING',
+                reason: 'Dispute in Workspace B',
+                revenue: 100,
+                currency: 'USD',
+                created_at: '2026-10-01T12:00:00Z',
+              },
+            ],
+            total: 1,
+          });
+        }
+        return Promise.resolve({});
+      });
+
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-A' : null),
+      });
+
+      const { rerender } = render(<DisputesPage />);
+
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/workspaces/workspace-A/disputes')
+        );
+      });
+
+      // Switch to Workspace B while Workspace A request is pending
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-B' : null),
+      });
+      rerender(<DisputesPage />);
+
+      // Workspace B data renders
+      await waitFor(() => {
+        expect(screen.getByText('Dispute in Workspace B')).toBeDefined();
+      });
+
+      // Workspace A resolves late
+      resolveWsA!({
+        items: [
+          {
+            id: 'disp-ws-a',
+            call_id: 'call-ws-a',
+            status: 'PENDING',
+            reason: 'Stale Dispute from Workspace A',
+            revenue: 999,
+            currency: 'USD',
+            created_at: '2026-09-01T10:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+      // Workspace A data must NOT overwrite Workspace B
+      await waitFor(() => {
+        expect(screen.queryByText('Stale Dispute from Workspace A')).toBeNull();
+        expect(screen.getByText('Dispute in Workspace B')).toBeDefined();
+      });
+    });
+
+    it('prevents errors from old workspace from overwriting active workspace state', async () => {
+      let rejectWsA: (reason: any) => void;
+      const pendingWsA = new Promise((_, reject) => {
+        rejectWsA = reject;
+      });
+
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([
+            { id: 'workspace-A', role: 'ADMIN' },
+            { id: 'workspace-B', role: 'ADMIN' },
+          ]);
+        }
+        if (url.includes('/workspaces/workspace-A/disputes')) {
+          return pendingWsA;
+        }
+        if (url.includes('/workspaces/workspace-B/disputes')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'disp-ws-b-2',
+                call_id: 'call-ws-b-2',
+                status: 'PENDING',
+                reason: 'Active Dispute B',
+                revenue: 200,
+                currency: 'USD',
+                created_at: '2026-10-01T12:00:00Z',
+              },
+            ],
+            total: 1,
+          });
+        }
+        return Promise.resolve({});
+      });
+
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-A' : null),
+      });
+
+      const { rerender } = render(<DisputesPage />);
+
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/workspaces/workspace-A/disputes')
+        );
+      });
+
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-B' : null),
+      });
+      rerender(<DisputesPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Active Dispute B')).toBeDefined();
+      });
+
+      // Workspace A fails
+      rejectWsA!(new Error('Workspace A network failure'));
+
+      // Error must not overwrite Workspace B
+      await waitFor(() => {
+        expect(screen.queryByText(/Workspace A network failure/i)).toBeNull();
+        expect(screen.getByText('Active Dispute B')).toBeDefined();
+      });
+    });
+  });
 });

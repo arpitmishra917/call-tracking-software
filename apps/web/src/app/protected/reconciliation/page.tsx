@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
@@ -41,6 +41,18 @@ function formatDate(isoString?: string | null): string {
 export default function ReconciliationPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
+
+  // Clear previous workspace state immediately when workspace changes
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    setRuns([]);
+    setTotalCount(0);
+    setError(null);
+    setForbiddenError(null);
+    setSuccessMessage(null);
+    setUserRole(null);
+  }, [workspaceId]);
 
   // Authorization and role state
   const [userRole, setUserRole] = useState<{
@@ -81,12 +93,15 @@ export default function ReconciliationPage() {
         setAuthChecking(false);
         return;
       }
+      const targetWsId = workspaceId;
       setAuthChecking(true);
       setForbiddenError(null);
       try {
         const workspaces = await apiFetch('/workspaces');
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
+
         const currentWs = Array.isArray(workspaces)
-          ? workspaces.find((w: any) => w.id === workspaceId)
+          ? workspaces.find((w: any) => w.id === targetWsId)
           : null;
 
         if (!currentWs) {
@@ -122,9 +137,12 @@ export default function ReconciliationPage() {
           permissions,
         });
       } catch (err: any) {
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
         setForbiddenError(err?.message || 'Access denied.');
       } finally {
-        setAuthChecking(false);
+        if (currentWorkspaceIdRef.current === targetWsId) {
+          setAuthChecking(false);
+        }
       }
     }
 
@@ -134,27 +152,32 @@ export default function ReconciliationPage() {
   // Load reconciliation runs
   const loadRuns = useCallback(async () => {
     if (!workspaceId || forbiddenError) return;
+    const targetWsId = workspaceId;
     setLoading(true);
     setError(null);
 
     try {
-      const data = await listReconciliationRuns(workspaceId, {
+      const data = await listReconciliationRuns(targetWsId, {
         limit,
         offset,
         run_type: filterRunType || undefined,
         status: filterStatus || undefined,
       });
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
 
       setRuns(data.items || []);
       setTotalCount(data.total || 0);
     } catch (err: any) {
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
       if (err?.message?.includes('403') || err?.status === 403) {
         setForbiddenError('403 Forbidden: You do not have permission to view reconciliation.');
       } else {
         setError(err?.message || 'Failed to load reconciliation runs.');
       }
     } finally {
-      setLoading(false);
+      if (currentWorkspaceIdRef.current === targetWsId) {
+        setLoading(false);
+      }
     }
   }, [workspaceId, forbiddenError, limit, offset, filterRunType, filterStatus]);
 
