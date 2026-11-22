@@ -28,7 +28,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies (Root & Workspaces)
-        run: npm ci --ignore-scripts
+        run: npm ci
 
       - name: Validate Prisma Schema
         working-directory: apps/api
@@ -62,7 +62,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci
 
       - name: Generate Prisma Client
         working-directory: apps/api
@@ -72,17 +72,14 @@ jobs:
         run: npx prisma generate --schema=prisma/schema.prisma
 
       - name: Run Backend Unit Tests (Mock-Isolated)
-        working-directory: apps/api
         env:
-          DATABASE_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
-          DIRECT_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
           TELNYX_API_KEY: "mock-ci-test-key-00000000"
           BASE_URL: "http://localhost:3000"
           JWT_SECRET: "ci-placeholder-jwt-secret-at-least-32-chars-long"
           WEBHOOK_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
           NODE_ENV: "test"
           VITEST: "true"
-        run: npm run test -- src/
+        run: npm --workspace=api run test -- src/
 
   frontend-tests:
     name: Frontend Automated Tests
@@ -98,7 +95,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci
 
       - name: Run Frontend Tests (Vitest)
         working-directory: apps/web
@@ -123,7 +120,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci
 
       - name: Generate Prisma Client
         working-directory: apps/api
