@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -23,6 +23,7 @@ type Webhook = {
 export default function WebhooksPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef<string | null>(workspaceId);
 
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,16 +42,25 @@ export default function WebhooksPage() {
       setLoading(true);
       setError(null);
       const data = await apiFetch(`/workspaces/${workspaceId}/webhooks`);
-      setWebhooks(data || []);
+      if (currentWorkspaceIdRef.current === workspaceId) {
+        setWebhooks(data || []);
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load webhooks');
+      if (currentWorkspaceIdRef.current === workspaceId) {
+        setError(err instanceof Error ? err.message : 'Failed to load webhooks');
+      }
     } finally {
-      setLoading(false);
+      if (currentWorkspaceIdRef.current === workspaceId) {
+        setLoading(false);
+      }
     }
   }, [workspaceId]);
 
   useEffect(() => {
     let ignore = false;
+    currentWorkspaceIdRef.current = workspaceId;
+    setWebhooks([]);
+    setNewSecret(null);
     async function init() {
       await Promise.resolve();
       if (!ignore) {
@@ -59,7 +69,12 @@ export default function WebhooksPage() {
     }
     init();
     return () => { ignore = true; };
-  }, [fetchWebhooks]);
+  }, [fetchWebhooks, workspaceId]);
+
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeWebhooks = isWorkspaceStale ? [] : webhooks;
+  const activeNewSecret = isWorkspaceStale ? null : newSecret;
+  const isLoading = loading || isWorkspaceStale;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,7 +119,7 @@ export default function WebhooksPage() {
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="p-8 flex items-center justify-center text-muted-foreground">
         Loading webhooks...
@@ -138,7 +153,7 @@ export default function WebhooksPage() {
         </div>
       )}
 
-      {newSecret && (
+      {activeNewSecret && (
         <Card className="border-warning/50 bg-warning/5 shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -153,13 +168,13 @@ export default function WebhooksPage() {
                 </p>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-background border rounded-md p-3 max-w-xl">
                   <code className="text-sm font-mono break-all text-foreground select-all">
-                    {newSecret}
+                    {activeNewSecret}
                   </code>
                   <div className="flex gap-2 shrink-0">
                     <Button 
                       variant="outline" 
                       size="sm"
-                      onClick={() => navigator.clipboard.writeText(newSecret)}
+                      onClick={() => navigator.clipboard.writeText(activeNewSecret)}
                     >
                       <Copy className="h-4 w-4 mr-2" />
                       Copy
@@ -216,7 +231,7 @@ export default function WebhooksPage() {
             <CardDescription>Configured webhooks for this workspace.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            {webhooks.length === 0 ? (
+            {activeWebhooks.length === 0 ? (
               <div className="p-8">
                 <EmptyState
                   icon={<WebhookIcon />}
@@ -235,7 +250,7 @@ export default function WebhooksPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {webhooks.map((wh) => (
+                  {activeWebhooks.map((wh) => (
                     <TableRow key={wh.id}>
                       <TableCell className="font-mono text-xs max-w-[200px] md:max-w-md break-all truncate text-foreground">
                         <div className="flex items-center gap-2">

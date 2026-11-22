@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -63,6 +63,7 @@ export default function MembersPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
 
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
@@ -73,6 +74,8 @@ export default function MembersPage() {
 
   // Clear previous workspace state immediately when workspace changes
   useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    setLoading(true);
     setMembers([]);
     setInvitations([]);
     setVendors([]);
@@ -81,6 +84,17 @@ export default function MembersPage() {
     setUserRole(null);
   }, [workspaceId]);
 
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [buyers, setBuyers] = useState<Buyer[]>([]);
+
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeMembers = isWorkspaceStale ? [] : members;
+  const activeInvitations = isWorkspaceStale ? [] : invitations;
+  const activeVendors = isWorkspaceStale ? [] : vendors;
+  const activeBuyers = isWorkspaceStale ? [] : buyers;
+  const isLoading = loading || isWorkspaceStale;
+
   // Invite Modal State
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -88,8 +102,6 @@ export default function MembersPage() {
   const [participantType, setParticipantType] = useState('INTERNAL');
   const [vendorId, setVendorId] = useState('');
   const [buyerId, setBuyerId] = useState('');
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [loadingEntities, setLoadingEntities] = useState(false);
   const [vendorsError, setVendorsError] = useState<string | null>(null);
   const [buyersError, setBuyersError] = useState<string | null>(null);
@@ -117,54 +129,76 @@ export default function MembersPage() {
 
   const fetchMembersAndInvitations = useCallback(async () => {
     if (!workspaceId) return;
+    const targetWsId = workspaceId;
     try {
       const workspaces = await apiFetch('/workspaces');
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
       const ws = Array.isArray(workspaces)
-        ? workspaces.find((w: { id: string; role: string }) => w.id === workspaceId)
+        ? workspaces.find((w: { id: string; role: string }) => w.id === targetWsId)
         : null;
       const role = ws?.role || null;
       setUserRole(role);
 
-      const data = await apiFetch(`/workspaces/${workspaceId}/members`);
+      const data = await apiFetch(`/workspaces/${targetWsId}/members`);
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
       setMembers(extractItems<WorkspaceMember>(data));
 
       if (role === 'OWNER' || role === 'ADMIN') {
         try {
-          const invData = await apiFetch(`/workspaces/${workspaceId}/invitations`);
-          setInvitations(extractItems<WorkspaceInvitation>(invData));
+          const invData = await apiFetch(`/workspaces/${targetWsId}/invitations`);
+          if (currentWorkspaceIdRef.current === targetWsId) {
+            setInvitations(extractItems<WorkspaceInvitation>(invData));
+          }
         } catch (e) {
           console.error('Failed to fetch invitations', e);
         }
 
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
         setLoadingEntities(true);
         setVendorsError(null);
         setBuyersError(null);
 
         try {
-          const v = await apiFetch(`/workspaces/${workspaceId}/vendors`);
-          setVendors(extractItems<Vendor>(v));
+          const v = await apiFetch(`/workspaces/${targetWsId}/vendors`);
+          if (currentWorkspaceIdRef.current === targetWsId) {
+            setVendors(extractItems<Vendor>(v));
+          }
         } catch (e: unknown) {
           console.error('Failed to fetch vendors', e);
-          setVendors([]);
-          setVendorsError(e instanceof Error ? e.message : 'Failed to load vendors');
+          if (currentWorkspaceIdRef.current === targetWsId) {
+            setVendors([]);
+            setVendorsError(e instanceof Error ? e.message : 'Failed to load vendors');
+          }
         }
 
         try {
-          const b = await apiFetch(`/workspaces/${workspaceId}/buyers`);
-          setBuyers(extractItems<Buyer>(b));
+          const b = await apiFetch(`/workspaces/${targetWsId}/buyers`);
+          if (currentWorkspaceIdRef.current === targetWsId) {
+            setBuyers(extractItems<Buyer>(b));
+          }
         } catch (e: unknown) {
           console.error('Failed to fetch buyers', e);
-          setBuyers([]);
-          setBuyersError(e instanceof Error ? e.message : 'Failed to load buyers');
+          if (currentWorkspaceIdRef.current === targetWsId) {
+            setBuyers([]);
+            setBuyersError(e instanceof Error ? e.message : 'Failed to load buyers');
+          }
         }
 
-        setLoadingEntities(false);
+        if (currentWorkspaceIdRef.current === targetWsId) {
+          setLoadingEntities(false);
+        }
       }
-      setError(null);
+      if (currentWorkspaceIdRef.current === targetWsId) {
+        setError(null);
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load members');
+      if (currentWorkspaceIdRef.current === targetWsId) {
+        setError(err instanceof Error ? err.message : 'Failed to load members');
+      }
     } finally {
-      setLoading(false);
+      if (currentWorkspaceIdRef.current === targetWsId) {
+        setLoading(false);
+      }
     }
   }, [workspaceId]);
 
@@ -351,7 +385,7 @@ export default function MembersPage() {
       )}
 
       {/* Invitations Table */}
-      {isOwnerOrAdmin && invitations.length > 0 && (
+      {isOwnerOrAdmin && activeInvitations.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Pending Invitations</CardTitle>
@@ -371,12 +405,12 @@ export default function MembersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invitations.map((inv) => {
+                {activeInvitations.map((inv) => {
                   const isExpired = inv.status === 'EXPIRED' || (inv.expires_at ? new Date(inv.expires_at).getTime() < Date.now() : false);
                   const entityName = inv.participant_type === 'BUYER'
-                    ? (buyers.find((b) => b.id === inv.buyer_id)?.name || inv.buyer_id || '—')
+                    ? (activeBuyers.find((b) => b.id === inv.buyer_id)?.name || inv.buyer_id || '—')
                     : inv.participant_type === 'VENDOR'
-                    ? (vendors.find((v) => v.id === inv.vendor_id)?.name || inv.vendor_id || '—')
+                    ? (activeVendors.find((v) => v.id === inv.vendor_id)?.name || inv.vendor_id || '—')
                     : '—';
 
                   return (
@@ -427,9 +461,9 @@ export default function MembersPage() {
           <CardDescription>All members who have access to this workspace.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          {loading ? (
+          {isLoading ? (
             <div className="p-8 text-center text-muted-foreground">Loading members...</div>
-          ) : members.length === 0 ? (
+          ) : activeMembers.length === 0 ? (
             <div className="p-8">
               <EmptyState
                 icon={<Users />}
@@ -449,7 +483,7 @@ export default function MembersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {members.map((member) => (
+                {activeMembers.map((member) => (
                   <TableRow key={member.id}>
                     <TableCell>
                       <div className="font-medium text-foreground flex items-center gap-2">

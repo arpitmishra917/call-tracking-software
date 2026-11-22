@@ -70,6 +70,11 @@ export default function BuyersPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeBuyers = isWorkspaceStale ? [] : buyers;
+  const isLoading = loading || isWorkspaceStale;
+
   useEffect(() => {
     currentWorkspaceIdRef.current = workspaceId;
     requestGenRef.current++;
@@ -391,7 +396,7 @@ export default function BuyersPage() {
 
   // Filtered buyers computation
   const filteredBuyers = useMemo(() => {
-    return buyers.filter((b) => {
+    return activeBuyers.filter((b) => {
       const q = search.toLowerCase();
       const matchesSearch =
         search === '' ||
@@ -410,13 +415,13 @@ export default function BuyersPage() {
 
       return matchesSearch && matchesStatus;
     });
-  }, [buyers, search, statusFilter]);
+  }, [activeBuyers, search, statusFilter]);
 
   // Metric counts
-  const totalCount = buyers.length;
-  const activeCount = buyers.filter((b) => b.status === 'ACTIVE').length;
-  const inactiveCount = buyers.filter((b) => b.status === 'INACTIVE').length;
-  const totalDestinationCount = buyers.reduce((sum, b) => {
+  const totalCount = activeBuyers.length;
+  const activeCount = activeBuyers.filter((b) => b.status === 'ACTIVE').length;
+  const inactiveCount = activeBuyers.filter((b) => b.status === 'INACTIVE').length;
+  const totalDestinationCount = activeBuyers.reduce((sum, b) => {
     const count = b.destination_numbers?.length ?? (b.destination_number ? 1 : 0);
     return sum + count;
   }, 0);
@@ -572,7 +577,7 @@ export default function BuyersPage() {
       </Card>
 
       {/* Buyer Table / States */}
-      {loading ? (
+      {isLoading ? (
         <div className="p-12 flex flex-col items-center justify-center text-muted-foreground gap-3">
           <RefreshCw className="h-6 w-6 animate-spin text-primary" />
           <span className="text-sm font-medium">Loading buyers...</span>

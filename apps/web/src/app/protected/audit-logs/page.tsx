@@ -72,6 +72,12 @@ export default function AuditLogsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeLogs = isWorkspaceStale ? [] : logs;
+  const activeTotalCount = isWorkspaceStale ? 0 : totalCount;
+  const isLoading = loading || isWorkspaceStale;
+
   // Pagination
   const [limit, setLimit] = useState(25);
   const [offset, setOffset] = useState(0);
@@ -253,9 +259,9 @@ export default function AuditLogsPage() {
 
   // Pagination helpers
   const currentPage = Math.floor(offset / limit) + 1;
-  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  const totalPages = Math.max(1, Math.ceil(activeTotalCount / limit));
   const hasPrev = offset > 0;
-  const hasNext = offset + limit < totalCount;
+  const hasNext = offset + limit < activeTotalCount;
 
   // Render: No workspace selected
   if (!workspaceId) {
@@ -336,10 +342,10 @@ export default function AuditLogsPage() {
             variant="outline"
             size="sm"
             onClick={fetchAuditLogs}
-            disabled={loading}
+            disabled={isLoading}
             className="h-8 text-xs"
           >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         </div>
@@ -504,7 +510,7 @@ export default function AuditLogsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
+              {isLoading ? (
                 Array.from({ length: 5 }).map((_, idx) => (
                   <TableRow key={`skeleton-${idx}`}>
                     <TableCell><Skeleton className="h-4 w-32" /></TableCell>
@@ -515,7 +521,7 @@ export default function AuditLogsPage() {
                     <TableCell className="text-right"><Skeleton className="h-6 w-8 ml-auto" /></TableCell>
                   </TableRow>
                 ))
-              ) : logs.length === 0 ? (
+              ) : activeLogs.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-64 text-center">
                     <EmptyState
@@ -533,7 +539,7 @@ export default function AuditLogsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                logs.map((log) => {
+                activeLogs.map((log) => {
                   const safeMeta = sanitizeMetadata(log.metadata);
                   return (
                     <TableRow key={log.id} className="hover:bg-muted/40">
@@ -627,14 +633,14 @@ export default function AuditLogsPage() {
         </CardContent>
 
         {/* Pagination Footer */}
-        {totalCount > 0 && (
+        {activeTotalCount > 0 && (
           <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-border gap-4">
             <div className="text-xs text-muted-foreground">
               Showing <span className="font-medium text-foreground">{offset + 1}</span> to{' '}
               <span className="font-medium text-foreground">
-                {Math.min(offset + limit, totalCount)}
+                {Math.min(offset + limit, activeTotalCount)}
               </span>{' '}
-              of <span className="font-medium text-foreground">{totalCount}</span> events
+              of <span className="font-medium text-foreground">{activeTotalCount}</span> events
             </div>
 
             <div className="flex items-center gap-2">
@@ -645,7 +651,7 @@ export default function AuditLogsPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setOffset(Math.max(0, offset - limit))}
-                disabled={!hasPrev || loading}
+                disabled={!hasPrev || isLoading}
                 className="h-8 text-xs"
               >
                 <ChevronLeft className="w-3.5 h-3.5 mr-1" />
@@ -655,7 +661,7 @@ export default function AuditLogsPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setOffset(offset + limit)}
-                disabled={!hasNext || loading}
+                disabled={!hasNext || isLoading}
                 className="h-8 text-xs"
               >
                 Next

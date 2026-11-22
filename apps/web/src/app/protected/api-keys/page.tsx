@@ -42,6 +42,12 @@ export default function ApiKeysPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeKeys = isWorkspaceStale ? [] : keys;
+  const activeNewRawSecret = isWorkspaceStale ? null : newRawSecret;
+  const isLoading = loading || isWorkspaceStale;
+
   useEffect(() => {
     if (workspaceId) {
       loadKeys(workspaceId);
@@ -107,7 +113,7 @@ export default function ApiKeysPage() {
     }
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="p-8 flex items-center justify-center text-muted-foreground">
         Loading API keys...
@@ -140,7 +146,7 @@ export default function ApiKeysPage() {
         </div>
       )}
 
-      {newRawSecret && (
+      {activeNewRawSecret && (
         <Card className="border-warning/50 bg-warning/5 shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -154,13 +160,13 @@ export default function ApiKeysPage() {
                 </p>
                 <div className="flex items-center justify-between gap-4 bg-background border rounded-md p-3 max-w-xl">
                   <code className="text-sm font-mono break-all text-foreground select-all">
-                    {newRawSecret}
+                    {activeNewRawSecret}
                   </code>
                   <Button 
                     variant="outline" 
                     size="sm"
                     className="shrink-0"
-                    onClick={() => navigator.clipboard.writeText(newRawSecret)}
+                    onClick={() => navigator.clipboard.writeText(activeNewRawSecret)}
                   >
                     <Copy className="h-4 w-4 mr-2" />
                     Copy
@@ -208,7 +214,7 @@ export default function ApiKeysPage() {
             <CardDescription>All API keys associated with this workspace.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            {keys.length === 0 ? (
+            {activeKeys.length === 0 ? (
               <div className="p-8">
                 <EmptyState
                   icon={<KeyRound />}
@@ -229,7 +235,7 @@ export default function ApiKeysPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {keys.map((key) => (
+                  {activeKeys.map((key) => (
                     <TableRow key={key.id}>
                       <TableCell className="font-medium">{key.name}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{key.key_prefix}...</TableCell>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef<string | null>(workspaceId);
   
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null);
   const [nameInput, setNameInput] = useState('');
@@ -36,10 +37,12 @@ export default function SettingsPage() {
       setLoading(true);
       setError(null);
       const data = await apiFetch(`/workspaces/${workspaceId}`);
+      if (currentWorkspaceIdRef.current !== workspaceId) return;
       setWorkspaceInfo(data);
       setNameInput(data.name);
       
       const workspacesData = await apiFetch('/workspaces');
+      if (currentWorkspaceIdRef.current !== workspaceId) return;
       if (workspacesData && Array.isArray(workspacesData)) {
         const currentWs = workspacesData.find((w: { id: string; role: string }) => w.id === workspaceId);
         if (currentWs) {
@@ -47,14 +50,23 @@ export default function SettingsPage() {
         }
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load workspace settings');
+      if (currentWorkspaceIdRef.current === workspaceId) {
+        setError(err instanceof Error ? err.message : 'Failed to load workspace settings');
+      }
     } finally {
-      setLoading(false);
+      if (currentWorkspaceIdRef.current === workspaceId) {
+        setLoading(false);
+      }
     }
   }, [workspaceId]);
 
   useEffect(() => {
     let ignore = false;
+    currentWorkspaceIdRef.current = workspaceId;
+    setWorkspaceInfo(null);
+    setNameInput('');
+    setUserRole(null);
+    setSuccessMsg(null);
     async function init() {
       await Promise.resolve();
       if (!ignore && workspaceId) {
@@ -64,6 +76,11 @@ export default function SettingsPage() {
     init();
     return () => { ignore = true; };
   }, [workspaceId, fetchWorkspace]);
+
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeWorkspaceInfo = isWorkspaceStale ? null : workspaceInfo;
+  const activeNameInput = isWorkspaceStale ? '' : nameInput;
+  const isLoading = loading || isWorkspaceStale;
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,17 +94,23 @@ export default function SettingsPage() {
         method: 'PUT',
         body: JSON.stringify({ name: nameInput.trim() }),
       });
-      setWorkspaceInfo(data);
-      setSuccessMsg('Workspace settings updated successfully.');
+      if (currentWorkspaceIdRef.current === workspaceId) {
+        setWorkspaceInfo(data);
+        setSuccessMsg('Workspace settings updated successfully.');
+      }
       
       // Force next.js to refetch server components (layout.tsx)
       // which will re-run the workspace fetch and update the layout state
       router.refresh();
       
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to update settings');
+      if (currentWorkspaceIdRef.current === workspaceId) {
+        setError(err instanceof Error ? err.message : 'Failed to update settings');
+      }
     } finally {
-      setIsSaving(false);
+      if (currentWorkspaceIdRef.current === workspaceId) {
+        setIsSaving(false);
+      }
     }
   };
 
@@ -122,9 +145,9 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <div className="p-8 text-center text-muted-foreground">Loading settings...</div>
-      ) : workspaceInfo ? (
+      ) : activeWorkspaceInfo ? (
         <div className="grid grid-cols-1 gap-8">
           <Card>
             <CardHeader>
@@ -139,7 +162,7 @@ export default function SettingsPage() {
                     type="text"
                     id="name"
                     required
-                    value={nameInput}
+                    value={activeNameInput}
                     onChange={(e) => setNameInput(e.target.value)}
                     disabled={!isOwnerOrAdmin || isSaving}
                   />
@@ -153,7 +176,7 @@ export default function SettingsPage() {
                 {isOwnerOrAdmin && (
                   <Button
                     type="submit"
-                    disabled={isSaving || !nameInput.trim() || nameInput.trim() === workspaceInfo.name}
+                    disabled={isSaving || !activeNameInput.trim() || activeNameInput.trim() === activeWorkspaceInfo.name}
                     className="w-full sm:w-auto self-start mt-2"
                   >
                     {isSaving ? 'Saving...' : 'Save Changes'}

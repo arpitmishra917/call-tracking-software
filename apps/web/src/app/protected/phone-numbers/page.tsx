@@ -62,11 +62,20 @@ export default function PhoneNumbersPage() {
   const [numbers, setNumbers] = useState<PhoneNumber[]>([]);
   const [availableNumbers, setAvailableNumbers] = useState<AvailableNumber[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeNumbers = isWorkspaceStale ? [] : numbers;
+  const activeCampaigns = isWorkspaceStale ? [] : campaigns;
+  const activeVendors = isWorkspaceStale ? [] : vendors;
+  const activeAvailableNumbers = isWorkspaceStale ? [] : availableNumbers;
+  const isLoading = loading || isWorkspaceStale;
 
   useEffect(() => {
     currentWorkspaceIdRef.current = workspaceId;
@@ -95,7 +104,6 @@ export default function PhoneNumbersPage() {
   const [isAssigningVendor, setIsAssigningVendor] = useState(false);
 
   const [isVendor, setIsVendor] = useState(false);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
 
   // Filter States for Provisioned Numbers
   const [filterText, setFilterText] = useState('');
@@ -299,7 +307,7 @@ export default function PhoneNumbersPage() {
     }
   }
 
-  const filteredNumbers = numbers.filter((num) => {
+  const filteredNumbers = activeNumbers.filter((num) => {
     if (filterText.trim()) {
       const q = filterText.toLowerCase();
       const matchNumber = num.phone_number?.toLowerCase().includes(q);
@@ -402,7 +410,7 @@ export default function PhoneNumbersPage() {
     }
   }
 
-  if (loading) return <div className="p-8 flex items-center justify-center text-muted-foreground">Loading phone numbers...</div>;
+  if (isLoading) return <div className="p-8 flex items-center justify-center text-muted-foreground">Loading phone numbers...</div>;
   if (!workspaceId) return <div className="p-8 flex items-center justify-center text-muted-foreground">Please select a workspace first.</div>;
 
   return (
@@ -434,7 +442,7 @@ export default function PhoneNumbersPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Filter Controls */}
-          {numbers.length > 0 && (
+          {activeNumbers.length > 0 && (
             <div className="flex flex-col sm:flex-row gap-3 items-center justify-between pb-2">
               <div className="flex flex-1 flex-wrap gap-3 items-center w-full">
                 <div className="relative min-w-[200px] flex-1">
@@ -455,7 +463,7 @@ export default function PhoneNumbersPage() {
                   >
                     <option value="ALL">All Campaigns</option>
                     <option value="UNASSIGNED">Unassigned Campaign</option>
-                    {campaigns.map((c) => (
+                    {activeCampaigns.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
                       </option>
@@ -472,7 +480,7 @@ export default function PhoneNumbersPage() {
                     >
                       <option value="ALL">All Vendors</option>
                       <option value="UNASSIGNED">Unassigned Vendor</option>
-                      {vendors.map((v) => (
+                      {activeVendors.map((v) => (
                         <option key={v.id} value={v.id}>
                           {v.name}
                         </option>
@@ -510,7 +518,7 @@ export default function PhoneNumbersPage() {
             </div>
           )}
 
-          {numbers.length === 0 ? (
+          {activeNumbers.length === 0 ? (
              <EmptyState
                title={isVendor ? "No tracking numbers assigned" : "No phone numbers"}
                description={isVendor ? "You do not have any inbound tracking numbers assigned to your account yet." : "Search and provision a new phone number below."}

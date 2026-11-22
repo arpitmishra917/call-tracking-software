@@ -2,9 +2,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import BillingPage from './page';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
+let mockWorkspaceId = 'ws-1';
+
 vi.mock('next/navigation', () => ({
   useSearchParams: () => ({
-    get: (key: string) => (key === 'workspace' ? 'ws-1' : null),
+    get: (key: string) => (key === 'workspace' ? mockWorkspaceId : null),
   }),
 }));
 
@@ -59,5 +61,52 @@ describe('BillingPage Wallet UI', () => {
 
     // Check transaction rendered
     expect(await screen.findByText('+$25.00')).toBeTruthy();
+  });
+
+  it('immediately clears and never renders Workspace A data synchronously upon switching to Workspace B', async () => {
+    let resolveWsBBalance: (value: any) => void;
+    const pendingWsBBalance = new Promise((resolve) => {
+      resolveWsBBalance = resolve;
+    });
+
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url.includes('/workspaces/ws-1/billing/balance')) {
+        return Promise.resolve({ balance: { amountMinor: 9900, currency: 'USD' } });
+      }
+      if (url.includes('/workspaces/ws-1/billing/wallet/transactions')) {
+        return Promise.resolve([
+          { id: 'tx-ws-1', type: 'CREDIT', amount_minor: 9900, balance_after: 9900, created_at: new Date().toISOString() },
+        ]);
+      }
+      if (url.includes('/workspaces/ws-2/billing/balance')) {
+        return pendingWsBBalance;
+      }
+      if (url.includes('/workspaces/ws-2/billing/wallet/transactions')) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve({});
+    });
+
+    mockWorkspaceId = 'ws-1';
+    const { rerender } = render(<BillingPage />);
+
+    // Wait for ws-1 data to render
+    expect((await screen.findAllByText('$99.00')).length).toBeGreaterThan(0);
+
+    // Switch to Workspace B while Workspace B request is pending
+    mockWorkspaceId = 'ws-2';
+    rerender(<BillingPage />);
+
+    // Render-time identity guard check:
+    // Workspace A balance $99.00 must NOT be rendered even briefly while Workspace B is pending
+    expect(screen.queryByText('$99.00')).toBeNull();
+
+    // Resolve Workspace B
+    resolveWsBBalance!({ balance: { amountMinor: 1200, currency: 'USD' } });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('$12.00').length).toBeGreaterThan(0);
+      expect(screen.queryByText('$99.00')).toBeNull();
+    });
   });
 });

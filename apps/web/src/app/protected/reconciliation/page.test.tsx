@@ -373,4 +373,85 @@ describe('Reconciliation Frontend & Security (COMM-INTEGRATION-8C)', () => {
 
     expect(await screen.findByText('Reconciliation Run Not Found')).toBeDefined();
   });
+
+  it('28. immediately clears and never renders Workspace A reconciliation runs upon switching to Workspace B', async () => {
+    let resolveWsBRuns: (value: any) => void;
+    const pendingWsBRuns = new Promise((resolve) => {
+      resolveWsBRuns = resolve;
+    });
+
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url === '/workspaces') {
+        return Promise.resolve([
+          { id: 'ws-test-recon', name: 'WS A', role: 'ADMIN' },
+          { id: 'ws-recon-b', name: 'WS B', role: 'ADMIN' },
+        ]);
+      }
+      if (url.includes('/workspaces/ws-test-recon/reconciliation/runs')) {
+        return Promise.resolve({
+          items: [
+            {
+              id: 'recon-ws-a-exclusive',
+              workspace_id: 'ws-test-recon',
+              run_type: 'WORKSPACE_LEVEL',
+              status: 'RECONCILED',
+              items_checked: 88,
+              discrepancy_count: 0,
+              created_at: '2026-10-08T12:00:00.000Z',
+              updated_at: '2026-10-08T12:00:05.000Z',
+              issues: [],
+            },
+          ],
+          total: 1,
+        });
+      }
+      if (url.includes('/workspaces/ws-recon-b/reconciliation/runs')) {
+        return pendingWsBRuns;
+      }
+      return Promise.resolve({});
+    });
+
+    (useSearchParams as any).mockReturnValue({
+      get: (key: string) => (key === 'workspace' ? 'ws-test-recon' : null),
+    });
+
+    const { rerender } = render(<ReconciliationPage />);
+
+    // Workspace A run renders
+    await screen.findByText('recon-ws-a-exclusive');
+
+    // Switch to Workspace B while Workspace B is pending
+    (useSearchParams as any).mockReturnValue({
+      get: (key: string) => (key === 'workspace' ? 'ws-recon-b' : null),
+    });
+    rerender(<ReconciliationPage />);
+
+    // Render-time identity guard check:
+    // Workspace A data must NOT be rendered even briefly while Workspace B is pending
+    expect(screen.queryByText('recon-ws-a-exclusive')).toBeNull();
+    expect(screen.getByText(/Loading reconciliation runs.../i)).toBeDefined();
+
+    // Resolve Workspace B
+    resolveWsBRuns!({
+      items: [
+        {
+          id: 'recon-ws-b-exclusive',
+          workspace_id: 'ws-recon-b',
+          run_type: 'WORKSPACE_LEVEL',
+          status: 'DISCREPANCY',
+          items_checked: 12,
+          discrepancy_count: 3,
+          created_at: '2026-10-08T13:00:00.000Z',
+          updated_at: '2026-10-08T13:00:05.000Z',
+          issues: [],
+        },
+      ],
+      total: 1,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('recon-ws-b-exclusive')).toBeDefined();
+      expect(screen.queryByText('recon-ws-a-exclusive')).toBeNull();
+    });
+  });
 });

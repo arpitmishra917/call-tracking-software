@@ -607,6 +607,87 @@ describe('Payments Frontend & Security (COMM-INTEGRATION-8C)', () => {
         expect(lastCall).not.toContain('direction=');
       });
     });
+
+    it('immediately clears and never renders Workspace A payment instructions upon switching to Workspace B', async () => {
+      let resolveWsBInstructions: (value: any) => void;
+      const pendingWsBInstructions = new Promise((resolve) => {
+        resolveWsBInstructions = resolve;
+      });
+
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([
+            { id: 'ws-test-payments', name: 'WS A', role: 'ADMIN' },
+            { id: 'ws-payments-b', name: 'WS B', role: 'ADMIN' },
+          ]);
+        }
+        if (url.includes('/workspaces/ws-test-payments/payments/instructions')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'inst-ws-a-unique',
+                workspace_id: 'ws-test-payments',
+                direction: 'COLLECTION',
+                amount: '444.0000',
+                currency: 'USD',
+                participant_type: 'BUYER',
+                status: 'CREATED',
+                created_at: '2026-10-08T12:00:00.000Z',
+                executions: [],
+              },
+            ],
+            total: 1,
+          });
+        }
+        if (url.includes('/workspaces/ws-payments-b/payments/instructions')) {
+          return pendingWsBInstructions;
+        }
+        return Promise.resolve({});
+      });
+
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'ws-test-payments' : null),
+      });
+
+      const { rerender } = render(<PaymentsPage />);
+
+      // Workspace A instruction renders
+      await screen.findByText('inst-ws-a-unique');
+
+      // Switch to Workspace B while Workspace B is pending
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'ws-payments-b' : null),
+      });
+      rerender(<PaymentsPage />);
+
+      // Render-time identity guard check:
+      // Workspace A data must NOT be rendered even briefly while Workspace B is pending
+      expect(screen.queryByText('inst-ws-a-unique')).toBeNull();
+      expect(screen.getByText(/Loading payment instructions.../i)).toBeDefined();
+
+      // Resolve Workspace B
+      resolveWsBInstructions!({
+        items: [
+          {
+            id: 'inst-ws-b-unique',
+            workspace_id: 'ws-payments-b',
+            direction: 'DISBURSEMENT',
+            amount: '777.0000',
+            currency: 'USD',
+            participant_type: 'VENDOR',
+            status: 'SUCCEEDED',
+            created_at: '2026-10-08T12:00:00.000Z',
+            executions: [],
+          },
+        ],
+        total: 1,
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('inst-ws-b-unique')).toBeDefined();
+        expect(screen.queryByText('inst-ws-a-unique')).toBeNull();
+      });
+    });
   });
 });
 

@@ -85,6 +85,12 @@ export default function CampaignsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeCampaigns = isWorkspaceStale ? [] : campaigns;
+  const activeBuyers = isWorkspaceStale ? [] : availableBuyers;
+  const isLoading = loading || isWorkspaceStale;
+
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newCampaignName, setNewCampaignName] = useState('');
@@ -534,15 +540,15 @@ export default function CampaignsPage() {
       </div>
 
       <div className="space-y-6">
-        {loading ? (
+        {isLoading ? (
           <div className="p-8 flex items-center justify-center text-muted-foreground">Loading campaigns...</div>
-        ) : campaigns.length === 0 ? (
+        ) : activeCampaigns.length === 0 ? (
           <EmptyState
             title="No campaigns found"
             description={statusTab === 'ACTIVE' ? "Create a campaign above to start routing calls." : "No deactivated campaigns."}
           />
         ) : (
-          campaigns.map(c => {
+          activeCampaigns.map(c => {
             const hasCommercialRates =
               c.default_revenue_amount !== null &&
               c.default_revenue_amount !== undefined &&

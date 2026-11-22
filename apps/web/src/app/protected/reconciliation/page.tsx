@@ -70,6 +70,12 @@ export default function ReconciliationPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeRuns = isWorkspaceStale ? [] : runs;
+  const activeTotalCount = isWorkspaceStale ? 0 : totalCount;
+  const isLoading = loading || isWorkspaceStale;
+
   // Filters
   const [filterRunType, setFilterRunType] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
@@ -287,10 +293,10 @@ export default function ReconciliationPage() {
             variant="outline"
             size="sm"
             onClick={loadRuns}
-            disabled={loading}
+            disabled={isLoading}
             className="h-8 text-xs"
           >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
 
@@ -399,15 +405,15 @@ export default function ReconciliationPage() {
       <Card>
         <CardHeader className="border-b border-border pb-3">
           <CardTitle className="text-sm font-semibold">
-            Reconciliation Runs ({totalCount})
+            Reconciliation Runs ({activeTotalCount})
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          {loading && runs.length === 0 ? (
+          {isLoading && activeRuns.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               Loading reconciliation runs...
             </div>
-          ) : runs.length === 0 ? (
+          ) : activeRuns.length === 0 ? (
             <EmptyState
               icon={<FileCheck2 className="w-6 h-6" />}
               title="No reconciliation runs"
@@ -429,7 +435,7 @@ export default function ReconciliationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {runs.map((run) => (
+                  {activeRuns.map((run) => (
                     <TableRow key={run.id}>
                       <TableCell className="font-mono text-xs font-medium">
                         <Link

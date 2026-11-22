@@ -614,4 +614,92 @@ describe('MembersPage - Buyer/Vendor Invitation UI', () => {
       );
     });
   });
+
+  it('11. immediately clears and never renders Workspace A members or invitations upon switching to Workspace B', async () => {
+    let resolveWsBMembers: (value: any) => void;
+    const pendingWsBMembers = new Promise((resolve) => {
+      resolveWsBMembers = resolve;
+    });
+
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url === '/workspaces') {
+        return Promise.resolve([
+          { id: 'ws-test-1', name: 'WS A', role: 'ADMIN' },
+          { id: 'ws-members-b', name: 'WS B', role: 'ADMIN' },
+        ]);
+      }
+      if (url === '/workspaces/ws-test-1/members') {
+        return Promise.resolve([
+          {
+            id: 'mem-ws-a-unique',
+            workspace_id: 'ws-test-1',
+            user_id: 'user-ws-a',
+            role: 'ADMIN',
+            participant_type: 'INTERNAL',
+            created_at: '2026-10-01T00:00:00Z',
+            profile: {
+              id: 'p-a',
+              display_name: 'Unique Admin of Workspace A',
+              created_at: '2026-10-01T00:00:00Z',
+            },
+          },
+        ]);
+      }
+      if (url === '/workspaces/ws-test-1/invitations') {
+        return Promise.resolve([]);
+      }
+      if (url === '/workspaces/ws-test-1/vendors' || url === '/workspaces/ws-test-1/buyers') {
+        return Promise.resolve([]);
+      }
+      if (url === '/workspaces/ws-members-b/members') {
+        return pendingWsBMembers;
+      }
+      if (url === '/workspaces/ws-members-b/invitations' || url === '/workspaces/ws-members-b/vendors' || url === '/workspaces/ws-members-b/buyers') {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve(null);
+    });
+
+    (useSearchParams as any).mockReturnValue({
+      get: (key: string) => (key === 'workspace' ? 'ws-test-1' : null),
+    });
+
+    const { rerender } = render(<MembersPage />);
+
+    // Workspace A member renders
+    await screen.findByText('Unique Admin of Workspace A');
+
+    // Switch to Workspace B while Workspace B is pending
+    (useSearchParams as any).mockReturnValue({
+      get: (key: string) => (key === 'workspace' ? 'ws-members-b' : null),
+    });
+    rerender(<MembersPage />);
+
+    // Render-time identity guard check:
+    // Workspace A data must NOT be rendered even briefly while Workspace B is pending
+    expect(screen.queryByText('Unique Admin of Workspace A')).toBeNull();
+    expect(screen.getByText(/Loading members.../i)).toBeDefined();
+
+    // Resolve Workspace B
+    resolveWsBMembers!([
+      {
+        id: 'mem-ws-b-unique',
+        workspace_id: 'ws-members-b',
+        user_id: 'user-ws-b',
+        role: 'ADMIN',
+        participant_type: 'INTERNAL',
+        created_at: '2026-10-01T00:00:00Z',
+        profile: {
+          id: 'p-b',
+          display_name: 'Unique Admin of Workspace B',
+          created_at: '2026-10-01T00:00:00Z',
+        },
+      },
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Unique Admin of Workspace B')).toBeDefined();
+      expect(screen.queryByText('Unique Admin of Workspace A')).toBeNull();
+    });
+  });
 });

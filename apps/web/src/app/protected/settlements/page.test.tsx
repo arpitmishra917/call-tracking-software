@@ -245,4 +245,93 @@ describe('SettlementsPage (COMM-INTEGRATION-5)', () => {
     expect(await screen.findByText('Call: call-100...')).toBeDefined();
     expect(screen.getByText('Gross Settlement')).toBeDefined();
   });
+
+  it('immediately clears and never renders Workspace A settlement batches upon switching to Workspace B', async () => {
+    let resolveWsBBatches: (value: any) => void;
+    const pendingWsBBatches = new Promise((resolve) => {
+      resolveWsBBatches = resolve;
+    });
+
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url === '/workspaces') {
+        return Promise.resolve([
+          { id: 'ws-test-settle', name: 'WS A', role: 'ADMIN' },
+          { id: 'ws-settle-b', name: 'WS B', role: 'ADMIN' },
+        ]);
+      }
+      if (url.includes('/workspaces/ws-test-settle/settlements/batches')) {
+        return Promise.resolve({
+          batches: [
+            {
+              id: 'batch-ws-a-unique',
+              batch_number: 'SB-WS-A-EXCLUSIVE',
+              workspace_id: 'ws-test-settle',
+              participant_type: 'BUYER',
+              buyer_id: 'buyer-a',
+              currency: 'USD',
+              gross_amount: '999.0000',
+              net_amount: '999.0000',
+              item_count: 5,
+              settlement_status: 'FINALIZED',
+              payment_status: 'SUCCEEDED',
+              reconciliation_status: 'RECONCILED',
+              created_at: '2026-10-08T10:00:00.000Z',
+            },
+          ],
+          total: 1,
+        });
+      }
+      if (url.includes('/workspaces/ws-settle-b/settlements/batches')) {
+        return pendingWsBBatches;
+      }
+      return Promise.resolve({});
+    });
+
+    (useSearchParams as any).mockReturnValue({
+      get: (key: string) => (key === 'workspace' ? 'ws-test-settle' : null),
+    });
+
+    const { rerender } = render(<SettlementsPage />);
+
+    // Workspace A batch renders
+    await screen.findByText('SB-WS-A-EXCLUSIVE');
+
+    // Switch to Workspace B while Workspace B is pending
+    (useSearchParams as any).mockReturnValue({
+      get: (key: string) => (key === 'workspace' ? 'ws-settle-b' : null),
+    });
+    rerender(<SettlementsPage />);
+
+    // Render-time identity guard check:
+    // Workspace A data must NOT be rendered even briefly while Workspace B is pending
+    expect(screen.queryByText('SB-WS-A-EXCLUSIVE')).toBeNull();
+    expect(screen.getByText(/Loading settlement batches.../i)).toBeDefined();
+
+    // Resolve Workspace B
+    resolveWsBBatches!({
+      batches: [
+        {
+          id: 'batch-ws-b-unique',
+          batch_number: 'SB-WS-B-EXCLUSIVE',
+          workspace_id: 'ws-settle-b',
+          participant_type: 'VENDOR',
+          vendor_id: 'vendor-b',
+          currency: 'USD',
+          gross_amount: '555.0000',
+          net_amount: '555.0000',
+          item_count: 2,
+          settlement_status: 'FINALIZED',
+          payment_status: 'SUCCEEDED',
+          reconciliation_status: 'RECONCILED',
+          created_at: '2026-10-08T11:00:00.000Z',
+        },
+      ],
+      total: 1,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('SB-WS-B-EXCLUSIVE')).toBeDefined();
+      expect(screen.queryByText('SB-WS-A-EXCLUSIVE')).toBeNull();
+    });
+  });
 });

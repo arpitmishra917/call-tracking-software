@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -22,21 +22,38 @@ type UsageData = {
 export default function UsagePage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
 
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
+    setUsage(null);
+    setError(null);
+  }, [workspaceId]);
+
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeUsage = isWorkspaceStale ? null : usage;
+  const isLoading = loading || isWorkspaceStale;
+
   const fetchUsage = useCallback(async () => {
     if (!workspaceId) return;
+    const targetWsId = workspaceId;
     try {
-      const data = await apiFetch(`/workspaces/${workspaceId}/billing`);
+      const data = await apiFetch(`/workspaces/${targetWsId}/billing`);
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
       setUsage(data.usage || null);
       setError(null);
     } catch (err: unknown) {
+      if (currentWorkspaceIdRef.current !== targetWsId) return;
       setError(err instanceof Error ? err.message : 'Failed to load usage data');
     } finally {
-      setLoading(false);
+      if (currentWorkspaceIdRef.current === targetWsId) {
+        setLoading(false);
+      }
     }
   }, [workspaceId]);
 
@@ -81,9 +98,9 @@ export default function UsagePage() {
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <div className="p-8 text-center text-muted-foreground">Loading usage data...</div>
-      ) : usage && usage.summary ? (
+      ) : activeUsage && activeUsage.summary ? (
         <div className="flex flex-col gap-6">
           <Card className="bg-muted/30 border-dashed">
             <CardContent className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -92,7 +109,7 @@ export default function UsagePage() {
                   Billing Period
                 </p>
                 <p className="text-lg font-semibold text-foreground">
-                  {formatPeriod(usage.period_start, usage.period_end)}
+                  {formatPeriod(activeUsage.period_start, activeUsage.period_end)}
                 </p>
               </div>
             </CardContent>
@@ -108,7 +125,7 @@ export default function UsagePage() {
               </CardHeader>
               <CardContent>
                 <div className="text-4xl font-bold text-foreground">
-                  {usage.summary.CALL_MINUTE}
+                  {activeUsage.summary.CALL_MINUTE}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
                   Total voice minutes processed
@@ -125,7 +142,7 @@ export default function UsagePage() {
               </CardHeader>
               <CardContent>
                 <div className="text-4xl font-bold text-foreground">
-                  {usage.active_phone_numbers ?? usage.summary.PHONE_NUMBER}
+                  {activeUsage.active_phone_numbers ?? activeUsage.summary.PHONE_NUMBER}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
                   Active phone numbers provisioned
@@ -142,7 +159,7 @@ export default function UsagePage() {
               </CardHeader>
               <CardContent>
                 <div className="text-4xl font-bold text-foreground">
-                  {usage.summary.RECORDING_STORAGE}
+                  {activeUsage.summary.RECORDING_STORAGE}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
                   Storage units consumed by call recordings

@@ -38,6 +38,11 @@ export default function BlockedCallersPage() {
   const [isFetching, setIsFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeCallers = isWorkspaceStale ? [] : callers;
+  const isLoading = isFetching || isWorkspaceStale;
+
   const loadCallers = useCallback(async (id: string) => {
     setIsFetching(true);
     try {
@@ -106,7 +111,7 @@ export default function BlockedCallersPage() {
     }
   }
 
-  if (isFetching && callers.length === 0) {
+  if (isLoading && activeCallers.length === 0) {
     return (
       <div className="p-8 flex items-center justify-center text-muted-foreground">
         Loading blocked callers...
@@ -188,7 +193,7 @@ export default function BlockedCallersPage() {
             <CardDescription>All currently blocked numbers for this workspace.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            {callers.length === 0 ? (
+            {activeCallers.length === 0 ? (
               <div className="p-8">
                 <EmptyState
                   icon={<ShieldBan />}
@@ -207,7 +212,7 @@ export default function BlockedCallersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {callers.map((caller) => (
+                  {activeCallers.map((caller) => (
                     <TableRow key={caller.id}>
                       <TableCell className="font-mono text-sm max-w-[200px] break-all text-foreground">
                         <div className="flex items-center gap-2">

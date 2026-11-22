@@ -382,4 +382,64 @@ describe('Reporting Workspace Context & Tenant Routing Regression Suite', () => 
     expect(screen.queryByText('9999')).toBeNull();
     expect(screen.getByText('888')).toBeDefined();
   });
+
+  it('9. Render-time workspace identity guard: switching from Workspace A to Workspace B immediately clears and never renders Workspace A data while Workspace B is pending', async () => {
+    currentSearchString = '?workspace=ws-buyer-101';
+    let resolveWsBMetrics: (value: any) => void;
+    const pendingWsBMetrics = new Promise((resolve) => {
+      resolveWsBMetrics = resolve;
+    });
+
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (typeof url === 'string') {
+        if (url.includes('/workspaces/ws-buyer-101/calls/metrics')) {
+          return { ...defaultMetricsResponse, total: 777 };
+        }
+        if (url.includes('/workspaces/ws-vendor-202/calls/metrics')) {
+          return pendingWsBMetrics;
+        }
+        if (url.includes('live-calls')) return { liveCalls: 0 };
+        if (url.includes('reports')) return [];
+        if (url.includes('calls')) return { items: [], total: 0 };
+        if (url.includes('/workspaces')) {
+          return [
+            { id: 'ws-buyer-101', name: 'Buyer WS' },
+            { id: 'ws-vendor-202', name: 'Vendor WS' },
+          ];
+        }
+      }
+      return [];
+    });
+
+    const { rerender } = render(
+      <ThemeProvider>
+        <ReportingPage />
+      </ThemeProvider>
+    );
+
+    // Workspace A total 777 arrives and is displayed
+    await waitFor(() => {
+      expect(screen.getByText('777')).toBeDefined();
+    });
+
+    // Switch workspace to ws-vendor-202 while ws-vendor-202 request is still pending
+    currentSearchString = '?workspace=ws-vendor-202';
+    rerender(
+      <ThemeProvider>
+        <ReportingPage />
+      </ThemeProvider>
+    );
+
+    // Render-time guard check:
+    // Old Workspace A total 777 must NOT be rendered even briefly while Workspace B is pending
+    expect(screen.queryByText('777')).toBeNull();
+
+    // Now resolve Workspace B with total 333
+    resolveWsBMetrics!({ ...defaultMetricsResponse, total: 333 });
+
+    await waitFor(() => {
+      expect(screen.getByText('333')).toBeDefined();
+      expect(screen.queryByText('777')).toBeNull();
+    });
+  });
 });

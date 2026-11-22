@@ -100,6 +100,12 @@ export default function SettlementsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Selected batch for detail modal/sheet
+  const [selectedBatch, setSelectedBatch] = useState<SettlementBatchItem | null>(null);
+  const [batchItems, setBatchItems] = useState<SettlementLineItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [itemsError, setItemsError] = useState<string | null>(null);
+
   useEffect(() => {
     currentWorkspaceIdRef.current = workspaceId;
     requestGenRef.current++;
@@ -111,6 +117,14 @@ export default function SettlementsPage() {
     setItemsError(null);
   }, [workspaceId]);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeBatches = isWorkspaceStale ? [] : batches;
+  const activeTotalBatches = isWorkspaceStale ? 0 : totalBatches;
+  const activeSelectedBatch = isWorkspaceStale ? null : selectedBatch;
+  const activeBatchItems = isWorkspaceStale ? [] : batchItems;
+  const isLoading = loading || isWorkspaceStale;
+
   // Filters state
   const [filterParticipantType, setFilterParticipantType] = useState<string>('');
   const [filterSettlementStatus, setFilterSettlementStatus] = useState<string>('');
@@ -120,12 +134,6 @@ export default function SettlementsPage() {
   const [filterPeriodEnd, setFilterPeriodEnd] = useState<string>('');
   const [offset, setOffset] = useState(0);
   const limit = 25;
-
-  // Selected batch for detail modal/sheet
-  const [selectedBatch, setSelectedBatch] = useState<SettlementBatchItem | null>(null);
-  const [batchItems, setBatchItems] = useState<SettlementLineItem[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
-  const [itemsError, setItemsError] = useState<string | null>(null);
 
   // User role context
   const [userRole, setUserRole] = useState<{ role: string; participant_type?: string | null } | null>(null);
@@ -342,10 +350,10 @@ export default function SettlementsPage() {
             variant="outline"
             size="sm"
             onClick={loadBatches}
-            disabled={loading}
+            disabled={isLoading}
             className="h-8 text-xs"
           >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
 
@@ -517,15 +525,15 @@ export default function SettlementsPage() {
       <Card>
         <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
           <CardTitle className="text-base font-semibold">Settlement Batches</CardTitle>
-          <span className="text-xs text-muted-foreground">{totalBatches} total batch(es)</span>
+          <span className="text-xs text-muted-foreground">{activeTotalBatches} total batch(es)</span>
         </CardHeader>
 
         <CardContent className="pt-0">
-          {loading ? (
+          {isLoading ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               Loading settlement batches...
             </div>
-          ) : error ? null : batches.length === 0 ? (
+          ) : error ? null : activeBatches.length === 0 ? (
             <EmptyState
               title="No settlement batches found"
               description="No settlement batches have been generated or matched the selected filters."
@@ -546,7 +554,7 @@ export default function SettlementsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {batches.map((batch) => (
+                {activeBatches.map((batch) => (
                   <TableRow key={batch.id} className="hover:bg-muted/30">
                     <TableCell className="font-mono text-xs font-medium">
                       {batch.batch_number}
@@ -635,7 +643,7 @@ export default function SettlementsPage() {
       </Card>
 
       {/* Settlement Detail Modal / Drawer */}
-      {selectedBatch && (
+      {activeSelectedBatch && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-4xl max-h-[90vh] flex flex-col shadow-xl animate-in fade-in duration-200">
             <CardHeader className="border-b border-border flex flex-row items-center justify-between py-4">
@@ -643,11 +651,11 @@ export default function SettlementsPage() {
                 <div className="flex items-center gap-2">
                   <Receipt className="w-5 h-5 text-primary" />
                   <CardTitle className="text-base font-bold">
-                    Batch: {selectedBatch.batch_number}
+                    Batch: {activeSelectedBatch.batch_number}
                   </CardTitle>
                 </div>
                 <CardDescription className="text-xs">
-                  {selectedBatch.participant_type} settlement period details and attached line items
+                  {activeSelectedBatch.participant_type} settlement period details and attached line items
                 </CardDescription>
               </div>
               <Button
@@ -666,25 +674,25 @@ export default function SettlementsPage() {
                 <div className="p-3 bg-muted/30 rounded-lg border border-border">
                   <span className="text-[10px] text-muted-foreground uppercase font-semibold">Gross Settlement</span>
                   <p className="text-base font-mono font-bold text-foreground mt-1">
-                    {formatCurrency(selectedBatch.gross_amount, selectedBatch.currency)}
+                    {formatCurrency(activeSelectedBatch.gross_amount, activeSelectedBatch.currency)}
                   </p>
                 </div>
                 <div className="p-3 bg-muted/30 rounded-lg border border-border">
                   <span className="text-[10px] text-muted-foreground uppercase font-semibold">Adjustments</span>
                   <p className="text-base font-mono font-bold text-foreground mt-1">
-                    {formatCurrency(selectedBatch.adjustments_amount, selectedBatch.currency)}
+                    {formatCurrency(activeSelectedBatch.adjustments_amount, activeSelectedBatch.currency)}
                   </p>
                 </div>
                 <div className="p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
                   <span className="text-[10px] text-emerald-700 dark:text-emerald-400 uppercase font-semibold">Net Settlement</span>
                   <p className="text-base font-mono font-bold text-emerald-600 mt-1">
-                    {formatCurrency(selectedBatch.net_amount, selectedBatch.currency)}
+                    {formatCurrency(activeSelectedBatch.net_amount, activeSelectedBatch.currency)}
                   </p>
                 </div>
                 <div className="p-3 bg-muted/30 rounded-lg border border-border">
                   <span className="text-[10px] text-muted-foreground uppercase font-semibold">Line Items</span>
                   <p className="text-base font-mono font-bold text-foreground mt-1">
-                    {selectedBatch.item_count} items
+                    {activeSelectedBatch.item_count} items
                   </p>
                 </div>
               </div>
@@ -697,23 +705,23 @@ export default function SettlementsPage() {
                     <span>Period Boundaries [start, end)</span>
                   </div>
                   <p className="font-mono text-foreground">
-                    Start: {formatPeriodDate(selectedBatch.period_start)}
+                    Start: {formatPeriodDate(activeSelectedBatch.period_start)}
                   </p>
                   <p className="font-mono text-foreground">
-                    End: {formatPeriodDate(selectedBatch.period_end)}
+                    End: {formatPeriodDate(activeSelectedBatch.period_end)}
                   </p>
                 </div>
                 <div className="space-y-1.5">
                   <span className="text-muted-foreground font-medium">Lifecycle States</span>
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <Badge variant={getStatusBadgeVariant(selectedBatch.settlement_status)} className="text-[10px]">
-                      Settlement: {selectedBatch.settlement_status}
+                    <Badge variant={getStatusBadgeVariant(activeSelectedBatch.settlement_status)} className="text-[10px]">
+                      Settlement: {activeSelectedBatch.settlement_status}
                     </Badge>
-                    <Badge variant={getStatusBadgeVariant(selectedBatch.payment_status)} className="text-[10px]">
-                      Payment: {selectedBatch.payment_status}
+                    <Badge variant={getStatusBadgeVariant(activeSelectedBatch.payment_status)} className="text-[10px]">
+                      Payment: {activeSelectedBatch.payment_status}
                     </Badge>
-                    <Badge variant={getStatusBadgeVariant(selectedBatch.reconciliation_status)} className="text-[10px]">
-                      Reconciliation: {selectedBatch.reconciliation_status}
+                    <Badge variant={getStatusBadgeVariant(activeSelectedBatch.reconciliation_status)} className="text-[10px]">
+                      Reconciliation: {activeSelectedBatch.reconciliation_status}
                     </Badge>
                   </div>
                 </div>
@@ -726,7 +734,7 @@ export default function SettlementsPage() {
                     <FileText className="w-4 h-4 text-primary" />
                     Settlement Line Items
                   </h4>
-                  <span className="text-xs text-muted-foreground">{batchItems.length} loaded</span>
+                  <span className="text-xs text-muted-foreground">{activeBatchItems.length} loaded</span>
                 </div>
 
                 {loadingItems ? (
@@ -738,7 +746,7 @@ export default function SettlementsPage() {
                     <AlertCircle className="w-4 h-4" />
                     <span>{itemsError}</span>
                   </div>
-                ) : batchItems.length === 0 ? (
+                ) : activeBatchItems.length === 0 ? (
                   <div className="py-6 text-center text-xs text-muted-foreground bg-muted/20 rounded-md border border-dashed border-border">
                     No individual line items found in this settlement batch.
                   </div>
@@ -755,7 +763,7 @@ export default function SettlementsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {batchItems.map((item) => (
+                        {activeBatchItems.map((item) => (
                           <TableRow key={item.id} className="text-xs">
                             <TableCell className="font-mono text-muted-foreground">
                               {item.id.slice(0, 8)}...

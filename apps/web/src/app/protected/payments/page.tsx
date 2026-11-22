@@ -81,6 +81,12 @@ export default function PaymentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeInstructions = isWorkspaceStale ? [] : instructions;
+  const activeTotalCount = isWorkspaceStale ? 0 : totalCount;
+  const isLoading = loading || isWorkspaceStale;
+
   // Filters
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [filterParticipantType, setFilterParticipantType] = useState<string>('');
@@ -300,10 +306,10 @@ export default function PaymentsPage() {
             variant="outline"
             size="sm"
             onClick={loadInstructions}
-            disabled={loading}
+            disabled={isLoading}
             className="h-8 text-xs"
           >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         </div>
@@ -406,16 +412,16 @@ export default function PaymentsPage() {
         <CardHeader className="border-b border-border pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-semibold">
-              Payment Instructions ({totalCount})
+              Payment Instructions ({activeTotalCount})
             </CardTitle>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {loading && instructions.length === 0 ? (
+          {isLoading && activeInstructions.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               Loading payment instructions...
             </div>
-          ) : instructions.length === 0 ? (
+          ) : activeInstructions.length === 0 ? (
             <EmptyState
               icon={<BadgeDollarSign className="w-6 h-6" />}
               title="No payment instructions"
@@ -437,7 +443,7 @@ export default function PaymentsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {instructions.map((inst) => (
+                  {activeInstructions.map((inst) => (
                     <TableRow key={inst.id}>
                       <TableCell className="font-mono text-xs font-medium">
                         <Link

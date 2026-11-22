@@ -559,10 +559,23 @@ export default function ReportingDashboard() {
     setError(null);
   }, [workspaceId]);
 
-  const hasRevenue = metrics?.revenue !== undefined;
-  const hasPayout = metrics?.payout !== undefined;
-  const hasProfit = metrics?.profit !== undefined;
-  const hasCost = metrics?.cost !== undefined;
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeMetrics = isWorkspaceStale ? null : metrics;
+  const activeCalls = isWorkspaceStale ? [] : calls;
+  const activeCallsTotal = isWorkspaceStale ? 0 : callsTotal;
+  const activeLiveCalls = isWorkspaceStale ? 0 : liveCalls;
+  const activeSavedReports = isWorkspaceStale ? [] : savedReports;
+  const activeCampaigns = isWorkspaceStale ? [] : campaigns;
+  const activeBuyers = isWorkspaceStale ? [] : buyers;
+  const activeVendors = isWorkspaceStale ? [] : vendors;
+  const activePhoneNumbers = isWorkspaceStale ? [] : phoneNumbers;
+  const isLoading = loading || isWorkspaceStale;
+
+  const hasRevenue = activeMetrics?.revenue !== undefined;
+  const hasPayout = activeMetrics?.payout !== undefined;
+  const hasProfit = activeMetrics?.profit !== undefined;
+  const hasCost = activeMetrics?.cost !== undefined;
   const isVendor = isVendorWorkspace || (!hasRevenue && hasPayout && !hasProfit);
   const isBuyer = isBuyerWorkspace;
 
@@ -833,14 +846,14 @@ export default function ReportingDashboard() {
     return chips;
   }, [startDate, endDate, campaignId, buyerId, vendorId, trackingNumber, callerNumber, status, minDuration, maxDuration, durationType, campaigns, buyers, vendors, isVendor, isBuyer]);
 
-  const outcomeData = metrics ? [
-    { name: 'Answered', value: metrics.answered || 0, color: '#10b981' }, 
-    { name: 'Missed', value: metrics.missed || 0, color: '#f97316' }, 
-    { name: 'Failed', value: metrics.failed || 0, color: '#ef4444' }, 
+  const outcomeData = activeMetrics ? [
+    { name: 'Answered', value: activeMetrics.answered || 0, color: '#10b981' }, 
+    { name: 'Missed', value: activeMetrics.missed || 0, color: '#f97316' }, 
+    { name: 'Failed', value: activeMetrics.failed || 0, color: '#ef4444' }, 
   ].filter(d => d.value > 0) : [];
 
-  const answerRate = metrics && metrics.total > 0
-    ? (metrics.answered / metrics.total) * 100
+  const answerRate = activeMetrics && activeMetrics.total > 0
+    ? (activeMetrics.answered / activeMetrics.total) * 100
     : 0;
 
   return (
@@ -944,8 +957,8 @@ export default function ReportingDashboard() {
                 </div>
               )}
             </div>
-          <Button variant="outline" size="sm" onClick={fetchReporting} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <Button variant="outline" size="sm" onClick={fetchReporting} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
           <Button variant="outline" size="sm" className="md:hidden" onClick={() => setShowFilters(!showFilters)}>
@@ -982,7 +995,7 @@ export default function ReportingDashboard() {
                 className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="">{loadingDropdowns ? 'Loading campaigns...' : 'All Campaigns'}</option>
-                {campaigns.map(c => (
+                {activeCampaigns.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
@@ -998,7 +1011,7 @@ export default function ReportingDashboard() {
                   className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="">{loadingDropdowns ? 'Loading buyers...' : 'All Buyers'}</option>
-                  {buyers.map(b => (
+                  {activeBuyers.map(b => (
                     <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
                 </select>
@@ -1015,7 +1028,7 @@ export default function ReportingDashboard() {
                   className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="">{loadingDropdowns ? 'Loading vendors...' : 'All Vendors'}</option>
-                  {vendors.map(v => (
+                  {activeVendors.map(v => (
                     <option key={v.id} value={v.id}>{v.name}</option>
                   ))}
                 </select>
@@ -1033,7 +1046,7 @@ export default function ReportingDashboard() {
                 className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="">{loadingDropdowns ? 'Loading numbers...' : 'All Numbers'}</option>
-                {phoneNumbers.map(n => (
+                {activePhoneNumbers.map(n => (
                   <option key={n.id} value={n.phone_number}>{n.phone_number}</option>
                 ))}
               </select>
@@ -1139,7 +1152,7 @@ export default function ReportingDashboard() {
             <Button variant="outline" onClick={fetchReporting}>Try again</Button>
           </CardContent>
         </Card>
-      ) : loading ? (
+      ) : isLoading ? (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
             {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
@@ -1150,7 +1163,7 @@ export default function ReportingDashboard() {
           </div>
           <Skeleton className="h-[400px] rounded-xl" />
         </div>
-      ) : !metrics ? (
+      ) : !activeMetrics ? (
         <EmptyState title="No matching calls" description="Try adjusting your filters or clearing them." />
       ) : (
         <>
@@ -1161,7 +1174,7 @@ export default function ReportingDashboard() {
                   <PhoneCall className="h-4 w-4" />
                   <span className="text-sm font-medium">Total Calls</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{(metrics.total ?? 0).toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(activeMetrics.total ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -1170,7 +1183,7 @@ export default function ReportingDashboard() {
                   <PhoneIncoming className="h-4 w-4 text-emerald-600" />
                   <span className="text-sm font-medium">Answered</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{(metrics.answered ?? 0).toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(activeMetrics.answered ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -1179,7 +1192,7 @@ export default function ReportingDashboard() {
                   <PhoneMissed className="h-4 w-4 text-orange-500" />
                   <span className="text-sm font-medium">Missed</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{(metrics.missed ?? 0).toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(activeMetrics.missed ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -1188,7 +1201,7 @@ export default function ReportingDashboard() {
                   <PhoneOff className="h-4 w-4 text-red-500" />
                   <span className="text-sm font-medium">Failed</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{(metrics.failed ?? 0).toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(activeMetrics.failed ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
             <Card>
@@ -1206,7 +1219,7 @@ export default function ReportingDashboard() {
                   <Timer className="h-4 w-4 text-blue-500" />
                   <span className="text-sm font-medium">Average Talk Time</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{formatDurationHms(metrics.avgDuration)}</div>
+                <div className="text-3xl font-bold text-foreground">{formatDurationHms(activeMetrics.avgDuration)}</div>
               </CardContent>
             </Card>
             <Card>
@@ -1215,7 +1228,7 @@ export default function ReportingDashboard() {
                   <Clock className="h-4 w-4 text-indigo-500" />
                   <span className="text-sm font-medium">Average Total Time</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{formatDurationHms(metrics.aclSecs)}</div>
+                <div className="text-3xl font-bold text-foreground">{formatDurationHms(activeMetrics.aclSecs)}</div>
               </CardContent>
             </Card>
             <Card>
@@ -1224,13 +1237,13 @@ export default function ReportingDashboard() {
                   <Radio className="h-4 w-4 text-emerald-600 animate-pulse" />
                   <span className="text-sm font-medium">Live Calls</span>
                 </div>
-                <div className="text-3xl font-bold text-foreground">{(liveCalls ?? 0).toLocaleString()}</div>
+                <div className="text-3xl font-bold text-foreground">{(activeLiveCalls ?? 0).toLocaleString()}</div>
               </CardContent>
             </Card>
           </div>
 
           {/* Commercial Economics KPI Cards */}
-          {(hasRevenue || hasPayout || metrics.converted !== undefined) && (
+          {(hasRevenue || hasPayout || activeMetrics.converted !== undefined) && (
             <div className="space-y-2">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Commercial Economics</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
@@ -1241,7 +1254,7 @@ export default function ReportingDashboard() {
                         <DollarSign className="h-4 w-4 text-emerald-600" />
                         <span className="text-sm font-medium">Revenue</span>
                       </div>
-                      <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.revenue, metrics.currency)}</div>
+                      <div className="text-2xl font-bold text-foreground">{formatCurrency(activeMetrics.revenue, activeMetrics.currency)}</div>
                     </CardContent>
                   </Card>
                 )}
@@ -1252,7 +1265,7 @@ export default function ReportingDashboard() {
                         <DollarSign className="h-4 w-4 text-blue-600" />
                         <span className="text-sm font-medium">Payout</span>
                       </div>
-                      <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.payout, metrics.currency)}</div>
+                      <div className="text-2xl font-bold text-foreground">{formatCurrency(activeMetrics.payout, activeMetrics.currency)}</div>
                     </CardContent>
                   </Card>
                 )}
@@ -1260,11 +1273,11 @@ export default function ReportingDashboard() {
                   <Card data-testid="kpi-profit">
                     <CardContent className="p-5">
                       <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                        <TrendingUp className={`h-4 w-4 ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`} />
+                        <TrendingUp className={`h-4 w-4 ${(activeMetrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`} />
                         <span className="text-sm font-medium">Profit</span>
                       </div>
-                      <div className={`text-2xl font-bold ${(metrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {formatCurrency(metrics.profit, metrics.currency)}
+                      <div className={`text-2xl font-bold ${(activeMetrics.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {formatCurrency(activeMetrics.profit, activeMetrics.currency)}
                       </div>
                     </CardContent>
                   </Card>
@@ -1276,51 +1289,51 @@ export default function ReportingDashboard() {
                         <DollarSign className="h-4 w-4 text-orange-500" />
                         <span className="text-sm font-medium">Cost</span>
                       </div>
-                      <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.cost, metrics.currency)}</div>
+                      <div className="text-2xl font-bold text-foreground">{formatCurrency(activeMetrics.cost, activeMetrics.currency)}</div>
                     </CardContent>
                   </Card>
                 )}
-                {metrics.converted !== undefined && (
+                {activeMetrics.converted !== undefined && (
                   <Card data-testid="kpi-converted">
                     <CardContent className="p-5">
                       <div className="flex items-center gap-2 text-muted-foreground mb-2">
                         <CheckCircle className="h-4 w-4 text-emerald-600" />
                         <span className="text-sm font-medium">Converted</span>
                       </div>
-                      <div className="text-2xl font-bold text-foreground">{(metrics.converted ?? 0).toLocaleString()}</div>
+                      <div className="text-2xl font-bold text-foreground">{(activeMetrics.converted ?? 0).toLocaleString()}</div>
                     </CardContent>
                   </Card>
                 )}
-                {metrics.qualified !== undefined && (
+                {activeMetrics.qualified !== undefined && (
                   <Card data-testid="kpi-qualified">
                     <CardContent className="p-5">
                       <div className="flex items-center gap-2 text-muted-foreground mb-2">
                         <Percent className="h-4 w-4 text-indigo-500" />
                         <span className="text-sm font-medium">Qualified</span>
                       </div>
-                      <div className="text-2xl font-bold text-foreground">{(metrics.qualified ?? 0).toLocaleString()}</div>
+                      <div className="text-2xl font-bold text-foreground">{(activeMetrics.qualified ?? 0).toLocaleString()}</div>
                     </CardContent>
                   </Card>
                 )}
-                {metrics.duplicate !== undefined && (
+                {activeMetrics.duplicate !== undefined && (
                   <Card data-testid="kpi-duplicate">
                     <CardContent className="p-5">
                       <div className="flex items-center gap-2 text-muted-foreground mb-2">
                         <Copy className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm font-medium">Duplicate</span>
                       </div>
-                      <div className="text-2xl font-bold text-foreground">{(metrics.duplicate ?? 0).toLocaleString()}</div>
+                      <div className="text-2xl font-bold text-foreground">{(activeMetrics.duplicate ?? 0).toLocaleString()}</div>
                     </CardContent>
                   </Card>
                 )}
-                {metrics.conversionRate !== undefined && (
+                {activeMetrics.conversionRate !== undefined && (
                   <Card data-testid="kpi-conversion-rate">
                     <CardContent className="p-5">
                       <div className="flex items-center gap-2 text-muted-foreground mb-2">
                         <Percent className="h-4 w-4 text-emerald-500" />
                         <span className="text-sm font-medium">Conv. Rate</span>
                       </div>
-                      <div className="text-2xl font-bold text-foreground">{formatPercent(metrics.conversionRate ?? 0)}</div>
+                      <div className="text-2xl font-bold text-foreground">{formatPercent(activeMetrics.conversionRate ?? 0)}</div>
                     </CardContent>
                   </Card>
                 )}
@@ -1330,16 +1343,16 @@ export default function ReportingDashboard() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <CallsByDayChart
-              buckets={metrics.buckets}
-              currency={metrics.currency}
+              buckets={activeMetrics.buckets}
+              currency={activeMetrics.currency}
               bucket={bucket}
               onBucketChange={handleBucketChange}
-              isLoading={loading}
+              isLoading={isLoading}
               hasRevenue={hasRevenue}
               onRetry={fetchReporting}
             />
 
-            <OutcomeDistributionChart metrics={metrics} isLoading={loading} />
+            <OutcomeDistributionChart metrics={activeMetrics} isLoading={isLoading} />
                       </div>
 
           <Card>
@@ -1357,174 +1370,182 @@ export default function ReportingDashboard() {
               </select>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
-              {groupBy === 'Campaign' && (!metrics.campaigns || Object.keys(metrics.campaigns).length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground text-sm">No campaign data.</div>
+              {!activeMetrics ? (
+                <div className="p-8 text-center text-muted-foreground text-sm">
+                  {isLoading ? 'Loading performance metrics...' : 'No data available.'}
+                </div>
               ) : (
-                <Table>
-                  <TableHeader className="bg-muted/50 whitespace-nowrap">
-                    <TableRow>
-                      <TableHead>Campaign</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-right">Answered</TableHead>
-                      <TableHead className="text-right">ACL</TableHead>
-                      <TableHead className="text-right">TCL</TableHead>
-                      {hasRevenue && <TableHead className="text-right">Revenue</TableHead>}
-                      {hasPayout && <TableHead className="text-right">Payout</TableHead>}
-                      {hasCost && <TableHead className="text-right">Cost</TableHead>}
-                      {hasProfit && <TableHead className="text-right">Profit</TableHead>}
-                      <TableHead className="text-right">Converted</TableHead>
-                      <TableHead className="text-right">Qualified</TableHead>
-                      <TableHead className="text-right">Duplicate</TableHead>
-                      <TableHead className="text-right">Conv. Rate</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {Object.values(metrics.campaigns as Record<string, any>).map((stats: any) => (
-                      <TableRow key={stats.id || stats.name}>
-                        <TableCell className="font-medium whitespace-nowrap">{stats.name || stats.id || 'Unknown Campaign'}</TableCell>
-                        <TableCell className="text-right">{typeof stats.total === 'number' ? stats.total.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right font-medium text-emerald-600">{typeof stats.answered === 'number' ? stats.answered.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
-                        {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>}
-                        {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>}
-                        {hasCost && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>}
-                        {hasProfit && (
-                          <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                            {formatCurrency(stats.profit, metrics.currency)}
-                          </TableCell>
-                        )}
-                        <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{stats.qualified != null ? stats.qualified.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{stats.duplicate != null ? stats.duplicate.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ))}
+                <>
+                  {groupBy === 'Campaign' && (!activeMetrics.campaigns || Object.keys(activeMetrics.campaigns).length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground text-sm">No campaign data.</div>
+                  ) : (
+                    <Table>
+                      <TableHeader className="bg-muted/50 whitespace-nowrap">
+                        <TableRow>
+                          <TableHead>Campaign</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                          <TableHead className="text-right">Answered</TableHead>
+                          <TableHead className="text-right">ACL</TableHead>
+                          <TableHead className="text-right">TCL</TableHead>
+                          {hasRevenue && <TableHead className="text-right">Revenue</TableHead>}
+                          {hasPayout && <TableHead className="text-right">Payout</TableHead>}
+                          {hasCost && <TableHead className="text-right">Cost</TableHead>}
+                          {hasProfit && <TableHead className="text-right">Profit</TableHead>}
+                          <TableHead className="text-right">Converted</TableHead>
+                          <TableHead className="text-right">Qualified</TableHead>
+                          <TableHead className="text-right">Duplicate</TableHead>
+                          <TableHead className="text-right">Conv. Rate</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {Object.values(activeMetrics.campaigns as Record<string, any>).map((stats: any) => (
+                          <TableRow key={stats.id || stats.name}>
+                            <TableCell className="font-medium whitespace-nowrap">{stats.name || stats.id || 'Unknown Campaign'}</TableCell>
+                            <TableCell className="text-right">{typeof stats.total === 'number' ? stats.total.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right font-medium text-emerald-600">{typeof stats.answered === 'number' ? stats.answered.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
+                            {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, activeMetrics.currency)}</TableCell>}
+                            {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, activeMetrics.currency)}</TableCell>}
+                            {hasCost && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, activeMetrics.currency)}</TableCell>}
+                            {hasProfit && (
+                              <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {formatCurrency(stats.profit, activeMetrics.currency)}
+                              </TableCell>
+                            )}
+                            <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{stats.qualified != null ? stats.qualified.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{stats.duplicate != null ? stats.duplicate.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ))}
 
-              {groupBy === 'Buyer' && (isVendor || !metrics.buyers || Object.keys(metrics.buyers).length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground text-sm">No buyer data available.</div>
-              ) : (
-                <Table>
-                  <TableHeader className="bg-muted/50 whitespace-nowrap">
-                    <TableRow>
-                      <TableHead>Buyer (Legs)</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-right">Answered</TableHead>
-                      <TableHead className="text-right">Failed</TableHead>
-                      <TableHead className="text-right">TCL</TableHead>
-                      {hasRevenue && <TableHead className="text-right">Revenue</TableHead>}
-                      {hasPayout && <TableHead className="text-right">Payout</TableHead>}
-                      {hasCost && <TableHead className="text-right">Cost</TableHead>}
-                      {hasProfit && <TableHead className="text-right">Profit</TableHead>}
-                      <TableHead className="text-right">Converted</TableHead>
-                      <TableHead className="text-right">Qualified</TableHead>
-                      <TableHead className="text-right">Duplicate</TableHead>
-                      <TableHead className="text-right">Conv. Rate</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {Object.values(metrics.buyers as Record<string, any>).map((stats: any) => (
-                      <TableRow key={stats.id}>
-                        <TableCell className="font-medium whitespace-nowrap">{stats.name || 'Unknown Buyer'}</TableCell>
-                        <TableCell className="text-right">{typeof stats.total === 'number' ? stats.total.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right font-medium text-emerald-600">{typeof stats.answered === 'number' ? stats.answered.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{typeof stats.failed === 'number' ? stats.failed.toLocaleString() : (typeof stats.total === 'number' && typeof stats.answered === 'number' ? Math.max(0, stats.total - stats.answered).toLocaleString() : '—')}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
-                        {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>}
-                        {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>}
-                        {hasCost && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>}
-                        {hasProfit && (
-                          <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                            {formatCurrency(stats.profit, metrics.currency)}
-                          </TableCell>
-                        )}
-                        <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{stats.qualified != null ? stats.qualified.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{stats.duplicate != null ? stats.duplicate.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ))}
+                  {groupBy === 'Buyer' && (isVendor || !activeMetrics.buyers || Object.keys(activeMetrics.buyers).length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground text-sm">No buyer data available.</div>
+                  ) : (
+                    <Table>
+                      <TableHeader className="bg-muted/50 whitespace-nowrap">
+                        <TableRow>
+                          <TableHead>Buyer (Legs)</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                          <TableHead className="text-right">Answered</TableHead>
+                          <TableHead className="text-right">Failed</TableHead>
+                          <TableHead className="text-right">TCL</TableHead>
+                          {hasRevenue && <TableHead className="text-right">Revenue</TableHead>}
+                          {hasPayout && <TableHead className="text-right">Payout</TableHead>}
+                          {hasCost && <TableHead className="text-right">Cost</TableHead>}
+                          {hasProfit && <TableHead className="text-right">Profit</TableHead>}
+                          <TableHead className="text-right">Converted</TableHead>
+                          <TableHead className="text-right">Qualified</TableHead>
+                          <TableHead className="text-right">Duplicate</TableHead>
+                          <TableHead className="text-right">Conv. Rate</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {Object.values(activeMetrics.buyers as Record<string, any>).map((stats: any) => (
+                          <TableRow key={stats.id}>
+                            <TableCell className="font-medium whitespace-nowrap">{stats.name || 'Unknown Buyer'}</TableCell>
+                            <TableCell className="text-right">{typeof stats.total === 'number' ? stats.total.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right font-medium text-emerald-600">{typeof stats.answered === 'number' ? stats.answered.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{typeof stats.failed === 'number' ? stats.failed.toLocaleString() : (typeof stats.total === 'number' && typeof stats.answered === 'number' ? Math.max(0, stats.total - stats.answered).toLocaleString() : '—')}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
+                            {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, activeMetrics.currency)}</TableCell>}
+                            {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, activeMetrics.currency)}</TableCell>}
+                            {hasCost && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, activeMetrics.currency)}</TableCell>}
+                            {hasProfit && (
+                              <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {formatCurrency(stats.profit, activeMetrics.currency)}
+                              </TableCell>
+                            )}
+                            <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{stats.qualified != null ? stats.qualified.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{stats.duplicate != null ? stats.duplicate.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ))}
 
-              {groupBy === 'Tracking Number' && (!metrics.trackingNumbers || Object.keys(metrics.trackingNumbers).length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground text-sm">No tracking number data.</div>
-              ) : (
-                <Table>
-                  <TableHeader className="bg-muted/50 whitespace-nowrap">
-                    <TableRow>
-                      <TableHead>Tracking Number</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-right">Answered</TableHead>
-                      <TableHead className="text-right">ACL</TableHead>
-                      <TableHead className="text-right">TCL</TableHead>
-                      {hasRevenue && <TableHead className="text-right">Revenue</TableHead>}
-                      {hasPayout && <TableHead className="text-right">Payout</TableHead>}
-                      {hasCost && <TableHead className="text-right">Cost</TableHead>}
-                      {hasProfit && <TableHead className="text-right">Profit</TableHead>}
-                      <TableHead className="text-right">Converted</TableHead>
-                      <TableHead className="text-right">Qualified</TableHead>
-                      <TableHead className="text-right">Duplicate</TableHead>
-                      <TableHead className="text-right">Conv. Rate</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {Object.values(metrics.trackingNumbers as Record<string, any>).map((stats: any, index: number) => (
-                      <TableRow key={stats.id || stats.phone_number || index}>
-                        <TableCell className="font-medium font-mono text-xs whitespace-nowrap">{stats.tracking_number || stats.phone_number || 'Unknown'}</TableCell>
-                        <TableCell className="text-right">{typeof stats.total === 'number' ? stats.total.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right font-medium text-emerald-600">{typeof stats.answered === 'number' ? stats.answered.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
-                        {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, metrics.currency)}</TableCell>}
-                        {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, metrics.currency)}</TableCell>}
-                        {hasCost && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, metrics.currency)}</TableCell>}
-                        {hasProfit && (
-                          <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                            {formatCurrency(stats.profit, metrics.currency)}
-                          </TableCell>
-                        )}
-                        <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{stats.qualified != null ? stats.qualified.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{stats.duplicate != null ? stats.duplicate.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ))}
+                  {groupBy === 'Tracking Number' && (!activeMetrics.trackingNumbers || Object.keys(activeMetrics.trackingNumbers).length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground text-sm">No tracking number data.</div>
+                  ) : (
+                    <Table>
+                      <TableHeader className="bg-muted/50 whitespace-nowrap">
+                        <TableRow>
+                          <TableHead>Tracking Number</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                          <TableHead className="text-right">Answered</TableHead>
+                          <TableHead className="text-right">ACL</TableHead>
+                          <TableHead className="text-right">TCL</TableHead>
+                          {hasRevenue && <TableHead className="text-right">Revenue</TableHead>}
+                          {hasPayout && <TableHead className="text-right">Payout</TableHead>}
+                          {hasCost && <TableHead className="text-right">Cost</TableHead>}
+                          {hasProfit && <TableHead className="text-right">Profit</TableHead>}
+                          <TableHead className="text-right">Converted</TableHead>
+                          <TableHead className="text-right">Qualified</TableHead>
+                          <TableHead className="text-right">Duplicate</TableHead>
+                          <TableHead className="text-right">Conv. Rate</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {Object.values(activeMetrics.trackingNumbers as Record<string, any>).map((stats: any, index: number) => (
+                          <TableRow key={stats.id || stats.phone_number || index}>
+                            <TableCell className="font-medium font-mono text-xs whitespace-nowrap">{stats.tracking_number || stats.phone_number || 'Unknown'}</TableCell>
+                            <TableCell className="text-right">{typeof stats.total === 'number' ? stats.total.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right font-medium text-emerald-600">{typeof stats.answered === 'number' ? stats.answered.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.aclSecs)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{formatDurationHms(stats.tclSecs)}</TableCell>
+                            {hasRevenue && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.revenue, activeMetrics.currency)}</TableCell>}
+                            {hasPayout && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.payout, activeMetrics.currency)}</TableCell>}
+                            {hasCost && <TableCell className="text-right font-mono text-xs">{formatCurrency(stats.cost, activeMetrics.currency)}</TableCell>}
+                            {hasProfit && (
+                              <TableCell className={`text-right font-mono text-xs ${(stats.profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {formatCurrency(stats.profit, activeMetrics.currency)}
+                              </TableCell>
+                            )}
+                            <TableCell className="text-right">{stats.converted != null ? stats.converted.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{stats.qualified != null ? stats.qualified.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{stats.duplicate != null ? stats.duplicate.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right">{formatPercent(stats.conversionRate ?? 0)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ))}
 
-              {groupBy === 'Status' && (
-                <Table>
-                  <TableHeader className="bg-muted/50 whitespace-nowrap">
-                    <TableRow>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Calls</TableHead>
-                      <TableHead className="text-right">% of Total</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {outcomeData.map((d: any, index: number) => (
-                      <TableRow key={index}>
-                        <TableCell className="font-medium whitespace-nowrap flex items-center gap-2">
-                          <div className="w-3 h-3 rounded-full" style={{backgroundColor: d.color}}></div>
-                          {d.name}
-                        </TableCell>
-                        <TableCell className="text-right">{typeof d.value === 'number' ? d.value.toLocaleString() : '—'}</TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {metrics.total > 0 ? Math.round((d.value / metrics.total) * 100) : 0}%
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {outcomeData.length === 0 && (
-                      <TableRow><TableCell colSpan={3} className="text-center p-8 text-muted-foreground">No outcomes.</TableCell></TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+                  {groupBy === 'Status' && (
+                    <Table>
+                      <TableHeader className="bg-muted/50 whitespace-nowrap">
+                        <TableRow>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Calls</TableHead>
+                          <TableHead className="text-right">% of Total</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {outcomeData.map((d: any, index: number) => (
+                          <TableRow key={index}>
+                            <TableCell className="font-medium whitespace-nowrap flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full" style={{backgroundColor: d.color}}></div>
+                              {d.name}
+                            </TableCell>
+                            <TableCell className="text-right">{typeof d.value === 'number' ? d.value.toLocaleString() : '—'}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              {activeMetrics.total > 0 ? Math.round((d.value / activeMetrics.total) * 100) : 0}%
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {outcomeData.length === 0 && (
+                          <TableRow><TableCell colSpan={3} className="text-center p-8 text-muted-foreground">No outcomes.</TableCell></TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -1585,7 +1606,7 @@ export default function ReportingDashboard() {
               </div>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
-              {calls.length === 0 ? (
+              {activeCalls.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground text-sm">No calls found.</div>
               ) : (
                 <Table>
@@ -1602,7 +1623,7 @@ export default function ReportingDashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {calls.map((call: any) => {
+                    {activeCalls.map((call: any) => {
                       const finalDestination = getFinalDestinationDisplay(call);
                       const recordingAvailable = call.recordings && call.recordings.length > 0;
                       const comm = call.commercial;
@@ -1744,16 +1765,16 @@ export default function ReportingDashboard() {
                 </Table>
               )}
             </CardContent>
-            {callsTotal > limit && (
+            {activeCallsTotal > limit && (
               <div className="flex items-center justify-between px-4 py-3 border-t">
                 <span className="text-sm text-muted-foreground">
-                  Showing {((page - 1) * limit) + 1} to {Math.min(page * limit, callsTotal)} of {callsTotal} calls
+                  Showing {((page - 1) * limit) + 1} to {Math.min(page * limit, activeCallsTotal)} of {activeCallsTotal} calls
                 </span>
                 <div className="flex gap-1">
                   <Button variant="outline" size="sm" onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}>
                     Previous
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setPage(page + 1)} disabled={page * limit >= callsTotal}>
+                  <Button variant="outline" size="sm" onClick={() => setPage(page + 1)} disabled={page * limit >= activeCallsTotal}>
                     Next
                   </Button>
                 </div>

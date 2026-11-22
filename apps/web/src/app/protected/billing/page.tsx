@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
@@ -42,14 +42,23 @@ export default function BillingPage() {
 
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
 
   // Clear previous workspace state immediately when workspace changes
   useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
     setBillingState(null);
     setWalletBalance(null);
     setTransactions([]);
     setError(null);
   }, [workspaceId]);
+
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeBillingState = isWorkspaceStale ? null : billingState;
+  const activeWalletBalance = isWorkspaceStale ? null : walletBalance;
+  const activeTransactions = isWorkspaceStale ? [] : transactions;
+  const isLoading = loading || isWorkspaceStale;
 
   useEffect(() => {
     if (!workspaceId) {
@@ -157,7 +166,7 @@ export default function BillingPage() {
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <div className="p-8 text-center text-muted-foreground">Loading billing data...</div>
       ) : (
         <div className="flex flex-col gap-8">
@@ -182,7 +191,7 @@ export default function BillingPage() {
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-muted-foreground">Current Balance</p>
                   <p className="text-4xl font-bold text-foreground">
-                    {walletBalance ? formatMoney(walletBalance.amountMinor) : '$0.00'}
+                    {activeWalletBalance ? formatMoney(activeWalletBalance.amountMinor) : '$0.00'}
                   </p>
                 </div>
                 
@@ -211,7 +220,7 @@ export default function BillingPage() {
               <CardDescription>Recent credits, debits, and adjustments to your prepaid balance.</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
-              {!transactions || transactions.length === 0 ? (
+              {!activeTransactions || activeTransactions.length === 0 ? (
                 <div className="p-8">
                   <EmptyState
                     icon={<Wallet />}
@@ -231,7 +240,7 @@ export default function BillingPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {transactions.map((tx) => (
+                    {activeTransactions.map((tx) => (
                       <TableRow key={tx.id}>
                         <TableCell className="font-medium whitespace-nowrap">
                           {new Date(tx.created_at).toLocaleDateString()} {new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -260,32 +269,32 @@ export default function BillingPage() {
             </CardContent>
           </Card>
 
-          {billingState && (
+          {activeBillingState && (
             <Card>
               <CardHeader>
                 <CardTitle>Current Subscription</CardTitle>
                 <CardDescription>Your active base subscription details.</CardDescription>
               </CardHeader>
               <CardContent>
-                {billingState.subscription ? (
+                {activeBillingState.subscription ? (
                   <div className="flex flex-col gap-6">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                       <div className="space-y-1">
                         <p className="text-sm font-medium text-muted-foreground">Status</p>
-                        <Badge variant={billingState.subscription.status === 'active' || billingState.subscription.status === 'trialing' ? 'success' : 'warning'} className="uppercase">
-                          {billingState.subscription.status}
+                        <Badge variant={activeBillingState.subscription.status === 'active' || activeBillingState.subscription.status === 'trialing' ? 'success' : 'warning'} className="uppercase">
+                          {activeBillingState.subscription.status}
                         </Badge>
                       </div>
-                      {billingState.subscription.plan && (
+                      {activeBillingState.subscription.plan && (
                         <div className="space-y-1">
                           <p className="text-sm font-medium text-muted-foreground">Plan</p>
-                          <p className="font-semibold text-foreground">{billingState.subscription.plan.name}</p>
+                          <p className="font-semibold text-foreground">{activeBillingState.subscription.plan.name}</p>
                         </div>
                       )}
                       <div className="space-y-1">
                         <p className="text-sm font-medium text-muted-foreground">Period End</p>
                         <p className="font-semibold text-foreground">
-                          {new Date(billingState.subscription.current_period_end).toLocaleDateString()}
+                          {new Date(activeBillingState.subscription.current_period_end).toLocaleDateString()}
                         </p>
                       </div>
                     </div>
@@ -303,9 +312,9 @@ export default function BillingPage() {
                       <p className="text-muted-foreground">No active subscription found.</p>
                     </div>
                     
-                    {billingState.plans && billingState.plans.length > 0 && (
+                    {activeBillingState.plans && activeBillingState.plans.length > 0 && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {billingState.plans.map((plan) => (
+                        {activeBillingState.plans.map((plan) => (
                           <Card key={plan.id} className="flex flex-col shadow-none">
                             <CardHeader>
                               <CardTitle>{plan.name}</CardTitle>
@@ -335,14 +344,14 @@ export default function BillingPage() {
             </Card>
           )}
 
-          {billingState && (
+          {activeBillingState && (
             <Card>
               <CardHeader>
                 <CardTitle>Invoice History</CardTitle>
                 <CardDescription>Past billing statements for this workspace.</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                {!billingState.invoices || billingState.invoices.length === 0 ? (
+                {!activeBillingState.invoices || activeBillingState.invoices.length === 0 ? (
                   <div className="p-8">
                     <EmptyState
                       icon={<Receipt />}
@@ -361,7 +370,7 @@ export default function BillingPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {billingState.invoices.map((inv) => (
+                      {activeBillingState.invoices.map((inv) => (
                         <TableRow key={inv.id}>
                           <TableCell className="font-medium">
                             {new Date(inv.invoice_date).toLocaleDateString()}
