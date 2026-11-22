@@ -173,4 +173,75 @@ describe('CallsPage', () => {
       expect(lastCall.includes('status=FAILED')).toBe(false);
     });
   });
+
+  it('12. Workspace switching race condition: Stale in-flight response from Workspace A does not overwrite Workspace B', async () => {
+    let resolveWorkspaceA: (val: any) => void;
+    const pendingWorkspaceA = new Promise((resolve) => {
+      resolveWorkspaceA = resolve;
+    });
+
+    (apiFetch as any).mockImplementation((url: string) => {
+      if (url.includes('/phone-numbers')) return Promise.resolve([]);
+      if (url.includes('/campaigns')) return Promise.resolve([]);
+      if (url.includes('/buyers')) return Promise.resolve([]);
+      if (url.includes('/workspaces/workspace-A/calls')) {
+        return pendingWorkspaceA;
+      }
+      if (url.includes('/workspaces/workspace-B/calls')) {
+        return Promise.resolve({
+          items: [
+            {
+              id: 'call-ws-b',
+              created_at: '2026-10-01T12:00:00Z',
+              from_number: '+1999',
+              to_number: '+1888',
+              state: 'COMPLETED',
+              talkDurationSecs: 45,
+              totalDurationSecs: 50,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    // Start in Workspace A
+    (useSearchParams as any).mockReturnValue({
+      get: (key: string) => (key === 'workspace' ? 'workspace-A' : null),
+    });
+
+    const { rerender } = render(<CallsPage />);
+
+    // Switch to Workspace B while Workspace A is still pending
+    (useSearchParams as any).mockReturnValue({
+      get: (key: string) => (key === 'workspace' ? 'workspace-B' : null),
+    });
+    rerender(<CallsPage />);
+
+    // Verify Workspace B call loaded
+    await waitFor(() => {
+      expect(screen.getByText('00:45')).toBeTruthy();
+    });
+
+    // Now Workspace A resolves late with stale data
+    resolveWorkspaceA!({
+      items: [
+        {
+          id: 'call-ws-a',
+          created_at: '2026-09-01T10:00:00Z',
+          from_number: '+1111',
+          to_number: '+1222',
+          state: 'COMPLETED',
+          talkDurationSecs: 999,
+          totalDurationSecs: 1000,
+        },
+      ],
+    });
+
+    // Ensure stale Workspace A call does NOT overwrite Workspace B
+    await waitFor(() => {
+      expect(screen.queryByText('16:39')).toBeNull();
+      expect(screen.getByText('00:45')).toBeTruthy();
+    });
+  });
 });
