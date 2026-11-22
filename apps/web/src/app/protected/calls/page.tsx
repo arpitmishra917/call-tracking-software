@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { InlineRecordingPlayer } from '@/components/ui/recording-player';
@@ -67,6 +67,7 @@ function formatCurrency(amount: number | null | undefined, currency: string = 'U
 export default function CallsPage() {
   const searchParams = useSearchParams();
   const workspaceId = searchParams.get('workspace');
+  const currentWorkspaceIdRef = useRef(workspaceId);
   const [calls, setCalls] = useState<CallLog[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -75,6 +76,7 @@ export default function CallsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId;
     setCalls([]);
     setTotal(0);
     setPage(1);
@@ -106,10 +108,12 @@ export default function CallsPage() {
   useEffect(() => {
     async function loadWorkspaceContext() {
       if (!workspaceId) return;
+      const targetWsId = workspaceId;
       try {
         const workspaces = await apiFetch('/workspaces');
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
         const currentWs = Array.isArray(workspaces)
-          ? workspaces.find((w: any) => w.id === workspaceId)
+          ? workspaces.find((w: any) => w.id === targetWsId)
           : null;
         if (currentWs) {
           setIsVendor(currentWs.participant_type === 'VENDOR');
@@ -133,12 +137,14 @@ export default function CallsPage() {
   useEffect(() => {
     async function loadDropdowns() {
       if (!workspaceId) return;
+      const targetWsId = workspaceId;
       try {
         const [phoneData, campData, buyerData] = await Promise.all([
-          apiFetch(`/workspaces/${workspaceId}/phone-numbers`).catch(() => []),
-          apiFetch(`/workspaces/${workspaceId}/campaigns`).catch(() => []),
-          apiFetch(`/workspaces/${workspaceId}/buyers`).catch(() => []),
+          apiFetch(`/workspaces/${targetWsId}/phone-numbers`).catch(() => []),
+          apiFetch(`/workspaces/${targetWsId}/campaigns`).catch(() => []),
+          apiFetch(`/workspaces/${targetWsId}/buyers`).catch(() => []),
         ]);
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
         setPhoneNumbers(Array.isArray(phoneData) ? phoneData : phoneData?.items || []);
         setCampaigns(Array.isArray(campData) ? campData : campData?.items || []);
         const fetchedBuyers = Array.isArray(buyerData) ? buyerData : buyerData?.items || [];
@@ -154,6 +160,8 @@ export default function CallsPage() {
 
   useEffect(() => {
     async function loadCalls() {
+      if (!workspaceId) return;
+      const targetWsId = workspaceId;
       setLoading(true);
       setError(null);
       try {
@@ -175,22 +183,24 @@ export default function CallsPage() {
         query.set('limit', pageSize.toString());
         query.set('offset', ((page - 1) * pageSize).toString());
         
-        const data = await apiFetch(`/workspaces/${workspaceId}/calls?${query.toString()}`);
+        const data = await apiFetch(`/workspaces/${targetWsId}/calls?${query.toString()}`);
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
         setCalls(data.items || []);
         setTotal(typeof data.total === 'number' ? data.total : (data.items?.length || 0));
       } catch (e: any) {
+        if (currentWorkspaceIdRef.current !== targetWsId) return;
         console.error(e);
         setError(e?.message || 'Unable to load calls. Please check your workspace permissions.');
         setCalls([]);
         setTotal(0);
       } finally {
-        setLoading(false);
+        if (currentWorkspaceIdRef.current === targetWsId) {
+          setLoading(false);
+        }
       }
     }
 
-    if (workspaceId) {
-      loadCalls();
-    }
+    loadCalls();
   }, [workspaceId, filters, page]);
 
   const clearFilters = () => {
