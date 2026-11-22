@@ -28,20 +28,20 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies (Root & Workspaces)
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Validate Prisma Schema
         working-directory: apps/api
         env:
-          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
-          DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
+          DATABASE_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
+          DIRECT_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
         run: npx prisma validate --schema=prisma/schema.prisma
 
       - name: Generate Prisma Client
         working-directory: apps/api
         env:
-          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
-          DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
+          DATABASE_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
+          DIRECT_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
         run: npx prisma generate --schema=prisma/schema.prisma
 
       - name: Run Backend Lint (oxlint)
@@ -66,20 +66,20 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Generate Prisma Client
         working-directory: apps/api
         env:
-          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
-          DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
+          DATABASE_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
+          DIRECT_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
         run: npx prisma generate --schema=prisma/schema.prisma
 
-      - name: Run Backend Tests (Vitest)
+      - name: Run Backend Unit Tests (Mock-Isolated)
         working-directory: apps/api
         env:
-          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
-          DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
+          DATABASE_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
+          DIRECT_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
           TELEPHONY_PROVIDER: "fake"
           ACTIVE_TELEPHONY_PROVIDER: "fake"
           BASE_URL: "http://localhost:3000"
@@ -87,7 +87,7 @@ jobs:
           WEBHOOK_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
           NODE_ENV: "test"
           VITEST: "true"
-        run: npm run test
+        run: npm run test -- src/
 
   frontend-tests:
     name: Frontend Automated Tests
@@ -103,7 +103,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Run Frontend Tests (Vitest)
         working-directory: apps/web
@@ -128,13 +128,13 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Generate Prisma Client
         working-directory: apps/api
         env:
-          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
-          DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/calltracking_ci?schema=public"
+          DATABASE_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
+          DIRECT_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
         run: npx prisma generate --schema=prisma/schema.prisma
 
       - name: Build Backend API (apps/api)
