@@ -56,7 +56,7 @@ export class ApiKeysService {
     }
 
     return this.prisma.apiKey.update({
-      where: { id },
+      where: { id, workspace_id: workspaceId },
       data: { revoked_at: new Date() },
     });
   }

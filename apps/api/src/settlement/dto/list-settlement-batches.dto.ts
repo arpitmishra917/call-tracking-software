@@ -1,4 +1,5 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   SettlementParticipantType,
   SettlementStatus,
@@ -40,8 +41,15 @@ export class ListSettlementBatchesDto {
   period_end?: string;
 
   @IsOptional()
-  limit?: string | number;
+  @Type(() => Number)
+  @IsInt({ message: 'limit must be an integer' })
+  @Min(1, { message: 'limit must be at least 1' })
+  @Max(100, { message: 'limit cannot exceed 100' })
+  limit?: number = 50;
 
   @IsOptional()
-  offset?: string | number;
+  @Type(() => Number)
+  @IsInt({ message: 'offset must be an integer' })
+  @Min(0, { message: 'offset must be greater than or equal to 0' })
+  offset?: number = 0;
 }

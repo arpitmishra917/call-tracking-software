@@ -302,9 +302,13 @@ export class PhoneNumbersService {
       throw new BadRequestException('Invalid update payload');
     }
 
-    const number = await this.prisma.phoneNumber.findUnique({
-      where: { id },
-    });
+    const number = this.prisma.phoneNumber.findFirst
+      ? await this.prisma.phoneNumber.findFirst({
+          where: { id, workspace_id: workspaceId },
+        })
+      : await this.prisma.phoneNumber.findUnique({
+          where: { id },
+        });
 
     if (!number || number.workspace_id !== workspaceId) {
       throw new NotFoundException('Phone number not found');
@@ -354,19 +358,33 @@ export class PhoneNumbersService {
       throw new ForbiddenException('Invalid or missing workspace identifier');
     }
 
-    const number = await this.prisma.phoneNumber.findUnique({
-      where: { id },
-      include: {
-        campaign: {
-          select: {
-            id: true,
-            name: true,
-            buyers: { select: { buyer_id: true } },
+    const number = this.prisma.phoneNumber.findFirst
+      ? await this.prisma.phoneNumber.findFirst({
+          where: { id, workspace_id: workspaceId },
+          include: {
+            campaign: {
+              select: {
+                id: true,
+                name: true,
+                buyers: { select: { buyer_id: true } },
+              },
+            },
+            vendor: { select: { id: true, name: true } },
           },
-        },
-        vendor: { select: { id: true, name: true } },
-      },
-    });
+        })
+      : await this.prisma.phoneNumber.findUnique({
+          where: { id },
+          include: {
+            campaign: {
+              select: {
+                id: true,
+                name: true,
+                buyers: { select: { buyer_id: true } },
+              },
+            },
+            vendor: { select: { id: true, name: true } },
+          },
+        });
 
     if (!number || number.workspace_id !== workspaceId || number.status === PhoneNumberStatus.RELEASED) {
       throw new NotFoundException('Phone number not found');
@@ -406,9 +424,13 @@ export class PhoneNumbersService {
   // Instead, we might mark it as RELEASED in DB (soft-delete behavior).
   // The spec says: "No number is automatically released."
   async releaseNumber(workspaceId: string, id: string) {
-    const number = await this.prisma.phoneNumber.findUnique({
-      where: { id },
-    });
+    const number = this.prisma.phoneNumber.findFirst
+      ? await this.prisma.phoneNumber.findFirst({
+          where: { id, workspace_id: workspaceId },
+        })
+      : await this.prisma.phoneNumber.findUnique({
+          where: { id },
+        });
 
     if (!number || number.workspace_id !== workspaceId) {
       throw new NotFoundException('Phone number not found');

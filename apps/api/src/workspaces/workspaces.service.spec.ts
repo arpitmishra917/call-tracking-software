@@ -461,4 +461,132 @@ describe('WorkspacesService', () => {
       expect(result).toEqual({ id: 'ws-empty' });
     });
   });
+
+  describe('Privilege Escalation Prevention (updateMemberRole, removeMember, createInvitation)', () => {
+    describe('updateMemberRole', () => {
+      it('prevents self-role promotion or modification', async () => {
+        vi.mocked(prisma.workspaceMember.findUnique).mockResolvedValue({
+          id: 'm-1',
+          user_id: 'user-admin',
+          role: 'ADMIN',
+        } as any);
+
+        await expect(
+          service.updateMemberRole('ws-1', 'user-admin', 'OWNER', 'user-admin'),
+        ).rejects.toThrow('You cannot modify your own workspace role');
+      });
+
+      it('prevents non-owner from promoting someone to OWNER', async () => {
+        vi.mocked(prisma.workspaceMember.findUnique).mockImplementation(async ({ where }: any) => {
+          if (where.workspace_id_user_id?.user_id === 'user-admin') {
+            return { id: 'm-admin', user_id: 'user-admin', role: 'ADMIN' } as any;
+          }
+          if (where.workspace_id_user_id?.user_id === 'user-target') {
+            return { id: 'm-target', user_id: 'user-target', role: 'MEMBER' } as any;
+          }
+          return null;
+        });
+
+        await expect(
+          service.updateMemberRole('ws-1', 'user-target', 'OWNER', 'user-admin'),
+        ).rejects.toThrow('Only workspace owners can promote to or modify the OWNER role');
+      });
+
+      it('prevents non-owner from modifying an OWNER role', async () => {
+        vi.mocked(prisma.workspaceMember.findUnique).mockImplementation(async ({ where }: any) => {
+          if (where.workspace_id_user_id?.user_id === 'user-admin') {
+            return { id: 'm-admin', user_id: 'user-admin', role: 'ADMIN' } as any;
+          }
+          if (where.workspace_id_user_id?.user_id === 'user-owner') {
+            return { id: 'm-owner', user_id: 'user-owner', role: 'OWNER' } as any;
+          }
+          return null;
+        });
+
+        await expect(
+          service.updateMemberRole('ws-1', 'user-owner', 'MEMBER', 'user-admin'),
+        ).rejects.toThrow('Only workspace owners can promote to or modify the OWNER role');
+      });
+
+      it('prevents assigning elevated role (OWNER) to a VENDOR participant', async () => {
+        vi.mocked(prisma.workspaceMember.findUnique).mockImplementation(async ({ where }: any) => {
+          if (where.workspace_id_user_id?.user_id === 'user-owner') {
+            return { id: 'm-owner', user_id: 'user-owner', role: 'OWNER' } as any;
+          }
+          if (where.workspace_id_user_id?.user_id === 'user-vendor') {
+            return { id: 'm-vendor', user_id: 'user-vendor', role: 'MEMBER', participant_type: 'VENDOR' } as any;
+          }
+          return null;
+        });
+
+        await expect(
+          service.updateMemberRole('ws-1', 'user-vendor', 'OWNER', 'user-owner'),
+        ).rejects.toThrow('Participants cannot be assigned elevated workspace roles (OWNER/ADMIN)');
+      });
+
+      it('prevents assigning elevated role (ADMIN) to a BUYER participant', async () => {
+        vi.mocked(prisma.workspaceMember.findUnique).mockImplementation(async ({ where }: any) => {
+          if (where.workspace_id_user_id?.user_id === 'user-owner') {
+            return { id: 'm-owner', user_id: 'user-owner', role: 'OWNER' } as any;
+          }
+          if (where.workspace_id_user_id?.user_id === 'user-buyer') {
+            return { id: 'm-buyer', user_id: 'user-buyer', role: 'MEMBER', participant_type: 'BUYER' } as any;
+          }
+          return null;
+        });
+
+        await expect(
+          service.updateMemberRole('ws-1', 'user-buyer', 'ADMIN', 'user-owner'),
+        ).rejects.toThrow('Participants cannot be assigned elevated workspace roles (OWNER/ADMIN)');
+      });
+
+      it('allows OWNER to promote MEMBER to ADMIN', async () => {
+        vi.mocked(prisma.workspaceMember.findUnique).mockImplementation(async ({ where }: any) => {
+          if (where.workspace_id_user_id?.user_id === 'user-owner') {
+            return { id: 'm-owner', user_id: 'user-owner', role: 'OWNER' } as any;
+          }
+          if (where.workspace_id_user_id?.user_id === 'user-target') {
+            return { id: 'm-target', user_id: 'user-target', role: 'MEMBER', participant_type: 'INTERNAL' } as any;
+          }
+          return null;
+        });
+        vi.mocked(prisma.workspaceMember.update).mockResolvedValue({ role: 'ADMIN' } as any);
+
+        const res = await service.updateMemberRole('ws-1', 'user-target', 'ADMIN', 'user-owner');
+        expect(res.role).toBe('ADMIN');
+      });
+    });
+
+    describe('removeMember non-owner check', () => {
+      it('prevents non-owner from removing an OWNER', async () => {
+        vi.mocked(prisma.workspaceMember.findUnique).mockImplementation(async ({ where }: any) => {
+          if (where.workspace_id_user_id?.user_id === 'user-owner') {
+            return { id: 'm-owner', user_id: 'user-owner', role: 'OWNER' } as any;
+          }
+          if (where.workspace_id_user_id?.user_id === 'user-admin') {
+            return { id: 'm-admin', user_id: 'user-admin', role: 'ADMIN' } as any;
+          }
+          return null;
+        });
+
+        await expect(
+          service.removeMember('ws-1', 'user-owner', 'user-admin'),
+        ).rejects.toThrow('Only workspace owners can remove an owner');
+      });
+    });
+
+    describe('createInvitation non-owner check', () => {
+      it('prevents non-owner from inviting someone as OWNER', async () => {
+        vi.mocked(prisma.workspaceMember.findUnique).mockResolvedValue({
+          id: 'm-admin',
+          user_id: 'user-admin',
+          role: 'ADMIN',
+        } as any);
+
+        await expect(
+          service.createInvitation('ws-1', 'newowner@test.com', 'OWNER', 'user-admin'),
+        ).rejects.toThrow('Only workspace owners can invite new owners');
+      });
+    });
+  });
 });

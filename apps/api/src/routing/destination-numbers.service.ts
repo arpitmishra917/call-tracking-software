@@ -84,9 +84,13 @@ export class DestinationNumbersService {
     }
 
     // 1. Verify Buyer exists and belongs to the workspace
-    const buyer = await this.prisma.buyer.findUnique({
-      where: { id: buyerId },
-    });
+    const buyer = this.prisma.buyer.findFirst
+      ? await this.prisma.buyer.findFirst({
+          where: { id: buyerId, workspace_id: workspaceId },
+        })
+      : await this.prisma.buyer.findUnique({
+          where: { id: buyerId },
+        });
     if (!buyer || buyer.workspace_id !== workspaceId) {
       throw new NotFoundException(`Buyer Organization with ID ${buyerId} not found in this workspace.`);
     }
@@ -136,9 +140,13 @@ export class DestinationNumbersService {
    */
   async listBuyerDestinationNumbers(workspaceId: string, buyerId: string, userId: string = '') {
     // Verify Buyer exists and belongs to workspace
-    const buyer = await this.prisma.buyer.findUnique({
-      where: { id: buyerId },
-    });
+    const buyer = this.prisma.buyer.findFirst
+      ? await this.prisma.buyer.findFirst({
+          where: { id: buyerId, workspace_id: workspaceId },
+        })
+      : await this.prisma.buyer.findUnique({
+          where: { id: buyerId },
+        });
     if (!buyer || buyer.workspace_id !== workspaceId) {
       throw new NotFoundException(`Buyer Organization not found in this workspace.`);
     }
@@ -233,19 +241,33 @@ export class DestinationNumbersService {
    * Retrieve a single destination number.
    */
   async getDestinationNumber(workspaceId: string, id: string, userId: string = '') {
-    const destinationNumber = await this.prisma.destinationNumber.findUnique({
-      where: { id },
-      include: {
-        buyer: {
-          select: { id: true, name: true, email: true, status: true },
-        },
-        campaign_destinations: {
+    const destinationNumber = this.prisma.destinationNumber.findFirst
+      ? await this.prisma.destinationNumber.findFirst({
+          where: { id, workspace_id: workspaceId },
           include: {
-            campaign: { select: { id: true, name: true, status: true } },
+            buyer: {
+              select: { id: true, name: true, email: true, status: true },
+            },
+            campaign_destinations: {
+              include: {
+                campaign: { select: { id: true, name: true, status: true } },
+              },
+            },
           },
-        },
-      },
-    });
+        })
+      : await this.prisma.destinationNumber.findUnique({
+          where: { id },
+          include: {
+            buyer: {
+              select: { id: true, name: true, email: true, status: true },
+            },
+            campaign_destinations: {
+              include: {
+                campaign: { select: { id: true, name: true, status: true } },
+              },
+            },
+          },
+        });
 
     if (!destinationNumber || destinationNumber.workspace_id !== workspaceId) {
       throw new NotFoundException(`Destination Number with ID ${id} not found in this workspace.`);

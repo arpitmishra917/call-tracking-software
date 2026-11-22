@@ -21,6 +21,8 @@ export class PublicPhoneNumbersController {
   }
 
   @Get('search')
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('phone_number:read')
   async searchNumbers(
     @Param('workspaceId') workspaceId: string,
     @Query('countryCode') countryCode?: string,
@@ -34,7 +36,8 @@ export class PublicPhoneNumbersController {
   }
 
   @Post()
-  @RequirePermission('phone_number:create')
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('phone_number:manage')
   async provisionNumber(
     @Param('workspaceId') workspaceId: string,
     @Body('phoneNumber') phoneNumber: string,
@@ -48,6 +51,8 @@ export class PublicPhoneNumbersController {
   }
 
   @Put(':id')
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('phone_number:manage')
   async updateNumber(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -57,6 +62,8 @@ export class PublicPhoneNumbersController {
   }
 
   @Delete(':id')
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('phone_number:manage')
   async releaseNumber(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,

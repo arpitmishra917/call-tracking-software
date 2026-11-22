@@ -1,18 +1,36 @@
 import { Controller, Get, Put, Delete, Param, Body, Query, UseGuards, Req } from '@nestjs/common';
 import { PermissionsService } from './permissions.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
+import { RequirePermission } from '../authorization/permissions.decorator.js';
+import { WorkspaceRole } from '@prisma/client';
 
-@UseGuards(JwtAuthGuard)
 @Controller('workspaces/:workspaceId/permissions')
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 
   @Get()
+  @RequireWorkspaceRoles(
+    WorkspaceRole.OWNER,
+    WorkspaceRole.ADMIN,
+    WorkspaceRole.MEMBER,
+    WorkspaceRole.VIEWER,
+  )
   async getAllPermissions() {
     return this.permissionsService.getAllPermissions();
   }
 
   @Get('members/:memberId')
+  @RequireWorkspaceRoles(
+    WorkspaceRole.OWNER,
+    WorkspaceRole.ADMIN,
+    WorkspaceRole.MEMBER,
+    WorkspaceRole.VIEWER,
+  )
+  @RequirePermission('member:read')
   async getMemberPermissions(
     @Param('workspaceId') workspaceId: string,
     @Param('memberId') memberId: string
@@ -21,6 +39,8 @@ export class PermissionsController {
   }
 
   @Put('members/:memberId/:permissionKey')
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('member:update')
   async assignPermission(
     @Param('workspaceId') workspaceId: string,
     @Param('memberId') memberId: string,
@@ -39,6 +59,8 @@ export class PermissionsController {
   }
 
   @Delete('members/:memberId/:permissionKey')
+  @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+  @RequirePermission('member:update')
   async removePermission(
     @Param('workspaceId') workspaceId: string,
     @Param('memberId') memberId: string,

@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
+import { CreateBuyerDto, UpdateBuyerDto, ListBuyersQueryDto } from './dto/buyers.dto.js';
 
 @Controller('workspaces/:workspaceId/buyers')
 @UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
@@ -17,16 +18,13 @@ export class BuyersController {
   list(
     @Param('workspaceId') workspaceId: string,
     @Request() req: any,
-    @Query('search') search?: string,
-    @Query('status') status?: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string
+    @Query() query: ListBuyersQueryDto,
   ) {
     return this.buyersService.listBuyers(workspaceId, req.user.userId, {
-      search,
-      status,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined
+      search: query.search,
+      status: query.status,
+      limit: query.limit,
+      offset: query.offset,
     });
   }
 
@@ -41,15 +39,7 @@ export class BuyersController {
   @RequirePermission('buyer:create')
   create(
     @Param('workspaceId') workspaceId: string,
-    @Body()
-    body: {
-      name: string;
-      email?: string;
-      destinationNumber?: string;
-      timeout?: number;
-      max_concurrent_calls?: any;
-      maxConcurrentCalls?: any;
-    },
+    @Body() body: CreateBuyerDto,
   ) {
     const maxCalls =
       body.max_concurrent_calls !== undefined
@@ -91,16 +81,7 @@ export class BuyersController {
   update(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      email?: string;
-      destinationNumber?: string;
-      timeout?: number;
-      max_concurrent_calls?: any;
-      maxConcurrentCalls?: any;
-      status?: string;
-    },
+    @Body() body: UpdateBuyerDto,
   ) {
     return this.buyersService.updateBuyer(workspaceId, id, body);
   }

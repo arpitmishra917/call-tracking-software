@@ -1007,7 +1007,7 @@ export class CallsService {
       
       if (phoneIds.length > 0) {
         const phoneNumbers = await this.prisma.phoneNumber.findMany({
-          where: { id: { in: phoneIds as string[] } },
+          where: { id: { in: phoneIds as string[] }, workspace_id: workspaceId },
           select: { phone_number: true }
         });
         const numberStrings = phoneNumbers.map(n => n.phone_number);
@@ -1504,9 +1504,9 @@ export class CallsService {
       if (hasAssigned && assignedBuyerIds.length > 0) {
         if (assignedBuyerIds.length === 1) {
           const abId = assignedBuyerIds[0];
-          authOrConditionsRaw.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id = ${abId}) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id = ${abId}))`);
+          authOrConditionsRaw.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id = ${abId} AND workspace_id = ${workspaceId}) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id = ${abId}))`);
         } else {
-          authOrConditionsRaw.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id IN (${Prisma.join(assignedBuyerIds)})) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id IN (${Prisma.join(assignedBuyerIds)})))`);
+          authOrConditionsRaw.push(Prisma.sql`(c.campaign_id IN (SELECT campaign_id FROM campaign_buyers WHERE buyer_id IN (${Prisma.join(assignedBuyerIds)}) AND workspace_id = ${workspaceId}) OR EXISTS(SELECT 1 FROM call_attempts a2 WHERE a2.call_id = c.id AND a2.buyer_id IN (${Prisma.join(assignedBuyerIds)})))`);
         }
       }
 
@@ -1525,7 +1525,7 @@ export class CallsService {
       
       const phoneIds = readPerms.filter((p: any) => p.scope_type === 'PHONE_NUMBER' && p.resource_id).map((p: any) => p.resource_id);
       if (phoneIds.length > 0) {
-        authOrConditionsRaw.push(Prisma.sql`c.to_number IN (SELECT phone_number FROM phone_numbers WHERE id IN (${Prisma.join(phoneIds)}))`);
+        authOrConditionsRaw.push(Prisma.sql`c.to_number IN (SELECT phone_number FROM phone_numbers WHERE id IN (${Prisma.join(phoneIds)}) AND workspace_id = ${workspaceId})`);
       }
 
       const buyerIds = readPerms.filter((p: any) => p.scope_type === 'BUYER' && p.resource_id).map((p: any) => p.resource_id);
@@ -2140,7 +2140,7 @@ export class CallsService {
         for (const cdn of remainingDestinations) {
           // Lock the candidate destination row to guarantee atomic capacity reservation across workers
           const lockedDns = await tx.$queryRaw<Array<{ id: string; max_concurrent_calls: number }>>`
-            SELECT id, max_concurrent_calls FROM "destination_numbers" WHERE id = ${cdn.destination_number_id} FOR UPDATE
+            SELECT id, max_concurrent_calls FROM "destination_numbers" WHERE id = ${cdn.destination_number_id} AND workspace_id = ${call.workspace_id} FOR UPDATE
           `;
           const maxLimit = lockedDns[0]?.max_concurrent_calls ?? cdn.destination_number.max_concurrent_calls ?? 1;
 
@@ -2157,7 +2157,7 @@ export class CallsService {
             // Check buyer organization capacity if buyer has limit configured
             const buyerId = cdn.destination_number.buyer_id;
             const lockedBuyers = await tx.$queryRaw<Array<{ id: string; max_concurrent_calls: number }>>`
-              SELECT id, max_concurrent_calls FROM "buyers" WHERE id = ${buyerId} FOR UPDATE
+              SELECT id, max_concurrent_calls FROM "buyers" WHERE id = ${buyerId} AND workspace_id = ${call.workspace_id} FOR UPDATE
             `;
             const buyerMax = lockedBuyers[0]?.max_concurrent_calls ?? 1000;
             const buyerCountResult = await tx.$queryRaw<Array<{ count: bigint | number }>>`
@@ -2249,7 +2249,7 @@ export class CallsService {
       for (const cb of remainingCampaignBuyers) {
         // Lock candidate buyer row
         const lockedBuyers = await tx.$queryRaw<Array<{ id: string; max_concurrent_calls: number }>>`
-          SELECT id, max_concurrent_calls FROM "buyers" WHERE id = ${cb.buyer_id} FOR UPDATE
+          SELECT id, max_concurrent_calls FROM "buyers" WHERE id = ${cb.buyer_id} AND workspace_id = ${call.workspace_id} FOR UPDATE
         `;
         const lockedBuyer = lockedBuyers[0];
         const maxLimit = lockedBuyer?.max_concurrent_calls ?? 1;

@@ -488,6 +488,30 @@ export class PermissionsService implements OnModuleInit {
       throw new NotFoundException('Target member not found in this workspace');
     }
 
+    if (callerMember.role !== 'OWNER' && targetMember.role === 'OWNER') {
+      throw new ForbiddenException('Only workspace owners can modify permissions of an owner');
+    }
+
+    if (callerMember.role !== 'OWNER' && ['settlement:generate', 'payment:manage', 'reconciliation:run'].includes(permissionKey)) {
+      throw new ForbiddenException('Only workspace owners can manage owner-only financial permissions');
+    }
+
+    const FORBIDDEN_PARTICIPANT_PERMISSIONS = [
+      'billing:manage',
+      'settlement:generate',
+      'payment:manage',
+      'reconciliation:run',
+      'member:invite',
+      'member:update',
+      'member:remove',
+      'api_key:manage',
+      'workspace:update',
+    ];
+
+    if ((targetMember.participant_type === 'VENDOR' || targetMember.participant_type === 'BUYER') && FORBIDDEN_PARTICIPANT_PERMISSIONS.includes(permissionKey)) {
+      throw new ForbiddenException('Participants cannot be granted administrative or financial management permissions');
+    }
+
     const permission = await this.prisma.permission.findUnique({
       where: { key: permissionKey }
     });
@@ -580,6 +604,14 @@ export class PermissionsService implements OnModuleInit {
 
     if (!targetMember || targetMember.workspace_id !== workspaceId) {
       throw new NotFoundException('Target member not found in this workspace');
+    }
+
+    if (callerMember.role !== 'OWNER' && targetMember.role === 'OWNER') {
+      throw new ForbiddenException('Only workspace owners can modify permissions of an owner');
+    }
+
+    if (callerMember.role !== 'OWNER' && ['settlement:generate', 'payment:manage', 'reconciliation:run'].includes(permissionKey)) {
+      throw new ForbiddenException('Only workspace owners can manage owner-only financial permissions');
     }
 
     const permission = await this.prisma.permission.findUnique({

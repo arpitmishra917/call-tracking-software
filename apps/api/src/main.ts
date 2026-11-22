@@ -257,6 +257,7 @@ if (!process.env.VITEST) {
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { SafeValidationPipe } from './common/pipes/safe-validation.pipe.js';
 import { AppModule } from './app.module.js';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -276,13 +277,9 @@ export async function bootstrap() {
     exposedHeaders: ['Content-Disposition'],
   });
 
-  // 3. Global Request Validation (BUG-BE-013)
+  // 3. Global Request Validation & Mass-Assignment Hardening (P2.3 Workstream A)
   app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: false,
-    }),
+    new SafeValidationPipe(),
   );
 
   // 4. API Rate Limiting

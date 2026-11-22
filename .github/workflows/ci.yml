@@ -135,7 +135,7 @@ jobs:
           WEBHOOK_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
           NODE_ENV: "test"
           VITEST: "true"
-        run: npm --workspace=api run test -- test/multi-workspace-isolation.integration.spec.ts test/p22-a-wallet-financial-integrity.integration.spec.ts test/p22-b-buyer-concurrency-routing.integration.spec.ts test/webhook-concurrency-postgres.integration.spec.ts test/p22-d-commercial-lifecycle-maturity.integration.spec.ts test/p22-e-settlement-generation-uniqueness.integration.spec.ts test/p22-f-commercial-disputes-reconciliation.integration.spec.ts
+        run: npm --workspace=api run test -- test/multi-workspace-isolation.integration.spec.ts test/p22-a-wallet-financial-integrity.integration.spec.ts test/p22-b-buyer-concurrency-routing.integration.spec.ts test/webhook-concurrency-postgres.integration.spec.ts test/p22-d-commercial-lifecycle-maturity.integration.spec.ts test/p22-e-settlement-generation-uniqueness.integration.spec.ts test/p22-f-commercial-disputes-reconciliation.integration.spec.ts test/p23-a-cross-workspace-bola-idor.integration.spec.ts test/p23-b-auth-rbac-rejection.integration.spec.ts test/p23-c-mass-assignment-safe-query.integration.spec.ts
 
   frontend-tests:
     name: Frontend Automated Tests

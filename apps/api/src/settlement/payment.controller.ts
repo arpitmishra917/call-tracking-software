@@ -26,7 +26,7 @@ import {
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class PaymentController {
   constructor(
     private readonly prisma: PrismaService,

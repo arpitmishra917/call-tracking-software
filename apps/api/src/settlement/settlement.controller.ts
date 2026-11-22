@@ -24,7 +24,7 @@ import { GenerateSettlementBatchDto, ListSettlementBatchesDto } from './dto/inde
 import { SettlementParticipantType, WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId/settlements')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class SettlementController {
   constructor(
     private readonly prisma: PrismaService,
@@ -299,7 +299,13 @@ export class SettlementController {
     }
 
     const limit = limitStr ? parseInt(limitStr, 10) : 50;
+    if (isNaN(limit) || limit < 1 || limit > 100) {
+      throw new BadRequestException('Limit must be an integer between 1 and 100');
+    }
     const offset = offsetStr ? parseInt(offsetStr, 10) : 0;
+    if (isNaN(offset) || offset < 0) {
+      throw new BadRequestException('Offset must be a non-negative integer (>= 0)');
+    }
 
     const result = await this.settlementBatchService.getBatchItems(workspaceId, batchId, {
       limit,

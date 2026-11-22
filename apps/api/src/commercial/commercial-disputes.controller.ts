@@ -16,9 +16,14 @@ import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole, DisputeStatus } from '@prisma/client';
 import { CommercialDisputesService } from './commercial-disputes.service.js';
+import {
+  CreateDisputeDto,
+  ResolveDisputeDto,
+  DirectResolveDisputeDto,
+} from './dto/commercial-disputes.dto.js';
 
 @Controller('workspaces/:workspaceId')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class CommercialDisputesController {
   constructor(private readonly disputesService: CommercialDisputesService) {}
 
@@ -31,7 +36,7 @@ export class CommercialDisputesController {
     @Param('workspaceId') workspaceId: string,
     @Param('callCommercialId') callCommercialId: string,
     @Request() req: any,
-    @Body() body: { reason: string; description?: string },
+    @Body() body: CreateDisputeDto,
   ) {
     if (!body?.reason || typeof body.reason !== 'string' || !body.reason.trim()) {
       throw new BadRequestException('Dispute reason is required');
@@ -57,7 +62,7 @@ export class CommercialDisputesController {
     @Param('workspaceId') workspaceId: string,
     @Param('disputeId') disputeId: string,
     @Request() req: any,
-    @Body() body: { status: DisputeStatus; resolution_notes?: string },
+    @Body() body: ResolveDisputeDto,
   ) {
     if (body.status !== DisputeStatus.ACCEPTED && body.status !== DisputeStatus.REJECTED) {
       throw new BadRequestException('Status must be ACCEPTED or REJECTED');
@@ -83,7 +88,7 @@ export class CommercialDisputesController {
     @Param('workspaceId') workspaceId: string,
     @Param('disputeId') disputeId: string,
     @Request() req: any,
-    @Body() body?: { resolution_notes?: string },
+    @Body() body?: DirectResolveDisputeDto,
   ) {
     return this.disputesService.resolveDispute({
       workspaceId,
@@ -105,7 +110,7 @@ export class CommercialDisputesController {
     @Param('workspaceId') workspaceId: string,
     @Param('disputeId') disputeId: string,
     @Request() req: any,
-    @Body() body?: { resolution_notes?: string },
+    @Body() body?: DirectResolveDisputeDto,
   ) {
     return this.disputesService.resolveDispute({
       workspaceId,
@@ -138,8 +143,8 @@ export class CommercialDisputesController {
     }
 
     const limit = limitStr ? parseInt(limitStr, 10) : undefined;
-    if (limit !== undefined && (isNaN(limit) || limit < 1)) {
-      throw new BadRequestException('Limit must be a positive integer');
+    if (limit !== undefined && (isNaN(limit) || limit < 1 || limit > 100)) {
+      throw new BadRequestException('Limit must be an integer between 1 and 100');
     }
 
     const offset = offsetStr ? parseInt(offsetStr, 10) : undefined;

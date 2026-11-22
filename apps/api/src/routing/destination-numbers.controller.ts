@@ -18,6 +18,11 @@ import { RequirePermission, RequireResourceScope } from '../authorization/permis
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 import { DestinationNumbersService } from './destination-numbers.service.js';
+import {
+  CreateDestinationNumberDto,
+  UpdateDestinationNumberDto,
+  ListDestinationNumbersQueryDto,
+} from './dto/destination-numbers.dto.js';
 
 @Controller('workspaces/:workspaceId')
 @UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
@@ -31,14 +36,7 @@ export class DestinationNumbersController {
   async createForBuyer(
     @Param('workspaceId') workspaceId: string,
     @Param('buyerId') buyerId: string,
-    @Body()
-    body: {
-      destinationNumber: string;
-      name?: string;
-      timeout?: number;
-      max_concurrent_calls?: any;
-      maxConcurrentCalls?: any;
-    },
+    @Body() body: CreateDestinationNumberDto,
   ) {
     return this.service.createDestinationNumber(workspaceId, buyerId, body);
   }
@@ -59,16 +57,13 @@ export class DestinationNumbersController {
   async listAll(
     @Param('workspaceId') workspaceId: string,
     @Request() req: any,
-    @Query('search') search?: string,
-    @Query('status') status?: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Query() query: ListDestinationNumbersQueryDto,
   ) {
     return this.service.listWorkspaceDestinationNumbers(workspaceId, req?.user?.userId, {
-      search,
-      status,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      search: query.search,
+      status: query.status,
+      limit: query.limit,
+      offset: query.offset,
     });
   }
 
@@ -89,14 +84,7 @@ export class DestinationNumbersController {
   async update(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      timeout?: number;
-      max_concurrent_calls?: any;
-      maxConcurrentCalls?: any;
-      status?: string;
-    },
+    @Body() body: UpdateDestinationNumberDto,
     @Request() req: any,
   ) {
     return this.service.updateDestinationNumber(workspaceId, id, body, req?.user?.userId);

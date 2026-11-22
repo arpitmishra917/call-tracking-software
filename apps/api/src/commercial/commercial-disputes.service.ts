@@ -137,7 +137,7 @@ export class CommercialDisputesService {
       if (typeof (tx as any).$queryRaw === 'function') {
         try {
           await (tx as any).$queryRaw`
-            SELECT id FROM call_commercials WHERE id = ${params.callCommercialId} FOR UPDATE
+            SELECT id FROM call_commercials WHERE id = ${params.callCommercialId} AND workspace_id = ${params.workspaceId} FOR UPDATE
           `;
         } catch {
           // In unit-test / mock environments, ignore raw query
@@ -226,7 +226,7 @@ export class CommercialDisputesService {
       // Concurrency guard: acquire row lock to serialize concurrent resolutions
       if (typeof (tx as any).$queryRaw === 'function') {
         await (tx as any).$queryRaw`
-          SELECT id FROM call_disputes WHERE id = ${params.disputeId} FOR UPDATE
+          SELECT id FROM call_disputes WHERE id = ${params.disputeId} AND workspace_id = ${params.workspaceId} FOR UPDATE
         `;
       }
 

@@ -21,7 +21,7 @@ import { ListReconciliationRunsDto } from './dto/reconciliation.dto.js';
 import { WorkspaceRole } from '@prisma/client';
 
 @Controller('workspaces/:workspaceId')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class ReconciliationController {
   constructor(
     private readonly prisma: PrismaService,

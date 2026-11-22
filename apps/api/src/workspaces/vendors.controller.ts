@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { PermissionsGuard } from '../authorization/permissions.guard.js';
 import { RequirePermission, RequireResourceScope } from '../authorization/permissions.decorator.js';
+import { CreateVendorDto, UpdateVendorDto, ListVendorsQueryDto } from './dto/vendors.dto.js';
 
 @Controller('workspaces/:workspaceId/vendors')
 @UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
@@ -15,16 +16,13 @@ export class VendorsController {
   list(
     @Param('workspaceId') workspaceId: string,
     @Request() req: any,
-    @Query('search') search?: string,
-    @Query('status') status?: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Query() query: ListVendorsQueryDto,
   ) {
     return this.vendorsService.listVendors(workspaceId, req.user?.userId, {
-      search,
-      status,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      search: query.search,
+      status: query.status,
+      limit: query.limit,
+      offset: query.offset,
     });
   }
 
@@ -39,7 +37,7 @@ export class VendorsController {
   @RequirePermission('vendor:create')
   create(
     @Param('workspaceId') workspaceId: string,
-    @Body() body: { name: string },
+    @Body() body: CreateVendorDto,
   ) {
     return this.vendorsService.createVendor(workspaceId, body.name);
   }
@@ -50,7 +48,7 @@ export class VendorsController {
   update(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body() body: { name?: string; status?: string },
+    @Body() body: UpdateVendorDto,
   ) {
     return this.vendorsService.updateVendor(workspaceId, id, body);
   }

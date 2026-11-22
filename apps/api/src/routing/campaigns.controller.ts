@@ -6,6 +6,16 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
+import {
+  CreateCampaignDto,
+  UpdateCampaignDto,
+  ListCampaignsQueryDto,
+  AssignPhoneNumberDto,
+  AssignBuyerDto,
+  BatchAssignBuyersDto,
+  AssignDestinationNumberDto,
+  BatchAssignDestinationNumbersDto,
+} from './dto/campaigns.dto.js';
 
 @Controller('workspaces/:workspaceId/campaigns')
 @UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
@@ -17,16 +27,13 @@ export class CampaignsController {
   list(
     @Param('workspaceId') workspaceId: string,
     @Request() req: any,
-    @Query('search') search?: string,
-    @Query('status') status?: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string
+    @Query() query: ListCampaignsQueryDto,
   ) {
     return this.campaignsService.listCampaigns(workspaceId, req.user.userId, {
-      search,
-      status,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined
+      search: query.search,
+      status: query.status,
+      limit: query.limit,
+      offset: query.offset,
     });
   }
 
@@ -41,13 +48,7 @@ export class CampaignsController {
   @RequirePermission('campaign:create')
   create(
     @Param('workspaceId') workspaceId: string,
-    @Body() body: {
-      name: string;
-      default_revenue_amount?: number | string | null;
-      default_payout_amount?: number | string | null;
-      currency?: string;
-      conversion_duration_secs?: number | string | null;
-    },
+    @Body() body: CreateCampaignDto,
   ) {
     return this.campaignsService.createCampaign(workspaceId, body);
   }
@@ -58,14 +59,7 @@ export class CampaignsController {
   update(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body() body: {
-      name?: string;
-      status?: string;
-      default_revenue_amount?: number | string | null;
-      default_payout_amount?: number | string | null;
-      currency?: string;
-      conversion_duration_secs?: number | string | null;
-    },
+    @Body() body: UpdateCampaignDto,
   ) {
     return this.campaignsService.updateCampaign(workspaceId, id, body);
   }
@@ -100,12 +94,12 @@ export class CampaignsController {
   assignPhoneNumber(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body('phoneNumberId') phoneNumberId: string,
+    @Body() body: AssignPhoneNumberDto,
   ) {
     return this.campaignsService.assignPhoneNumber(
       workspaceId,
       id,
-      phoneNumberId,
+      body.phoneNumberId,
     );
   }
 
@@ -130,13 +124,13 @@ export class CampaignsController {
   addBuyer(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body() body: { buyerId: string; priority: number },
+    @Body() body: AssignBuyerDto,
   ) {
     return this.campaignsService.addBuyerToCampaign(
       workspaceId,
       id,
       body.buyerId,
-      body.priority,
+      body.priority ?? 0,
     );
   }
 
@@ -157,7 +151,7 @@ export class CampaignsController {
   reorderBuyers(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body() body: { buyerIds: string[] },
+    @Body() body: BatchAssignBuyersDto,
   ) {
     return this.campaignsService.reorderBuyersInCampaign(workspaceId, id, body.buyerIds);
   }
@@ -168,7 +162,7 @@ export class CampaignsController {
   addDestination(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body() body: { destinationNumberId: string; priority?: number; weight?: number },
+    @Body() body: AssignDestinationNumberDto,
   ) {
     return this.campaignsService.addDestinationToCampaign(
       workspaceId,
@@ -200,7 +194,7 @@ export class CampaignsController {
   reorderDestinations(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
-    @Body() body: { destinationNumberIds: string[] },
+    @Body() body: BatchAssignDestinationNumbersDto,
   ) {
     return this.campaignsService.reorderDestinationsInCampaign(
       workspaceId,

@@ -469,7 +469,7 @@ export class SettlementBatchService {
               const net = gross.add(totalAdjustments);
 
               batch = await tx.settlementBatch.update({
-                where: { id: batch!.id },
+                where: { id: batch!.id, workspace_id },
                 data: {
                   gross_amount: gross,
                   adjustments_amount: totalAdjustments,
@@ -811,7 +811,7 @@ export class SettlementBatchService {
               const net = gross.add(totalAdjustments);
 
               batch = await tx.settlementBatch.update({
-                where: { id: batch!.id },
+                where: { id: batch!.id, workspace_id },
                 data: {
                   gross_amount: gross,
                   adjustments_amount: totalAdjustments,

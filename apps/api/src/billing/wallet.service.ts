@@ -192,8 +192,8 @@ export class WalletService {
     return this.prisma.$transaction(async (tx) => {
       // 1. Verify Call belongs to Workspace
       const ws = await tx.workspace.findUnique({ where: { id: workspaceId } });
-        if (!ws || ws.status !== 'ACTIVE') throw new BadRequestException('Workspace must be ACTIVE.');
-        const call = await tx.call.findUnique({ where: { id: callId } });
+      if (!ws || ws.status !== 'ACTIVE') throw new BadRequestException('Workspace must be ACTIVE.');
+      const call = await tx.call.findUnique({ where: { id: callId } });
       if (!call) throw new BadRequestException('Call not found.');
       if (call.workspace_id !== workspaceId)
         throw new BadRequestException('Cross-workspace access denied.');
@@ -268,7 +268,7 @@ export class WalletService {
 
       const newTotalReservedMicro = resTotalMicro + extensionAmountMicro;
       const updatedRes = await tx.callReservation.update({
-        where: { id: resData.id },
+        where: { id: resData.id, workspace_id: workspaceId },
         data: { total_reserved_micro: newTotalReservedMicro },
       });
 
@@ -320,8 +320,8 @@ export class WalletService {
       }
 
       // 2. Check for existing reservation for idempotency
-      const existingRes = await tx.callReservation.findUnique({
-        where: { call_id: callId },
+      const existingRes = await tx.callReservation.findFirst({
+        where: { call_id: callId, workspace_id: workspaceId },
       });
       if (existingRes) {
         if (existingRes.workspace_id !== workspaceId) {
@@ -435,7 +435,7 @@ export class WalletService {
 
       // 4. Update Reservation
       const updatedRes = await tx.callReservation.update({
-        where: { call_id: callId },
+        where: { call_id: callId, workspace_id: workspaceId },
         data: { status: ReservationStatus.RELEASED },
       });
 
@@ -545,7 +545,7 @@ export class WalletService {
 
       // 6. Update Reservation
       const updatedRes = await tx.callReservation.update({
-        where: { call_id: callId },
+        where: { call_id: callId, workspace_id: workspaceId },
         data: { status: ReservationStatus.SETTLED },
       });
 

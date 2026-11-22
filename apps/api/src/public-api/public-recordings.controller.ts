@@ -12,6 +12,8 @@ import {
 import { ApiKeyAuthGuard } from '../auth/api-key.guard.js';
 import { WorkspaceRolesGuard } from '../authorization/workspace-roles.guard.js';
 import { RequireWorkspaceRoles } from '../authorization/workspace-roles.decorator.js';
+import { PermissionsGuard } from '../authorization/permissions.guard.js';
+import { RequirePermission } from '../authorization/permissions.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { isCallAuthorizedForVendor } from '../calls/call-authorization.util.js';
@@ -19,7 +21,7 @@ import { TELEPHONY_PROVIDER } from '../telephony/call-controller.js';
 import type { TelephonyProvider } from '../telephony/telephony.provider.js';
 
 @Controller('api/v1/workspaces/:workspaceId/recordings')
-@UseGuards(ApiKeyAuthGuard, WorkspaceRolesGuard)
+@UseGuards(ApiKeyAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
 export class PublicRecordingsController {
   constructor(
     private readonly prisma: PrismaService,
@@ -28,6 +30,7 @@ export class PublicRecordingsController {
   ) {}
 
   @Get()
+  @RequirePermission('call:recording_read')
   @RequireWorkspaceRoles(
     WorkspaceRole.OWNER,
     WorkspaceRole.ADMIN,
@@ -85,6 +88,7 @@ export class PublicRecordingsController {
   }
 
   @Get(':id')
+  @RequirePermission('call:recording_read')
   @RequireWorkspaceRoles(
     WorkspaceRole.OWNER,
     WorkspaceRole.ADMIN,

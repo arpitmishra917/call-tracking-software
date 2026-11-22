@@ -22,6 +22,11 @@ import { RequirePermission } from '../authorization/permissions.decorator.js';
 import { WorkspaceRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { Request } from 'express';
+import {
+  MockTopUpDto,
+  CreateCheckoutSessionDto,
+  CreatePortalSessionDto,
+} from './dto/billing.dto.js';
 
 @Controller()
 export class BillingController {
@@ -104,12 +109,12 @@ export class BillingController {
   @UseGuards(JwtAuthGuard, WorkspaceRolesGuard, PermissionsGuard)
   @RequirePermission('billing:manage')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
-  async mockTopUp(@Req() req: any, @Param('workspaceId') workspaceId: string, @Body() body: any) {
+  async mockTopUp(@Req() req: any, @Param('workspaceId') workspaceId: string, @Body() body: MockTopUpDto) {
     const wsId = workspaceId || req.params.workspaceId;
     await this.assertNotParticipant(wsId, req.user?.userId);
     return this.mockPaymentProvider.createWalletTopUp(
       wsId,
-      parseInt(body.amountMinor, 10),
+      body.amountMinor,
       body.returnUrl || '',
     );
   }
@@ -121,7 +126,7 @@ export class BillingController {
   async createCheckout(
     @Req() req: any,
     @Param('workspaceId') workspaceId: string,
-    @Body() body: { planId: string; returnUrl: string },
+    @Body() body: CreateCheckoutSessionDto,
   ) {
     const wsId = workspaceId || req.params.workspaceId;
     await this.assertNotParticipant(wsId, req.user?.userId);
@@ -139,7 +144,7 @@ export class BillingController {
   async createPortal(
     @Req() req: any,
     @Param('workspaceId') workspaceId: string,
-    @Body() body: { returnUrl: string },
+    @Body() body: CreatePortalSessionDto,
   ) {
     const wsId = workspaceId || req.params.workspaceId;
     await this.assertNotParticipant(wsId, req.user?.userId);

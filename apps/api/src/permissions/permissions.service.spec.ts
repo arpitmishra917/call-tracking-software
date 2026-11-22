@@ -608,4 +608,164 @@ describe('PermissionsService - Participant Baseline & Scoping (P0 Vendor Fix)', 
       );
     });
   });
+
+  describe('7. Privilege Escalation & Permission Tampering Prevention', () => {
+    const ownerMember = {
+      id: 'm-owner',
+      workspace_id: 'ws-1',
+      user_id: 'user-owner',
+      role: 'OWNER',
+      participant_type: null,
+    };
+
+    const adminMember = {
+      id: 'm-admin',
+      workspace_id: 'ws-1',
+      user_id: 'user-admin',
+      role: 'ADMIN',
+      participant_type: null,
+    };
+
+    const targetMember = {
+      id: 'm-target',
+      workspace_id: 'ws-1',
+      user_id: 'user-target',
+      role: 'MEMBER',
+      participant_type: null,
+    };
+
+    const vendorTargetMember = {
+      id: 'm-vendor-target',
+      workspace_id: 'ws-1',
+      user_id: 'user-vendor-target',
+      role: 'MEMBER',
+      participant_type: 'VENDOR',
+      vendor_id: 'vendor-123',
+    };
+
+    beforeEach(() => {
+      prisma.workspaceMemberPermission = {
+        count: vi.fn().mockResolvedValue(0),
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'wmp-1' }),
+        delete: vi.fn().mockResolvedValue({}),
+      };
+
+      prisma.workspaceMember.findUnique.mockImplementation(async ({ where }: any) => {
+        if (where.workspace_id_user_id) {
+          const { user_id } = where.workspace_id_user_id;
+          if (user_id === 'user-owner') return ownerMember;
+          if (user_id === 'user-admin') return adminMember;
+        }
+        if (where.id) {
+          if (where.id === 'm-owner') return ownerMember;
+          if (where.id === 'm-admin') return adminMember;
+          if (where.id === 'm-target') return targetMember;
+          if (where.id === 'm-vendor-target') return vendorTargetMember;
+        }
+        return null;
+      });
+
+      prisma.permission.findUnique.mockResolvedValue({
+        id: 'p-1',
+        key: 'call:read',
+        group: 'CALLS',
+      });
+      prisma.workspaceMemberPermission.findFirst.mockResolvedValue(null);
+      prisma.workspaceMemberPermission.create.mockResolvedValue({ id: 'wmp-1' });
+      prisma.workspaceMemberPermission.delete.mockResolvedValue({});
+    });
+
+    it('rejects self-permission assignment attempts', async () => {
+      await expect(
+        service.assignPermission('ws-1', 'user-owner', 'm-owner', 'call:read'),
+      ).rejects.toThrow('You cannot modify your own permissions');
+    });
+
+    it('rejects self-permission revocation attempts', async () => {
+      await expect(
+        service.removePermission('ws-1', 'user-owner', 'm-owner', 'call:read'),
+      ).rejects.toThrow('You cannot modify your own permissions');
+    });
+
+    it('rejects non-owner modifying permissions of an OWNER (assign)', async () => {
+      await expect(
+        service.assignPermission('ws-1', 'user-admin', 'm-owner', 'call:read'),
+      ).rejects.toThrow('Only workspace owners can modify permissions of an owner');
+    });
+
+    it('rejects non-owner modifying permissions of an OWNER (remove)', async () => {
+      await expect(
+        service.removePermission('ws-1', 'user-admin', 'm-owner', 'call:read'),
+      ).rejects.toThrow('Only workspace owners can modify permissions of an owner');
+    });
+
+    it('rejects non-owner assigning owner-only financial permissions (settlement:generate)', async () => {
+      prisma.permission.findUnique.mockResolvedValue({
+        id: 'p-gen',
+        key: 'settlement:generate',
+      });
+
+      await expect(
+        service.assignPermission('ws-1', 'user-admin', 'm-target', 'settlement:generate'),
+      ).rejects.toThrow('Only workspace owners can manage owner-only financial permissions');
+    });
+
+    it('rejects non-owner assigning owner-only financial permissions (payment:manage)', async () => {
+      prisma.permission.findUnique.mockResolvedValue({
+        id: 'p-pay',
+        key: 'payment:manage',
+      });
+
+      await expect(
+        service.assignPermission('ws-1', 'user-admin', 'm-target', 'payment:manage'),
+      ).rejects.toThrow('Only workspace owners can manage owner-only financial permissions');
+    });
+
+    it('rejects non-owner assigning owner-only financial permissions (reconciliation:run)', async () => {
+      prisma.permission.findUnique.mockResolvedValue({
+        id: 'p-rec',
+        key: 'reconciliation:run',
+      });
+
+      await expect(
+        service.assignPermission('ws-1', 'user-admin', 'm-target', 'reconciliation:run'),
+      ).rejects.toThrow('Only workspace owners can manage owner-only financial permissions');
+    });
+
+    it('rejects assigning administrative/financial permissions to a participant (VENDOR)', async () => {
+      const forbiddenKeys = [
+        'billing:manage',
+        'settlement:generate',
+        'payment:manage',
+        'reconciliation:run',
+        'member:invite',
+        'member:update',
+        'member:remove',
+        'api_key:manage',
+        'workspace:update',
+      ];
+
+      for (const key of forbiddenKeys) {
+        prisma.permission.findUnique.mockResolvedValue({ id: `p-${key}`, key });
+        await expect(
+          service.assignPermission('ws-1', 'user-owner', 'm-vendor-target', key),
+        ).rejects.toThrow('Participants cannot be granted administrative or financial management permissions');
+      }
+    });
+
+    it('allows workspace owner to assign valid permission to target member', async () => {
+      const result = await service.assignPermission('ws-1', 'user-owner', 'm-target', 'call:read');
+      expect(result).toBeDefined();
+      expect(prisma.workspaceMemberPermission.create).toHaveBeenCalled();
+      expect(auditLogsService.logAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'PERMISSION_ASSIGNED',
+          workspaceId: 'ws-1',
+          actorUserId: 'user-owner',
+        }),
+      );
+    });
+  });
 });

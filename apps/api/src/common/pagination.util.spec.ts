@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { parsePaginationParams } from './pagination.util.js';
 import { BadRequestException } from '@nestjs/common';
 

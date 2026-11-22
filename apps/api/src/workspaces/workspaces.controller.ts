@@ -16,6 +16,15 @@ import { WorkspaceRole } from '@prisma/client';
 import { WorkspacesService } from './workspaces.service.js';
 import { PermissionsGuard } from '../authorization/permissions.guard.js';
 import { RequirePermission } from '../authorization/permissions.decorator.js';
+import {
+  CreateWorkspaceDto,
+  UpdateWorkspaceSettingsDto,
+  UpdateWorkspaceStatusDto,
+  UpdateMemberRoleDto,
+  InviteMemberDto,
+  AcceptInvitationDto,
+  LinkBuyerDto,
+} from './dto/workspaces.dto.js';
 
 @Controller('workspaces')
 @UseGuards(JwtAuthGuard)
@@ -23,7 +32,7 @@ export class WorkspacesController {
   constructor(private readonly workspacesService: WorkspacesService) {}
 
   @Post()
-  async createWorkspace(@Request() req: any, @Body() body: { name: string }) {
+  async createWorkspace(@Request() req: any, @Body() body: CreateWorkspaceDto) {
     return this.workspacesService.createWorkspace(req.user.userId, body.name);
   }
 
@@ -61,40 +70,44 @@ export class WorkspacesController {
   }
 
   @Put(':workspaceId/settings')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('workspace:update')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async updateSettings(
     @Param('workspaceId') workspaceId: string,
-    @Body() data: { name: string },
+    @Body() data: UpdateWorkspaceSettingsDto,
   ) {
     return this.workspacesService.updateWorkspaceSettings(workspaceId, data);
   }
 
   @Put(':workspaceId/status')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('workspace:update')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER)
   async updateStatus(
     @Param('workspaceId') workspaceId: string,
-    @Body() data: { status: string },
+    @Body() data: UpdateWorkspaceStatusDto,
     @Request() req: any,
   ) {
     return this.workspacesService.updateWorkspaceStatus(workspaceId, data.status, req.user.userId);
   }
 
   @Put(':workspaceId/members/:userId/role')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('member:update')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async updateMemberRole(
     @Param('workspaceId') workspaceId: string,
     @Param('userId') targetUserId: string,
-    @Body() data: { role: WorkspaceRole },
+    @Body() data: UpdateMemberRoleDto,
     @Request() req: any,
   ) {
     return this.workspacesService.updateMemberRole(workspaceId, targetUserId, data.role, req.user.userId);
   }
 
   @Delete(':workspaceId/members/:userId')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('member:remove')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async removeMember(
     @Param('workspaceId') workspaceId: string,
@@ -105,7 +118,8 @@ export class WorkspacesController {
   }
 
   @Get(':workspaceId/members/:memberId/buyers')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('member:read')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async getMemberBuyers(
     @Param('workspaceId') workspaceId: string,
@@ -115,19 +129,21 @@ export class WorkspacesController {
   }
 
   @Post(':workspaceId/members/:memberId/buyers')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('member:update')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async linkBuyer(
     @Param('workspaceId') workspaceId: string,
     @Param('memberId') memberId: string,
-    @Body() body: { buyerId: string },
+    @Body() body: LinkBuyerDto,
     @Request() req: any,
   ) {
     return this.workspacesService.linkBuyerToMember(workspaceId, memberId, body.buyerId, req.user.userId);
   }
 
   @Delete(':workspaceId/members/:memberId/buyers/:buyerId')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('member:update')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async unlinkBuyer(
     @Param('workspaceId') workspaceId: string,
@@ -139,18 +155,20 @@ export class WorkspacesController {
   }
 
   @Get(':workspaceId/invitations')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('member:read')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async getInvitations(@Param('workspaceId') workspaceId: string) {
     return this.workspacesService.getWorkspaceInvitations(workspaceId);
   }
 
   @Post(':workspaceId/invitations')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('member:invite')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async createInvitation(
     @Param('workspaceId') workspaceId: string,
-    @Body() data: { email: string; role: WorkspaceRole; participant_type?: string; vendor_id?: string; buyer_id?: string },
+    @Body() data: InviteMemberDto,
     @Request() req: any,
   ) {
     return this.workspacesService.createInvitation(
@@ -165,7 +183,8 @@ export class WorkspacesController {
   }
 
   @Delete(':workspaceId/invitations/:inviteId')
-  @UseGuards(WorkspaceRolesGuard)
+  @UseGuards(WorkspaceRolesGuard, PermissionsGuard)
+  @RequirePermission('member:remove')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async revokeInvitation(
     @Param('workspaceId') workspaceId: string,
@@ -175,7 +194,7 @@ export class WorkspacesController {
   }
 
   @Post('accept-invitation')
-  async acceptInvitation(@Body() data: { token: string }, @Request() req: any) {
+  async acceptInvitation(@Body() data: AcceptInvitationDto, @Request() req: any) {
     return this.workspacesService.acceptInvitation(data.token, req.user.userId, req.user.email, req.user.fullName);
   }
 }

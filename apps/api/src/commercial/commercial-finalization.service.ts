@@ -112,6 +112,7 @@ export class CommercialFinalizationService implements OnModuleInit, OnModuleDest
         where: {
           id: { in: eligibleIds },
           status: CommercialStatus.PENDING, // concurrency lock
+          ...(workspaceId ? { workspace_id: workspaceId } : {}),
         },
         data: {
           status: CommercialStatus.FINAL,

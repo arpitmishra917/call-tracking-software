@@ -379,7 +379,7 @@ export class WorkspacesService {
     }
     if (Object.keys(updateData).length > 0) {
       await this.prisma.workspaceMember.update({
-        where: { id: memberId },
+        where: { id: member.id, workspace_id: workspaceId },
         data: updateData,
       });
     }
@@ -428,7 +428,7 @@ export class WorkspacesService {
         orderBy: { created_at: 'asc' },
       });
       await this.prisma.workspaceMember.update({
-        where: { id: memberId },
+        where: { id: member.id },
         data: {
           buyer_id: remainingLink ? remainingLink.buyer_id : null,
         },
@@ -464,6 +464,15 @@ export class WorkspacesService {
       });
       
       if (!member) throw new NotFoundException('Member not found');
+
+      if (requestingUserId && requestingUserId !== userId) {
+        const caller = await tx.workspaceMember.findUnique({
+          where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: requestingUserId } }
+        });
+        if (caller && caller.role !== 'OWNER' && member.role === 'OWNER') {
+          throw new ForbiddenException('Only workspace owners can remove an owner');
+        }
+      }
       
       if (member.role === 'OWNER') {
         const ownerCount = await tx.workspaceMember.count({
@@ -616,6 +625,26 @@ export class WorkspacesService {
       
       if (!member) throw new NotFoundException('Member not found');
 
+      if (requestingUserId) {
+        if (requestingUserId === targetUserId) {
+          throw new ForbiddenException('You cannot modify your own workspace role');
+        }
+
+        const callerMember = await tx.workspaceMember.findUnique({
+          where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: requestingUserId } }
+        });
+
+        if (callerMember) {
+          if (callerMember.role !== 'OWNER' && (newRole === 'OWNER' || member.role === 'OWNER')) {
+            throw new ForbiddenException('Only workspace owners can promote to or modify the OWNER role');
+          }
+        }
+      }
+
+      if ((member.participant_type === 'VENDOR' || member.participant_type === 'BUYER') && (newRole === 'OWNER' || newRole === 'ADMIN')) {
+        throw new BadRequestException('Participants cannot be assigned elevated workspace roles (OWNER/ADMIN)');
+      }
+
       if (member.role === 'OWNER' && newRole !== 'OWNER') {
         const ownerCount = await tx.workspaceMember.count({
           where: { workspace_id: workspaceId, role: 'OWNER' }
@@ -667,6 +696,16 @@ export class WorkspacesService {
     } else {
       throw new BadRequestException('Invalid participant_type');
     }
+
+    if (role === 'OWNER') {
+      const creator = await this.prisma.workspaceMember.findUnique({
+        where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: createdByUserId } }
+      });
+      if (creator && creator.role !== 'OWNER') {
+        throw new ForbiddenException('Only workspace owners can invite new owners');
+      }
+    }
+
     const token = crypto.randomBytes(32).toString('hex');
     const token_hash = crypto.createHash('sha256').update(token).digest('hex');
 
@@ -708,8 +747,14 @@ export class WorkspacesService {
   }
 
   async revokeInvitation(workspaceId: string, inviteId: string) {
+    const invite = await this.prisma.workspaceInvitation.findFirst({
+      where: { id: inviteId, workspace_id: workspaceId },
+    });
+    if (!invite) {
+      throw new NotFoundException('Invitation not found in this workspace');
+    }
     return this.prisma.workspaceInvitation.update({
-      where: { id: inviteId },
+      where: { id: invite.id, workspace_id: workspaceId },
       data: { status: 'REVOKED' as any }
     });
   }

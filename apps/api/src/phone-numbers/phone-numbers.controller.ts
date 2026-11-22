@@ -35,6 +35,7 @@ export class PhoneNumbersController {
   }
 
   @Get('search')
+  @RequirePermission('phone_number:read')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async searchNumbers(
     @Param('workspaceId') workspaceId: string,
@@ -53,7 +54,7 @@ export class PhoneNumbersController {
   }
 
   @Post()
-  @RequirePermission('phone_number:create')
+  @RequirePermission('phone_number:manage')
   @RequireWorkspaceRoles(WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
   async provisionNumber(
     @Param('workspaceId') workspaceId: string,

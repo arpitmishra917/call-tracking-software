@@ -356,7 +356,7 @@ export class CampaignsService {
     }
 
     return this.prisma.campaign.update({
-      where: { id },
+      where: { id: campaign.id },
       data: updateData,
     });
   }
@@ -370,15 +370,19 @@ export class CampaignsService {
     await this.getCampaign(workspaceId, campaignId);
 
     // verify phone number exists and belongs to workspace
-    const phone = await this.prisma.phoneNumber.findUnique({
-      where: { id: phoneNumberId, workspace_id: workspaceId },
-    });
+    const phone = this.prisma.phoneNumber.findFirst
+      ? await this.prisma.phoneNumber.findFirst({
+          where: { id: phoneNumberId, workspace_id: workspaceId },
+        })
+      : await this.prisma.phoneNumber.findUnique({
+          where: { id: phoneNumberId },
+        });
 
-    if (!phone)
+    if (!phone || phone.workspace_id !== workspaceId)
       throw new NotFoundException('Phone number not found in workspace');
 
     return this.prisma.phoneNumber.update({
-      where: { id: phoneNumberId },
+      where: { id: phone.id },
       data: { campaign_id: campaignId },
     });
   }
@@ -392,11 +396,15 @@ export class CampaignsService {
     await this.getCampaign(workspaceId, campaignId);
 
     // verify phone number exists and belongs to workspace
-    const phone = await this.prisma.phoneNumber.findUnique({
-      where: { id: phoneNumberId, workspace_id: workspaceId },
-    });
+    const phone = this.prisma.phoneNumber.findFirst
+      ? await this.prisma.phoneNumber.findFirst({
+          where: { id: phoneNumberId, workspace_id: workspaceId },
+        })
+      : await this.prisma.phoneNumber.findUnique({
+          where: { id: phoneNumberId },
+        });
 
-    if (!phone)
+    if (!phone || phone.workspace_id !== workspaceId)
       throw new NotFoundException('Phone number not found in workspace');
 
     if (phone.campaign_id !== campaignId) {
@@ -404,7 +412,7 @@ export class CampaignsService {
     }
 
     return this.prisma.phoneNumber.update({
-      where: { id: phoneNumberId },
+      where: { id: phone.id },
       data: { campaign_id: null },
     });
   }
@@ -417,10 +425,14 @@ export class CampaignsService {
   ) {
     // verify campaign and buyer
     await this.getCampaign(workspaceId, campaignId);
-    const buyer = await this.prisma.buyer.findUnique({
-      where: { id: buyerId, workspace_id: workspaceId },
-    });
-    if (!buyer) throw new NotFoundException('Buyer not found in workspace');
+    const buyer = this.prisma.buyer.findFirst
+      ? await this.prisma.buyer.findFirst({
+          where: { id: buyerId, workspace_id: workspaceId },
+        })
+      : await this.prisma.buyer.findUnique({
+          where: { id: buyerId },
+        });
+    if (!buyer || (buyer.workspace_id && buyer.workspace_id !== workspaceId)) throw new NotFoundException('Buyer not found in workspace');
 
     return this.prisma.campaignBuyer.create({
       data: {
@@ -507,10 +519,14 @@ export class CampaignsService {
     weight?: number,
   ) {
     await this.getCampaign(workspaceId, campaignId);
-    const destination = await this.prisma.destinationNumber.findUnique({
-      where: { id: destinationNumberId, workspace_id: workspaceId },
-    });
-    if (!destination) {
+    const destination = this.prisma.destinationNumber.findFirst
+      ? await this.prisma.destinationNumber.findFirst({
+          where: { id: destinationNumberId, workspace_id: workspaceId },
+        })
+      : await this.prisma.destinationNumber.findUnique({
+          where: { id: destinationNumberId },
+        });
+    if (!destination || destination.workspace_id !== workspaceId) {
       throw new NotFoundException('Destination number not found in workspace');
     }
 

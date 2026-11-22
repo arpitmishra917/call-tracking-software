@@ -319,7 +319,7 @@ export class ReportsService {
     }
 
     return this.prisma.savedReport.update({
-      where: { id: reportId },
+      where: { id: reportId, workspace_id: workspaceId },
       data: updates
     });
   }
@@ -337,7 +337,7 @@ export class ReportsService {
     }
     
     await this.prisma.savedReport.delete({
-      where: { id: reportId }
+      where: { id: reportId, workspace_id: workspaceId }
     });
     return { success: true };
   }

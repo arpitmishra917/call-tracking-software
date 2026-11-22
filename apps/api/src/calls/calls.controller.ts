@@ -63,6 +63,15 @@ export class CallsController {
       throw new BadRequestException('minDurationSecs cannot be greater than maxDurationSecs');
     }
 
+    const parsedLimit = limit ? parseInt(limit, 10) : undefined;
+    if (parsedLimit !== undefined && (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 100)) {
+      throw new BadRequestException('limit must be an integer between 1 and 100');
+    }
+    const parsedOffset = offset ? parseInt(offset, 10) : undefined;
+    if (parsedOffset !== undefined && (isNaN(parsedOffset) || parsedOffset < 0)) {
+      throw new BadRequestException('offset must be a non-negative integer (>= 0)');
+    }
+
     return this.callsService.getCalls(workspaceId, req?.user?.userId || '', {
       campaignId,
       buyerId,
@@ -74,8 +83,8 @@ export class CallsController {
       maxDurationSecs: max,
       startDate,
       endDate,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      limit: parsedLimit,
+      offset: parsedOffset,
     });
   }
 
