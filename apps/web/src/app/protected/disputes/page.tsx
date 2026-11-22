@@ -72,6 +72,12 @@ export default function DisputesPage() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeDisputes = isWorkspaceStale ? [] : disputes;
+  const activeTotal = isWorkspaceStale ? 0 : total;
+  const isLoading = loading || isWorkspaceStale;
+
   // Role detection
   const [userRole, setUserRole] = useState<{ role: string; isVendor: boolean } | null>(null);
   const isOwnerOrAdmin = userRole?.role === 'OWNER' || userRole?.role === 'ADMIN';
@@ -191,9 +197,9 @@ export default function DisputesPage() {
   }
 
   const filteredDisputes = useMemo(() => {
-    if (statusFilter === 'ALL') return disputes;
-    return disputes.filter((d) => d.status === statusFilter);
-  }, [disputes, statusFilter]);
+    if (statusFilter === 'ALL') return activeDisputes;
+    return activeDisputes.filter((d) => d.status === statusFilter);
+  }, [activeDisputes, statusFilter]);
 
   // If vendor role detected or 403 error explicitly returned
   if (userRole?.isVendor || (error && error.includes('Access denied'))) {
@@ -297,7 +303,7 @@ export default function DisputesPage() {
         </CardHeader>
 
         <CardContent className="pt-0">
-          {loading ? (
+          {isLoading ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               Loading commercial disputes...
             </div>
@@ -421,29 +427,29 @@ export default function DisputesPage() {
             </Table>
           )}
 
-          {total > 0 && !loading && (
+          {activeTotal > 0 && !isLoading && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border mt-4">
               <div className="text-xs text-muted-foreground">
-                Showing {total === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, total)} of {total} disputes
+                Showing {activeTotal === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, activeTotal)} of {activeTotal} disputes
               </div>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
-                  disabled={page <= 1 || loading}
+                  disabled={page <= 1 || isLoading}
                   className="h-8 text-xs"
                 >
                   Previous
                 </Button>
                 <div className="text-xs text-muted-foreground px-2">
-                  Page {page} of {Math.max(Math.ceil(total / pageSize), 1)}
+                  Page {page} of {Math.max(Math.ceil(activeTotal / pageSize), 1)}
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setPage((prev) => Math.min(prev + 1, Math.ceil(total / pageSize)))}
-                  disabled={page >= Math.ceil(total / pageSize) || loading}
+                  onClick={() => setPage((prev) => Math.min(prev + 1, Math.ceil(activeTotal / pageSize)))}
+                  disabled={page >= Math.ceil(activeTotal / pageSize) || isLoading}
                   className="h-8 text-xs"
                 >
                   Next

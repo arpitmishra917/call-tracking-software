@@ -713,5 +713,81 @@ describe('Vendors Management UI Suite', () => {
         expect(screen.getByText('Active Vendor B')).toBeDefined();
       });
     });
+
+    it('immediately clears and never renders previous workspace data synchronously upon workspace switch', async () => {
+      let resolveWsB: (value: any) => void;
+      const pendingWsB = new Promise((resolve) => {
+        resolveWsB = resolve;
+      });
+
+      (apiFetch as any).mockImplementation((url: string) => {
+        if (url === '/workspaces') {
+          return Promise.resolve([
+            { id: 'workspace-A', role: 'OWNER', participant_type: 'INTERNAL' },
+            { id: 'workspace-B', role: 'OWNER', participant_type: 'INTERNAL' },
+          ]);
+        }
+        if (url.includes('/workspaces/workspace-A/vendors')) {
+          return Promise.resolve({
+            items: [
+              {
+                id: 'v-ws-a-persisted',
+                name: 'Persisted Vendor of Workspace A',
+                status: 'ACTIVE',
+                workspace_id: 'workspace-A',
+                created_at: '2026-10-01T10:00:00Z',
+              },
+            ],
+            total: 1,
+          });
+        }
+        if (url.includes('/workspaces/workspace-B/vendors')) {
+          return pendingWsB;
+        }
+        return Promise.resolve({});
+      });
+
+      // 1. Initial render in Workspace A
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-A' : null),
+      });
+
+      const { rerender } = render(<VendorsPage />);
+
+      // Workspace A vendor is rendered
+      await waitFor(() => {
+        expect(screen.getByText('Persisted Vendor of Workspace A')).toBeDefined();
+      });
+
+      // 2. Switch to Workspace B (Workspace B API call is still pending)
+      (useSearchParams as any).mockReturnValue({
+        get: (key: string) => (key === 'workspace' ? 'workspace-B' : null),
+      });
+      rerender(<VendorsPage />);
+
+      // 3. Render-time identity guard check:
+      // Verify Workspace A data is NOT rendered even briefly while Workspace B is pending
+      expect(screen.queryByText('Persisted Vendor of Workspace A')).toBeNull();
+      expect(screen.getByText(/Verifying permissions...|Loading vendors.../i)).toBeDefined();
+
+      // 4. Finally resolve Workspace B
+      resolveWsB!({
+        items: [
+          {
+            id: 'v-ws-b-resolved',
+            name: 'New Vendor of Workspace B',
+            status: 'ACTIVE',
+            workspace_id: 'workspace-B',
+            created_at: '2026-10-01T12:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('New Vendor of Workspace B')).toBeDefined();
+        expect(screen.queryByText('Persisted Vendor of Workspace A')).toBeNull();
+      });
+    });
   });
 });

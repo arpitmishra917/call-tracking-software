@@ -75,6 +75,12 @@ export default function CallsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeCalls = isWorkspaceStale ? [] : calls;
+  const activeTotal = isWorkspaceStale ? 0 : total;
+  const isLoading = loading || isWorkspaceStale;
+
   useEffect(() => {
     currentWorkspaceIdRef.current = workspaceId;
     setCalls([]);
@@ -241,9 +247,9 @@ export default function CallsPage() {
 
   if (!workspaceId) return <div className="p-6 text-muted-foreground">Select a workspace first.</div>;
 
-  const hasRevenue = calls.some(c => c.commercial?.revenue !== undefined);
-  const hasPayout = calls.some(c => c.commercial?.payout !== undefined);
-  const hasProfit = calls.some(c => c.commercial?.profit !== undefined);
+  const hasRevenue = activeCalls.some(c => c.commercial?.revenue !== undefined);
+  const hasPayout = activeCalls.some(c => c.commercial?.payout !== undefined);
+  const hasProfit = activeCalls.some(c => c.commercial?.profit !== undefined);
   const colSpanCount = 10 + (hasRevenue ? 1 : 0) + (hasPayout ? 1 : 0) + (hasProfit ? 1 : 0);
 
   return (
@@ -430,7 +436,7 @@ export default function CallsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
+              {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={colSpanCount} className="h-32 text-center text-muted-foreground">
                     <div className="flex items-center justify-center gap-2">
@@ -439,7 +445,7 @@ export default function CallsPage() {
                     </div>
                   </TableCell>
                 </TableRow>
-              ) : calls.length === 0 ? (
+              ) : activeCalls.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={colSpanCount} className="h-48 text-center">
                     <EmptyState 
@@ -450,7 +456,7 @@ export default function CallsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                calls.map(call => {
+                activeCalls.map(call => {
                   const playableRec = call.recordings?.find(r => r.status === 'COMPLETED');
                   const comm = call.commercial;
                   return (
@@ -539,12 +545,12 @@ export default function CallsPage() {
           </Table>
         </div>
 
-        {!loading && !error && total > 0 && (
+        {!isLoading && !error && activeTotal > 0 && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t border-border">
             <div className="text-sm text-muted-foreground">
-              Showing <span className="font-medium text-foreground">{Math.min((page - 1) * pageSize + 1, total)}</span> to{' '}
-              <span className="font-medium text-foreground">{Math.min(page * pageSize, total)}</span> of{' '}
-              <span className="font-medium text-foreground">{total}</span> calls
+              Showing <span className="font-medium text-foreground">{Math.min((page - 1) * pageSize + 1, activeTotal)}</span> to{' '}
+              <span className="font-medium text-foreground">{Math.min(page * pageSize, activeTotal)}</span> of{' '}
+              <span className="font-medium text-foreground">{activeTotal}</span> calls
             </div>
             <div className="flex items-center gap-2">
               <Button

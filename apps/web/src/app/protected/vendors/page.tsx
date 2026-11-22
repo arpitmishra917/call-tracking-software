@@ -71,6 +71,12 @@ export default function VendorsPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Render-time workspace identity guard: eliminate stale data rendering during workspace transitions
+  const isWorkspaceStale = currentWorkspaceIdRef.current !== workspaceId;
+  const activeVendors = isWorkspaceStale ? [] : vendors;
+  const activeTotalCount = isWorkspaceStale ? 0 : totalCount;
+  const isLoading = loading || isWorkspaceStale;
+
   // Filters & Pagination
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -368,9 +374,9 @@ export default function VendorsPage() {
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
-  const activeCount = vendors.filter((v) => v.status === 'ACTIVE').length;
-  const inactiveCount = vendors.filter((v) => v.status === 'INACTIVE').length;
+  const totalPages = Math.max(1, Math.ceil(activeTotalCount / limit));
+  const activeCount = activeVendors.filter((v) => v.status === 'ACTIVE').length;
+  const inactiveCount = activeVendors.filter((v) => v.status === 'INACTIVE').length;
 
   return (
     <div className="flex flex-col gap-6 md:gap-8 pb-12 w-full max-w-6xl mx-auto">
@@ -404,7 +410,7 @@ export default function VendorsPage() {
       <div className="grid grid-cols-3 gap-4">
         <Card className="p-4 flex flex-col justify-between border-border bg-surface/50 shadow-xs">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Vendors</span>
-          <span className="text-2xl font-bold tracking-tight text-foreground mt-1">{totalCount}</span>
+          <span className="text-2xl font-bold tracking-tight text-foreground mt-1">{activeTotalCount}</span>
         </Card>
         <Card className="p-4 flex flex-col justify-between border-border bg-surface/50 shadow-xs">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Active on Page</span>
@@ -479,12 +485,12 @@ export default function VendorsPage() {
       </Card>
 
       {/* Data Table / Empty / Loading */}
-      {loading ? (
+      {isLoading ? (
         <div className="p-12 flex flex-col items-center justify-center text-muted-foreground gap-3">
           <RefreshCw className="h-6 w-6 animate-spin text-primary" />
           <span className="text-sm font-medium">Loading vendors...</span>
         </div>
-      ) : vendors.length === 0 ? (
+      ) : activeVendors.length === 0 ? (
         <EmptyState
           title="No vendors found"
           description={
@@ -507,7 +513,7 @@ export default function VendorsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {vendors.map((v) => (
+                {activeVendors.map((v) => (
                   <TableRow key={v.id} className="hover:bg-muted/20 transition-colors">
                     <TableCell className="font-semibold text-foreground">
                       <Link
@@ -604,8 +610,8 @@ export default function VendorsPage() {
           {/* Pagination Controls */}
           <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-surface text-sm text-muted-foreground">
             <div>
-              Showing {Math.min((page - 1) * limit + 1, totalCount)} to{' '}
-              {Math.min(page * limit, totalCount)} of {totalCount} vendors
+              Showing {Math.min((page - 1) * limit + 1, activeTotalCount)} to{' '}
+              {Math.min(page * limit, activeTotalCount)} of {activeTotalCount} vendors
             </div>
             <div className="flex items-center gap-2">
               <Button
