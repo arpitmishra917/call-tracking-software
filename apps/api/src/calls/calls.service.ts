@@ -2232,7 +2232,9 @@ export class CallsService {
         call.attempts.map((a: any) => a.buyer_id).filter(Boolean),
       );
       const remainingCampaignBuyers = campaign.buyers.filter(
-        (cb) => !attemptedBuyerIds.has(cb.buyer_id),
+        (cb) =>
+          !attemptedBuyerIds.has(cb.buyer_id) &&
+          (!cb.buyer?.workspace_id || cb.buyer.workspace_id === call.workspace_id),
       );
 
       if (remainingCampaignBuyers.length === 0) {
