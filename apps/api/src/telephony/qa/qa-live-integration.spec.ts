@@ -159,7 +159,12 @@ describe('Phase 7B-10D: Live Integration Readiness & Regression Verification', (
 
   afterEach(() => {
     qaGuardService.clearActiveTestRuns();
-    process.env = { ...originalEnv };
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
+    Object.assign(process.env, originalEnv);
     vi.restoreAllMocks();
   });
 
@@ -401,6 +406,8 @@ describe('Phase 7B-10D: Live Integration Readiness & Regression Verification', (
       process.env.TELEPHONY_QA_ENABLED = 'true';
       process.env.TELEPHONY_QA_ALLOWED_DESTINATIONS = '+12025550199';
       process.env.TELEPHONY_QA_BUYER_SIP_URI = QA_BUYER_SIP;
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
       process.env.TELNYX_QA_TRACKING_DID = QA_DID;
       process.env.TELNYX_QA_CALLER_ID = QA_CALLER_CLI;
 
@@ -415,6 +422,8 @@ describe('Phase 7B-10D: Live Integration Readiness & Regression Verification', (
 
     it('throws TelephonyProviderError without PSTN fallback when SIP URI is unset', () => {
       delete process.env.TELEPHONY_QA_BUYER_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
 
       expect(() => {
         qaSipAdapter.resolveBuyerDestination('+12025550199', { id: 'call_qa_bound_sip' });
@@ -429,6 +438,8 @@ describe('Phase 7B-10D: Live Integration Readiness & Regression Verification', (
     });
 
     it('throws TelephonyProviderError without PSTN fallback when SIP URI is malformed', () => {
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
       process.env.TELEPHONY_QA_BUYER_SIP_URI = 'not_a_sip_uri';
 
       expect(() => {

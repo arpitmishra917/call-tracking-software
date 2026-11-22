@@ -22,11 +22,24 @@ describe('QaTelephonyGuardService', () => {
     delete process.env.TELNYX_QA_TRACKING_DID;
     delete process.env.TELNYX_QA_CALLER_ID;
     delete process.env.TELEPHONY_QA_ACTIVE_TEST_RUN_ID;
+    delete process.env.TELEPHONY_QA_BUYER_SIP_URI;
+    delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+    delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
+    delete process.env.QA_WORKSPACE_ID;
+    delete process.env.TELEPHONY_QA_ARI_URL;
+    delete process.env.TELEPHONY_QA_SERVER_URL;
+    delete process.env.TELEPHONY_QA_ARI_USERNAME;
+    delete process.env.TELEPHONY_QA_ARI_PASSWORD;
   });
 
   afterEach(() => {
     service.clearActiveTestRuns();
-    process.env = { ...originalEnv };
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
+    Object.assign(process.env, originalEnv);
   });
 
   describe('Identity Separation Security Invariant', () => {
@@ -741,6 +754,8 @@ describe('QaTelephonyGuardService', () => {
       delete process.env.TELNYX_QA_TRACKING_DID;
       delete process.env.QA_WORKSPACE_ID;
       delete process.env.TELEPHONY_QA_BUYER_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
 
       const result = service.validateConfiguration();
       expect(result.valid).toBe(false);
@@ -754,6 +769,8 @@ describe('QaTelephonyGuardService', () => {
       process.env.TELEPHONY_QA_ENABLED = 'true';
       process.env.TELNYX_QA_TRACKING_DID = '+14845560110';
       process.env.QA_WORKSPACE_ID = '550e8400-e29b-41d4-a716-446655440000';
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
       process.env.TELEPHONY_QA_BUYER_SIP_URI = 'sip:qa-buyer@unauthorized.com'; // Unauthorized domain
       process.env.TELEPHONY_QA_ARI_URL = 'http://public-ip.com:8088'; // Non-loopback URL
       process.env.TELEPHONY_QA_ARI_USERNAME = 'user';

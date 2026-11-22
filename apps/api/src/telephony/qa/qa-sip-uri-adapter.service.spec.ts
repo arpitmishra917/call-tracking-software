@@ -24,6 +24,8 @@ describe('QaSipUriAdapterService', () => {
     delete process.env.TELEPHONY_QA_ENABLED;
     delete process.env.TELEPHONY_QA_ALLOWED_DESTINATIONS;
     delete process.env.TELEPHONY_QA_BUYER_SIP_URI;
+    delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+    delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
     delete process.env.TELNYX_QA_TRACKING_DID;
     delete process.env.TELNYX_QA_CALLER_ID;
   });
@@ -31,7 +33,12 @@ describe('QaSipUriAdapterService', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     guardService.clearActiveTestRuns();
-    process.env = { ...originalEnv };
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
+    Object.assign(process.env, originalEnv);
   });
 
   describe('Configuration & Local Validation', () => {
@@ -141,6 +148,8 @@ describe('QaSipUriAdapterService', () => {
     beforeEach(() => {
       process.env.TELEPHONY_QA_ENABLED = 'true';
       process.env.TELEPHONY_QA_ALLOWED_DESTINATIONS = QA_ALLOWED_BUYER;
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
 
       guardService.registerActiveTestRun('test_run_fail_closed');
       guardService.bindCallToTestRun('call_qa_fc_1', 'test_run_fail_closed');
@@ -165,6 +174,7 @@ describe('QaSipUriAdapterService', () => {
 
     it('fails closed when TELEPHONY_QA_BUYER_SIP_URI is unset or empty', () => {
       delete process.env.TELEPHONY_QA_BUYER_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
 
       expect(() => {
         adapter.resolveBuyerDestination(QA_ALLOWED_BUYER, boundQaCall);
@@ -179,6 +189,7 @@ describe('QaSipUriAdapterService', () => {
     });
 
     it('fails closed when TELEPHONY_QA_BUYER_SIP_URI is for an unauthorized domain', () => {
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
       process.env.TELEPHONY_QA_BUYER_SIP_URI = 'sip:buyer@sip.malicious.com';
 
       expect(() => {
@@ -194,6 +205,7 @@ describe('QaSipUriAdapterService', () => {
     });
 
     it('fails closed when TELEPHONY_QA_BUYER_SIP_URI is malformed', () => {
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
       process.env.TELEPHONY_QA_BUYER_SIP_URI = 'invalid_uri_string';
 
       expect(() => {

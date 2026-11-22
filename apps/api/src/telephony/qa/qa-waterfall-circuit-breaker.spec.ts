@@ -28,6 +28,8 @@ describe('QA Waterfall Circuit-Breaker Isolation', () => {
     process.env.TELEPHONY_QA_ENABLED = 'true';
     process.env.TELEPHONY_QA_ALLOWED_DESTINATIONS = QA_ALLOWED_BUYER;
     process.env.TELEPHONY_QA_BUYER_SIP_URI = VALID_TELNYX_SIP_URI;
+    delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+    delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
     process.env.TELNYX_QA_TRACKING_DID = QA_TRACKING_DID;
     process.env.TELNYX_QA_CALLER_ID = QA_CALLER_CLI;
     process.env.QA_WORKSPACE_ID = '550e8400-e29b-41d4-a716-446655440000';
@@ -89,7 +91,12 @@ describe('QA Waterfall Circuit-Breaker Isolation', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     guardService.clearActiveTestRuns();
-    process.env = { ...originalEnv };
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
+    Object.assign(process.env, originalEnv);
   });
 
   describe('Scenario 1: QA Buyer Leg Provider Rejection / Dial Failure', () => {
@@ -166,6 +173,8 @@ describe('QA Waterfall Circuit-Breaker Isolation', () => {
 
       // Unset buyer SIP URI to trigger resolution failure
       delete process.env.TELEPHONY_QA_BUYER_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_A_SIP_URI;
+      delete process.env.TELEPHONY_QA_BUYER_B_SIP_URI;
 
       mockCallsService.prepareNextBuyer
         .mockResolvedValueOnce({
