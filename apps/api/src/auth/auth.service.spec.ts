@@ -34,6 +34,8 @@ describe('AuthService - Password Reset Flow', () => {
   };
 
   beforeEach(async () => {
+    delete process.env.SUPABASE_URL;
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     vi.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({

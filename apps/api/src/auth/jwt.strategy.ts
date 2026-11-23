@@ -17,8 +17,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     let supabaseUrl =
       process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-    // Defense-in-depth: if not yet present in process.env, attempt deterministic load of apps/api/.env
-    if (!supabaseUrl) {
+    // Defense-in-depth: if not yet present in process.env, attempt deterministic load of apps/api/.env (non-test environments only)
+    if (!supabaseUrl && process.env.NODE_ENV !== 'test') {
       try {
         const currentDir = path.dirname(fileURLToPath(import.meta.url));
         const candidatePaths = [
