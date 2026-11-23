@@ -71,7 +71,7 @@ jobs:
           DIRECT_URL: "postgresql://ci_dummy_user:ci_dummy_pass@127.0.0.1:5432/calltracking_ci_placeholder?schema=public"
         run: npx prisma generate --schema=prisma/schema.prisma
 
-      - name: Run Backend Unit Tests (Mock-Isolated)
+      - name: Run Backend Unit & Business Regression Tests (Layer 1 & 2)
         env:
           TELNYX_API_KEY: "mock-ci-test-key-00000000"
           BASE_URL: "http://localhost:3000"
@@ -80,6 +80,16 @@ jobs:
           NODE_ENV: "test"
           VITEST: "true"
         run: npm --workspace=api run test -- src/
+
+      - name: Run API Contract Regression Tests (Layer 5)
+        env:
+          TELNYX_API_KEY: "mock-ci-test-key-00000000"
+          BASE_URL: "http://localhost:3000"
+          JWT_SECRET: "ci-placeholder-jwt-secret-at-least-32-chars-long"
+          WEBHOOK_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
+          NODE_ENV: "test"
+          VITEST: "true"
+        run: npm --workspace=api run test -- test/contract/
 
   backend-postgres-integration:
     name: Backend PostgreSQL Integration Tests
@@ -125,7 +135,14 @@ jobs:
           DIRECT_URL: "postgresql://callflow_ci_user:callflow_ci_test_password_ephemeral_12345@127.0.0.1:5432/calltracking_ci_test?schema=public"
         run: npx prisma migrate deploy --schema=prisma/schema.prisma
 
-      - name: Run Backend PostgreSQL Integration Tests
+      - name: Validate Prisma Migration Status & Drift Check
+        working-directory: apps/api
+        env:
+          DATABASE_URL: "postgresql://callflow_ci_user:callflow_ci_test_password_ephemeral_12345@127.0.0.1:5432/calltracking_ci_test?schema=public"
+          DIRECT_URL: "postgresql://callflow_ci_user:callflow_ci_test_password_ephemeral_12345@127.0.0.1:5432/calltracking_ci_test?schema=public"
+        run: npx prisma migrate status --schema=prisma/schema.prisma
+
+      - name: Run Backend PostgreSQL Integration & Concurrency Regression Tests (Layer 3 & 6)
         env:
           DATABASE_URL: "postgresql://callflow_ci_user:callflow_ci_test_password_ephemeral_12345@127.0.0.1:5432/calltracking_ci_test?schema=public"
           DIRECT_URL: "postgresql://callflow_ci_user:callflow_ci_test_password_ephemeral_12345@127.0.0.1:5432/calltracking_ci_test?schema=public"
@@ -135,7 +152,7 @@ jobs:
           WEBHOOK_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
           NODE_ENV: "test"
           VITEST: "true"
-        run: npm --workspace=api run test -- test/multi-workspace-isolation.integration.spec.ts test/p22-a-wallet-financial-integrity.integration.spec.ts test/p22-b-buyer-concurrency-routing.integration.spec.ts test/webhook-concurrency-postgres.integration.spec.ts test/p22-d-commercial-lifecycle-maturity.integration.spec.ts test/p22-e-settlement-generation-uniqueness.integration.spec.ts test/p22-f-commercial-disputes-reconciliation.integration.spec.ts test/p23-a-cross-workspace-bola-idor.integration.spec.ts test/p23-b-auth-rbac-rejection.integration.spec.ts test/p23-c-mass-assignment-safe-query.integration.spec.ts
+        run: npm --workspace=api run test -- --no-file-parallelism test/multi-workspace-isolation.integration.spec.ts test/p22-a-wallet-financial-integrity.integration.spec.ts test/p22-b-buyer-concurrency-routing.integration.spec.ts test/webhook-concurrency-postgres.integration.spec.ts test/p22-d-commercial-lifecycle-maturity.integration.spec.ts test/p22-e-settlement-generation-uniqueness.integration.spec.ts test/p22-f-commercial-disputes-reconciliation.integration.spec.ts test/p23-a-cross-workspace-bola-idor.integration.spec.ts test/p23-b-auth-rbac-rejection.integration.spec.ts test/p23-c-mass-assignment-safe-query.integration.spec.ts test/p24-layer3-financial-concurrency.integration.spec.ts test/p24-layer6-migration-deploy.integration.spec.ts
 
   frontend-tests:
     name: Frontend Automated Tests

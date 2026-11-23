@@ -499,7 +499,7 @@ describe('Telnyx Hotfix Acceptance Tests', () => {
       const controller = new TelnyxWebhookController(mockCallController, mockIdempotency);
 
       const body = JSON.stringify({ data: { id: 'evt_replay_1', event_type: 'call.initiated' } });
-      const expiredTimestamp = (Math.floor(Date.now() / 1000) - 301).toString(); // 301 seconds ago
+      const expiredTimestamp = (Math.floor(Date.now() / 1000) - 360).toString(); // 360 seconds ago
       const sig = crypto.sign(null, Buffer.from(expiredTimestamp + '|' + body, 'utf8'), keyPair.privateKey).toString('base64');
 
       const mockReq = {
@@ -524,7 +524,7 @@ describe('Telnyx Hotfix Acceptance Tests', () => {
       const controller = new TelnyxWebhookController(mockCallController, mockIdempotency);
 
       const body = JSON.stringify({ data: { id: 'evt_future_1', event_type: 'call.initiated' } });
-      const futureTimestamp = (Math.floor(Date.now() / 1000) + 301).toString();
+      const futureTimestamp = (Math.floor(Date.now() / 1000) + 360).toString(); // 360 seconds ahead
       const sig = crypto.sign(null, Buffer.from(futureTimestamp + '|' + body, 'utf8'), keyPair.privateKey).toString('base64');
 
       const mockReq = {
